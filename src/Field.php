@@ -2,6 +2,24 @@
 
 namespace Solo\RequestHandler;
 
+/**
+ * Immutable value object representing a request field definition.
+ * 
+ * This class provides a fluent interface for configuring field behavior:
+ * - Input mapping from nested structures using dot notation
+ * - Default values for missing fields
+ * - Validation rules
+ * - Preprocessing and postprocessing callbacks
+ * 
+ * Example usage:
+ * ```php
+ * Field::for('email')
+ *     ->mapFrom('user.profile.email')
+ *     ->validate('required|email')
+ *     ->preprocess(fn($v) => trim($v))
+ *     ->postprocess(fn($v) => strtolower($v))
+ * ```
+ */
 final readonly class Field
 {
     public string $inputName;

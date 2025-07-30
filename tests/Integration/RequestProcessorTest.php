@@ -88,6 +88,9 @@ final class RequestProcessorTest extends TestCase
         $this->processor->process($request, $handler);
     }
 
+    /**
+     * @param array<string, mixed> $data
+     */
     private function createMockRequest(string $method, array $data = []): ServerRequestInterface
     {
         $request = $this->createMock(ServerRequestInterface::class);
@@ -98,6 +101,9 @@ final class RequestProcessorTest extends TestCase
         return $request;
     }
 
+    /**
+     * @param array<Field> $fields
+     */
     private function createMockHandler(array $fields, bool $authorized = true): RequestHandlerInterface
     {
         $handler = $this->createMock(RequestHandlerInterface::class);

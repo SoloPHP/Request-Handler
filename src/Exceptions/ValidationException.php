@@ -14,7 +14,9 @@ final class ValidationException extends Exception
         ?Exception             $previous = null
     )
     {
-        $message = "Validation failed";
+        $message = empty($errors) 
+            ? "Validation failed" 
+            : "Validation failed: " . implode(', ', array_keys($errors));
         $code = 422;
 
         parent::__construct($message, $code, $previous);

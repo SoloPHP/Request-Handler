@@ -58,6 +58,9 @@ final class AbstractRequestHandlerTest extends TestCase
         $handler->handle($request);
     }
 
+    /**
+     * @param array<string, mixed> $data
+     */
     private function createMockRequest(string $method, array $data): ServerRequestInterface
     {
         $request = $this->createMock(ServerRequestInterface::class);

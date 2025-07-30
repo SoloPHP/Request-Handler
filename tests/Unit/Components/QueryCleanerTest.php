@@ -72,6 +72,10 @@ final class QueryCleanerTest extends TestCase
         }
     }
 
+    /**
+     * @param array<Field> $fields
+     * @param array<string, mixed> $defaults
+     */
     private function createMockHandler(array $fields, array $defaults): RequestHandlerInterface
     {
         $handler = $this->createMock(RequestHandlerInterface::class);
@@ -85,7 +89,7 @@ final class QueryCleanerTest extends TestCase
     {
         $uri = $this->createMock(UriInterface::class);
         $uri->method('withQuery')
-            ->willReturnCallback(function (string $query) use ($uri) {
+            ->willReturnCallback(function (string $query) {
                 $newUri = $this->createMock(UriInterface::class);
                 $newUri->method('__toString')->willReturn('https://example.com/test?' . $query);
                 return $newUri;

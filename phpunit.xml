@@ -9,6 +9,13 @@
          beStrictAboutTodoAnnotatedTests="true"
          failOnRisky="true"
          failOnWarning="true">
+    <coverage>
+        <report>
+            <html outputDirectory="coverage/"/>
+            <clover outputFile="coverage.xml"/>
+            <text outputFile="php://stdout"/>
+        </report>
+    </coverage>
     <testsuites>
         <testsuite name="Unit">
             <directory>tests/Unit</directory>

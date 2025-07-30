@@ -39,6 +39,10 @@
   },
   "scripts": {
     "test": "phpunit",
-    "analyse": "phpstan analyse src/ tests/ --level=8"
+    "analyse": "phpstan analyse",
+    "quality": [
+      "@test",
+      "@analyse"
+    ]
   }
 }

@@ -32,7 +32,7 @@ final class ExceptionsTest extends TestCase
 
         $exception = new ValidationException($errors);
 
-        $this->assertEquals('Validation failed', $exception->getMessage());
+        $this->assertEquals('Validation failed: email, title', $exception->getMessage());
         $this->assertEquals(422, $exception->getCode());
         $this->assertEquals($errors, $exception->getErrors());
     }

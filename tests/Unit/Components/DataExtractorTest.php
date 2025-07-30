@@ -122,6 +122,10 @@ final class DataExtractorTest extends TestCase
         $this->assertEquals(['title' => 'TEST'], $processed);
     }
 
+    /**
+     * @param array<string, mixed>|null $parsedBody
+     * @param array<string, mixed> $queryParams
+     */
     private function createMockRequest(
         string $method,
         ?array $parsedBody = null,

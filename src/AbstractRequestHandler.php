@@ -19,6 +19,19 @@ use Solo\RequestHandler\Components\{
     QueryCleaner
 };
 
+/**
+ * Abstract base class for request handlers that provides a complete processing pipeline.
+ * 
+ * This class implements the main request handling logic with the following steps:
+ * 1. Data extraction from HTTP request
+ * 2. Query parameter cleaning for GET requests
+ * 3. Authorization check
+ * 4. Data preprocessing and validation
+ * 5. Postprocessing of validated data
+ * 
+ * Extend this class and implement the `fields()` method to define your request schema.
+ * Optionally override `authorize()` and `messages()` methods for custom behavior.
+ */
 abstract readonly class AbstractRequestHandler implements RequestHandlerInterface
 {
     private RequestProcessorInterface $processor;

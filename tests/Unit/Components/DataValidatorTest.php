@@ -82,6 +82,10 @@ final class DataValidatorTest extends TestCase
         $this->validator->validate($data, $handler);
     }
 
+    /**
+     * @param array<Field> $fields
+     * @param array<string, string> $messages
+     */
     private function createMockHandler(array $fields, array $messages = []): RequestHandlerInterface
     {
         $handler = $this->createMock(RequestHandlerInterface::class);
