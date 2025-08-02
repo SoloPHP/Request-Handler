@@ -32,7 +32,7 @@
 - Any validator implementing `Solo\RequestHandler\Contracts\ValidatorInterface`
 
 ### Suggested Validators
-- [Solo Validator](https://github.com/solophp/validator) (`solophp/validator` ^2.1) - Direct compatibility
+- [Solo Validator](https://github.com/solophp/validator) (`solophp/validator`) - Direct compatibility
 ---
 
 ## 📥 Installation
