@@ -1,9 +1,8 @@
 # Request Handler 🛡️
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/solophp/request-handler)
-[![PHP Version](https://img.shields.io/badge/PHP-8.2%2B-8892BF.svg)](https://php.net/)
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/solophp/request-handler.svg)](https://packagist.org/packages/solophp/request-handler)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Type Coverage](https://img.shields.io/badge/type--coverage-100%25-brightgreen.svg)]()
+[![PHP Version](https://img.shields.io/badge/PHP-8.2%2B-8892BF.svg)](https://php.net/)
 
 **Robust request validation & authorization layer for HTTP inputs with type-safe handlers and modern PHP 8+ architecture**
 
