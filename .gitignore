@@ -1,0 +1,9 @@
+!.gitignore
+/vendor/
+/.phpunit.cache/
+.phpunit.result.cache
+composer.lock
+.idea
+.DS_Store
+Thumbs.db
+.vscode/
