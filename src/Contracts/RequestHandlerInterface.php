@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Solo\RequestHandler\Contracts;
 
@@ -17,9 +19,4 @@ interface RequestHandlerInterface
     public function getMessages(): array;
 
     public function isAuthorized(): bool;
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function getDefaults(): array;
 }

@@ -3,7 +3,7 @@
 namespace Solo\RequestHandler\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use Solo\RequestHandler\Exceptions\{AuthorizationException, ValidationException, UncleanQueryException};
+use Solo\RequestHandler\Exceptions\{AuthorizationException, ValidationException};
 
 final class ExceptionsTest extends TestCase
 {
@@ -42,25 +42,5 @@ final class ExceptionsTest extends TestCase
         $exception = new ValidationException();
 
         $this->assertEquals([], $exception->getErrors());
-    }
-
-    public function testUncleanQueryException(): void
-    {
-        $cleanedParams = ['page' => '1'];
-        $redirectUri = 'https://example.com/test?page=1';
-
-        $exception = new UncleanQueryException($cleanedParams, $redirectUri);
-
-        $this->assertEquals('Query parameters require cleaning.', $exception->getMessage());
-        $this->assertEquals(302, $exception->getCode());
-        $this->assertEquals($cleanedParams, $exception->cleanedParams);
-        $this->assertEquals($redirectUri, $exception->redirectUri);
-    }
-
-    public function testUncleanQueryExceptionWithCustomMessage(): void
-    {
-        $exception = new UncleanQueryException([], '', 'Custom cleaning message');
-
-        $this->assertEquals('Custom cleaning message', $exception->getMessage());
     }
 }

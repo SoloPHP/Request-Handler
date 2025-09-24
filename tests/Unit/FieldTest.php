@@ -13,7 +13,7 @@ final class FieldTest extends TestCase
 
         $this->assertEquals('email', $field->name);
         $this->assertEquals('email', $field->inputName);
-        $this->assertNull($field->default);
+        $this->assertFalse($field->hasDefault());
         $this->assertNull($field->rules);
         $this->assertNull($field->preprocessor);
         $this->assertNull($field->postprocessor);
@@ -32,6 +32,7 @@ final class FieldTest extends TestCase
         $field = Field::for('status')->default('active');
 
         $this->assertEquals('active', $field->default);
+        $this->assertTrue($field->hasDefault());
     }
 
     public function testFieldWithValidationRules(): void
@@ -66,8 +67,7 @@ final class FieldTest extends TestCase
             ->default([])
             ->validate('array|max:5')
             ->preprocess(fn(mixed $value): array =>
-            is_string($value) ? explode(',', $value) : (array)$value
-            )
+            is_string($value) ? explode(',', $value) : (array)$value)
             ->postprocess(fn(array $value): array => array_unique($value));
 
         $this->assertEquals('categories', $field->name);
@@ -94,5 +94,20 @@ final class FieldTest extends TestCase
         $field = Field::for('title');
 
         $this->assertEquals('original', $field->processPost('original'));
+    }
+
+    public function testHasDefaultWithNullValue(): void
+    {
+        $field = Field::for('optional_field')->default(null);
+
+        $this->assertNull($field->default);
+        $this->assertTrue($field->hasDefault());
+    }
+
+    public function testHasDefaultWithoutDefault(): void
+    {
+        $field = Field::for('required_field');
+
+        $this->assertFalse($field->hasDefault());
     }
 }

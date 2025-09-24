@@ -4,7 +4,7 @@ namespace Solo\RequestHandler\Tests\Integration;
 
 use PHPUnit\Framework\TestCase;
 use Solo\RequestHandler\Components\RequestProcessor;
-use Solo\RequestHandler\Components\{DataExtractor, Authorizer, DataValidator, QueryCleaner};
+use Solo\RequestHandler\Components\{DataExtractor, Authorizer, DataValidator};
 use Solo\RequestHandler\Contracts\RequestHandlerInterface;
 use Solo\Contracts\Validator\ValidatorInterface;
 use Solo\RequestHandler\Field;
@@ -23,8 +23,7 @@ final class RequestProcessorTest extends TestCase
         $this->processor = new RequestProcessor(
             dataExtractor: new DataExtractor(),
             authorizer: new Authorizer(),
-            validator: new DataValidator($this->mockValidator),
-            queryCleaner: new QueryCleaner()
+            validator: new DataValidator($this->mockValidator)
         );
     }
 
@@ -110,7 +109,6 @@ final class RequestProcessorTest extends TestCase
         $handler->method('getFields')->willReturn($fields);
         $handler->method('getMessages')->willReturn([]);
         $handler->method('isAuthorized')->willReturn($authorized);
-        $handler->method('getDefaults')->willReturn([]);
 
         return $handler;
     }

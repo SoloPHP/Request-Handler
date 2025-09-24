@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Solo\RequestHandler\Components;
 
@@ -8,6 +10,7 @@ use Solo\RequestHandler\Field;
 
 final class DataExtractor implements DataExtractorInterface
 {
+    private const FIELD_NOT_FOUND = '__FIELD_NOT_FOUND__';
     /**
      * @return array<string, mixed>
      */
@@ -31,8 +34,14 @@ final class DataExtractor implements DataExtractorInterface
     {
         $result = [];
         foreach ($fields as $field) {
-            $rawValue = $this->extractNestedValue($rawData, $field->inputName, $field->default);
-            $result[$field->name] = $field->processPre($rawValue);
+            $rawValue = $this->extractNestedValue($rawData, $field->inputName);
+
+            // Добавляем поле только если оно было найдено ИЛИ есть default значение
+            if ($rawValue !== self::FIELD_NOT_FOUND) {
+                $result[$field->name] = $field->processPre($rawValue);
+            } elseif ($field->hasDefault()) {
+                $result[$field->name] = $field->processPre($field->default);
+            }
         }
         return $result;
     }
@@ -57,14 +66,14 @@ final class DataExtractor implements DataExtractorInterface
      *
      * @param array<string, mixed> $data
      */
-    private function extractNestedValue(array $data, string $path, mixed $default = null): mixed
+    private function extractNestedValue(array $data, string $path): mixed
     {
         $keys = explode('.', $path);
         $current = $data;
 
         foreach ($keys as $key) {
             if (!is_array($current) || !array_key_exists($key, $current)) {
-                return $default;
+                return self::FIELD_NOT_FOUND;
             }
             $current = $current[$key];
         }

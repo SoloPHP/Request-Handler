@@ -6,22 +6,25 @@
 
 **Robust request validation & authorization layer for HTTP inputs with type-safe handlers and modern PHP 8+ architecture**
 
+## How It Works
+
+Fields are conditionally processed based on their presence in requests and default values:
+- **Present in request** → Always included in results
+- **Missing + has `default()`** → Included with default value
+- **Missing + no default** → Excluded from results entirely
+- **Validation** → Only runs on present fields or those marked as `required`
+
 ---
 
 ## ✨ Features
 
-- **Type-safe request processing** with `declare(strict_types=1)` and readonly properties
-- **Modular component architecture** with separated concerns and dependency injection
-- **DI-container friendly** - clean classes without complex constructors
-- **Vendor-independent validation** - use any validator implementing our interface
-- **Field mapping** from custom input names and nested structures via dot notation
-- **Multi-stage processing pipeline** (`extract` → `authorize` → `preprocess` → `validate` → `postprocess`)
-- **Built-in authorization framework** with simple override mechanisms
-- **GET query parameter optimization** with automatic cleanup and redirect generation
-- **Custom error messages** with detailed validation feedback
-- **PSR-7 compatible** with full HTTP message interface support
-- **Immutable field definitions** using readonly value objects
-- **Factory methods** for component customization without breaking simplicity
+- **Smart field inclusion** - only processes relevant fields
+- **Type-safe processing** with readonly properties and strict types
+- **Multi-stage pipeline** (`extract` → `authorize` → `preprocess` → `validate` → `postprocess`)
+- **Field mapping** from nested structures via dot notation
+- **Vendor-independent validation** - use any validator
+- **PSR-7 compatible** HTTP message interface
+- **Built-in authorization** with simple overrides
 
 ---
 
@@ -91,7 +94,7 @@ final class CreateArticleRequest extends AbstractRequestHandler
 namespace App\Controllers;
 
 use App\Requests\CreateArticleRequest;
-use Solo\RequestHandler\Exceptions\{ValidationException, AuthorizationException, UncleanQueryException};
+use Solo\RequestHandler\Exceptions\{ValidationException, AuthorizationException};
 
 final class ArticleController 
 {
@@ -105,9 +108,6 @@ final class ArticleController
             return ['errors' => $e->getErrors()];
         } catch (AuthorizationException $e) {
             return ['message' => $e->getMessage(), 'code' => 403];
-        } catch (UncleanQueryException $e) {
-            header('Location: ' . $e->redirectUri, true, 302);
-            exit;
         }
     }
 }
@@ -117,24 +117,24 @@ final class ArticleController
 
 ## ⚙️ Field Configuration
 
-| Method                | Required? | Description                                      |  
-|-----------------------|-----------|--------------------------------------------------|  
-| `Field::for(string)`  | **Yes**   | Starts field definition                          |  
+| Method                | Required? | Description                                      |
+|-----------------------|-----------|--------------------------------------------------|
+| `Field::for(string)`  | **Yes**   | Starts field definition                          |
 | `mapFrom(string)`     | No        | Map input from custom name/nested path          |
-| `default(mixed)`      | No        | Fallback value if field is missing              |  
-| `validate(string)`    | No        | Validation rules (e.g., `required|string|max:5`) |  
-| `preprocess(callable)`| No        | Transform raw input **before validation**       |  
-| `postprocess(callable)`| No       | Modify value **after validation**               |  
+| `default(mixed)`      | No        | Fallback value if field is missing              |
+| `validate(string)`    | No        | Validation rules (e.g., `required|string|max:5`) |
+| `preprocess(callable)`| No        | Transform raw input **before validation**       |
+| `postprocess(callable)`| No       | Modify value **after validation**               |
+| `hasDefault()`        | No        | Check if field has explicit default value       |  
 
 ### Processing Pipeline
 
 1. **Extract Data** - Merge POST body and GET parameters (body priority)
-2. **Clean Query** - Remove default values from GET requests and redirect if needed
-3. **Authorize** - Check user permissions via `authorize()` method
-4. **Map Input** - Resolve values using `mapFrom` paths with dot notation
-5. **Preprocess** - Clean and transform raw input data
-6. **Validate** - Check against validation rules with custom messages
-7. **Postprocess** - Apply final value transformations and formatting
+2. **Authorize** - Check user permissions via `authorize()` method
+3. **Map Input** - Resolve values using `mapFrom` paths with dot notation
+4. **Preprocess** - Clean and transform raw input data
+5. **Validate** - Check against validation rules with custom messages
+6. **Postprocess** - Apply final value transformations and formatting
 
 ### Advanced Example
 
@@ -164,14 +164,12 @@ The system employs a modular architecture with clear separation of concerns:
 
 **DataValidator** - Provides validation services with Solo Validator integration and comprehensive error message support.
 
-**QueryCleaner** - Maintains clean URLs for GET requests by removing default parameters and generating redirect responses.
-
 ---
 
 ## 🔄 Request Data Handling
 
 - **Nested Structures**: Use dot notation (`mapFrom('user.profile.contact.email')`)
-- **GET**: Query parameters only with automatic cleanup
+- **GET**: Query parameters only
 - **POST/PUT/PATCH**: Merged body and query parameters (body takes priority)
 - **Files**: Access via `$request->getUploadedFiles()` with PSR-7 compatibility
 
@@ -193,13 +191,6 @@ catch (AuthorizationException $e) {
 }
 ```
 
-### UncleanQueryException (HTTP 302)
-```php
-catch (UncleanQueryException $e) {
-    return redirect($e->redirectUri); // Redirect to clean URL
-}
-```
-
 ---
 
 ## 🚦 Custom Messages
@@ -218,13 +209,149 @@ protected function messages(): array
 
 ---
 
+## 🗂️ Repository Integration Helpers
+
+The `ParameterParser` helper class provides static methods for parsing request parameters into repository-compatible formats, designed to work seamlessly with repository patterns.
+
+### Index/List Request Pattern
+
+```php
+<?php declare(strict_types=1);
+
+namespace App\Requests;
+
+use Solo\RequestHandler\AbstractRequestHandler;
+use Solo\RequestHandler\Field;
+use Solo\RequestHandler\Helpers\ParameterParser;
+
+final readonly class UserIndexRequest extends AbstractRequestHandler
+{
+    protected function fields(): array
+    {
+        return [
+            Field::for('page')
+                ->default(1)
+                ->validate('integer|min:1')
+                ->postprocess(fn($v) => (int)$v),
+
+            Field::for('per_page')
+                ->default(15)
+                ->validate('integer|min:1|max:100')
+                ->postprocess(fn($v) => (int)$v),
+
+            Field::for('sort')
+                ->postprocess(fn($v) => ParameterParser::sort($v)),
+
+            Field::for('filter')
+                ->postprocess(fn($v) => ParameterParser::filter($v)),
+        ];
+    }
+}
+```
+
+### ParameterParser Helper Methods
+
+The `ParameterParser` helper class provides static methods for parsing request parameters into repository-compatible formats:
+
+#### `ParameterParser::sort(?string $sort): ?array`
+
+Converts sort parameter from URL format to repository format:
+- `?sort=name` → `['name' => 'ASC']`
+- `?sort=-created_at` → `['created_at' => 'DESC']`
+
+#### `ParameterParser::filter($filter): array`
+
+Parses filter parameter for repository filtering:
+- `?filter[status]=active&filter[role]=admin` → `['filter' => ['status' => 'active', 'role' => 'admin']]`
+
+#### `ParameterParser::boolean(mixed $value): int`
+
+Converts boolean values to MySQL-compatible integers (0 or 1):
+- `true`, `"true"`, `"1"`, `"yes"`, `"on"` → `1`
+- `false`, `"false"`, `"0"`, `"no"`, `"off"` → `0`
+
+#### `ParameterParser::search(mixed $search): array`
+
+Parses search parameter for repository filtering:
+- Returns array of search terms or empty array
+
+```php
+<?php declare(strict_types=1);
+
+use Solo\RequestHandler\Helpers\ParameterParser;
+
+// Parse sorting parameters
+$sortData = ParameterParser::sort('-created_at'); // ['created_at' => 'DESC']
+
+// Parse filter parameters
+$filters = ParameterParser::filter(['status' => 'active']); // ['filter' => ['status' => 'active']]
+
+// Parse boolean values
+$isActive = ParameterParser::boolean('yes'); // 1
+$isDeleted = ParameterParser::boolean('false'); // 0
+
+// Parse search parameters
+$searchTerms = ParameterParser::search('john doe'); // ['john doe']
+```
+
+### Usage in Controllers
+
+```php
+<?php declare(strict_types=1);
+
+namespace App\Controllers;
+
+use App\Requests\UserIndexRequest;
+use App\Repositories\UserRepository;
+
+final class UserController
+{
+    public function index(ServerRequestInterface $request, UserIndexRequest $indexRequest): array
+    {
+        $data = $indexRequest->handle($request);
+        
+        // Clean, validated data ready for repository
+        $users = $this->userRepository->getBy(
+            criteria: $data['filter'],    // ['filter' => [...]] or []
+            orderBy: $data['sort'],       // ['field' => 'ASC/DESC'] or null
+            perPage: $data['per_page'],   // int
+            page: $data['page']           // int
+        );
+        
+        $total = $this->userRepository->countBy($data['filter']);
+        
+        return $this->paginate($users, $data['page'], $data['per_page'], $total);
+    }
+}
+```
+
+### URL Examples
+
+```bash
+# Basic pagination
+GET /users?page=2&per_page=25
+
+# Sorting (ascending)
+GET /users?sort=created_at
+
+# Sorting (descending)
+GET /users?sort=-name
+
+# Filtering
+GET /users?filter[status]=active&filter[role]=admin
+
+# Combined
+GET /users?sort=-created_at&filter[status]=active&page=2&per_page=10
+```
+
+---
+
 ## 📚 Public API
 
 | Method                                           | Description                                                              |
 |--------------------------------------------------|--------------------------------------------------------------------------|
 | `handle(ServerRequestInterface $request): array` | Main entry point: processes complete request pipeline                  |
 | `getFields(): array`                            | Returns field definitions for the handler                               |
-| `getDefaults(): array`                          | Returns all non-null default field values                              |
 | `getMessages(): array`                          | Returns custom validation error messages                                |
 | `isAuthorized(): bool`                          | Checks authorization status for the request                             |
 
@@ -249,12 +376,6 @@ final class ApiArticleRequest extends AbstractRequestHandler
     protected function createDataExtractor(): DataExtractorInterface
     {
         return new JsonApiDataExtractor();
-    }
-    
-    // Custom query parameter handling
-    protected function createQueryCleaner(): QueryCleanerInterface
-    {
-        return new StrictQueryCleaner();
     }
 
     protected function fields(): array

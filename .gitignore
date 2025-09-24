@@ -2,6 +2,8 @@
 /vendor/
 /.phpunit.cache/
 .phpunit.result.cache
+/coverage/
+coverage.xml
 composer.lock
 .idea
 .DS_Store

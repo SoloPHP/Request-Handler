@@ -1,4 +1,6 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Solo\RequestHandler\Components;
 
@@ -8,19 +10,16 @@ use Solo\RequestHandler\Contracts\{
     RequestProcessorInterface,
     DataExtractorInterface,
     AuthorizerInterface,
-    DataValidatorInterface,
-    QueryCleanerInterface
+    DataValidatorInterface
 };
 
 final readonly class RequestProcessor implements RequestProcessorInterface
 {
     public function __construct(
         private DataExtractorInterface $dataExtractor,
-        private AuthorizerInterface    $authorizer,
-        private DataValidatorInterface $validator,
-        private QueryCleanerInterface  $queryCleaner
-    )
-    {
+        private AuthorizerInterface $authorizer,
+        private DataValidatorInterface $validator
+    ) {
     }
 
     /**
@@ -30,11 +29,6 @@ final readonly class RequestProcessor implements RequestProcessorInterface
     {
         // Extract raw data from request
         $rawData = $this->dataExtractor->extractRequestData($request);
-
-        // Clean GET query parameters if needed
-        if ($request->getMethod() === 'GET') {
-            $this->queryCleaner->ensureCleanQuery($request, $rawData, $handler);
-        }
 
         // Authorization check
         $this->authorizer->authorize($handler);

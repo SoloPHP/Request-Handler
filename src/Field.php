@@ -1,16 +1,18 @@
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace Solo\RequestHandler;
 
 /**
  * Immutable value object representing a request field definition.
- * 
+ *
  * This class provides a fluent interface for configuring field behavior:
  * - Input mapping from nested structures using dot notation
  * - Default values for missing fields
  * - Validation rules
  * - Preprocessing and postprocessing callbacks
- * 
+ *
  * Example usage:
  * ```php
  * Field::for('email')
@@ -22,11 +24,12 @@ namespace Solo\RequestHandler;
  */
 final readonly class Field
 {
+    private const NO_DEFAULT = '__NO_DEFAULT__';
     public string $inputName;
 
     public function __construct(
         public string $name,
-        public mixed $default = null,
+        public mixed $default = self::NO_DEFAULT,
         public ?string $rules = null,
         public mixed $preprocessor = null,
         public mixed $postprocessor = null,
@@ -112,5 +115,10 @@ final readonly class Field
         return $this->postprocessor && is_callable($this->postprocessor)
             ? ($this->postprocessor)($value)
             : $value;
+    }
+
+    public function hasDefault(): bool
+    {
+        return $this->default !== self::NO_DEFAULT;
     }
 }

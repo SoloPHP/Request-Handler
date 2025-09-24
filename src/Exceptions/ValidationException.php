@@ -11,11 +11,10 @@ final class ValidationException extends Exception
      */
     public function __construct(
         private readonly array $errors = [],
-        ?Exception             $previous = null
-    )
-    {
-        $message = empty($errors) 
-            ? "Validation failed" 
+        ?Exception $previous = null
+    ) {
+        $message = empty($errors)
+            ? "Validation failed"
             : "Validation failed: " . implode(', ', array_keys($errors));
         $code = 422;
 
