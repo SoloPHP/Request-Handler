@@ -159,4 +159,41 @@ final class ParameterParserTest extends TestCase
         $this->assertEquals(1, ParameterParser::boolean(['something']));
         $this->assertEquals(0, ParameterParser::boolean([]));
     }
+
+    public function testUniqueIdGeneratesCorrectLength(): void
+    {
+        $id = ParameterParser::uniqueId();
+        $this->assertIsInt($id);
+        $this->assertEquals(8, strlen((string)$id));
+    }
+
+    public function testUniqueIdGeneratesCustomLength(): void
+    {
+        $id = ParameterParser::uniqueId(10);
+        $this->assertIsInt($id);
+        $this->assertEquals(10, strlen((string)$id));
+    }
+
+    public function testUniqueIdGeneratesUniqueValues(): void
+    {
+        $id1 = ParameterParser::uniqueId();
+        $id2 = ParameterParser::uniqueId();
+        $this->assertNotEquals($id1, $id2);
+    }
+
+    public function testUniqueIdWithMinimumLength(): void
+    {
+        $id = ParameterParser::uniqueId(1);
+        $this->assertIsInt($id);
+        $this->assertEquals(1, strlen((string)$id));
+        $this->assertGreaterThanOrEqual(1, $id);
+        $this->assertLessThanOrEqual(9, $id);
+    }
+
+    public function testUniqueIdWithLargeLength(): void
+    {
+        $id = ParameterParser::uniqueId(15);
+        $this->assertIsInt($id);
+        $this->assertEquals(15, strlen((string)$id));
+    }
 }

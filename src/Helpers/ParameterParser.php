@@ -83,4 +83,26 @@ final readonly class ParameterParser implements ParameterParserInterface
 
         return (int)(bool)$value;
     }
+
+    /**
+     * Generate a unique integer ID with specified length
+     *
+     * @param int $length Length of the generated ID (default: 8)
+     * @return int Generated unique integer ID
+     */
+    public static function uniqueId(int $length = 8): int
+    {
+        $timestamp = (int)(microtime(true) * 10000);
+        $random = random_int(0, 9999);
+
+        $timePart = $timestamp % 1000000;
+        $unique = ($timePart * 10000) + $random;
+
+        // Generate number of specified length
+        $min = 10 ** ($length - 1);
+        $max = (10 ** $length) - 1;
+        $range = $max - $min + 1;
+
+        return $min + ($unique % $range);
+    }
 }

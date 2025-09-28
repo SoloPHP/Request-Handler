@@ -275,6 +275,13 @@ Converts boolean values to MySQL-compatible integers (0 or 1):
 Parses search parameter for repository filtering:
 - Returns array of search terms or empty array
 
+#### `ParameterParser::uniqueId(int $length = 8): int`
+
+Generates a unique integer ID with specified length:
+- `ParameterParser::uniqueId()` → generates 8-digit unique ID (default)
+- `ParameterParser::uniqueId(10)` → generates 10-digit unique ID
+- Uses timestamp and random components for uniqueness
+
 ```php
 <?php declare(strict_types=1);
 
@@ -292,6 +299,10 @@ $isDeleted = ParameterParser::boolean('false'); // 0
 
 // Parse search parameters
 $searchTerms = ParameterParser::search('john doe'); // ['john doe']
+
+// Generate unique IDs
+$id = ParameterParser::uniqueId(); // 12345678 (8-digit)
+$longId = ParameterParser::uniqueId(12); // 123456789012 (12-digit)
 ```
 
 ### Usage in Controllers
