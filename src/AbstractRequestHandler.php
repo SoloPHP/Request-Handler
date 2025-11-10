@@ -67,7 +67,8 @@ abstract readonly class AbstractRequestHandler implements RequestHandlerInterfac
     public function handle(ServerRequestInterface $request): array
     {
         $data = $this->processor->process($request, $this);
-        return $this->structureResponse($data, $this->fields());
+        $data = $this->structure($data, $this->fields());
+        return $this->transform($data);
     }
 
     /**
@@ -76,7 +77,7 @@ abstract readonly class AbstractRequestHandler implements RequestHandlerInterfac
      * @param array<string, mixed> $structure
      * @return array<string, mixed>
      */
-    private function structureResponse(array $data, array $structure): array
+    private function structure(array $data, array $structure): array
     {
         $result = [];
 
@@ -89,7 +90,7 @@ abstract readonly class AbstractRequestHandler implements RequestHandlerInterfac
                     $result[$resultKey] = $data[$value->name];
                 }
             } elseif (is_array($value)) {
-                $result[$key] = $this->structureResponse($data, $value);
+                $result[$key] = $this->structure($data, $value);
             }
         }
 
@@ -146,6 +147,22 @@ abstract readonly class AbstractRequestHandler implements RequestHandlerInterfac
     protected function messages(): array
     {
         return [];
+    }
+
+    /**
+     * Transform response data after validation.
+     * Override this method to apply complex transformations that require:
+     * - Injected dependencies (services, repositories)
+     * - Cross-field logic
+     * - Creating/removing fields
+     * - Complex business rules
+     *
+     * @param array<string, mixed> $data Validated data
+     * @return array<string, mixed> Transformed response data
+     */
+    protected function transform(array $data): array
+    {
+        return $data;
     }
 
     protected function authorize(): bool

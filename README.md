@@ -20,7 +20,8 @@ Fields are conditionally processed based on their presence in requests and defau
 
 - **Smart field inclusion** - only processes relevant fields
 - **Type-safe processing** with readonly properties and strict types
-- **Multi-stage pipeline** (`extract` → `authorize` → `preprocess` → `validate` → `postprocess`)
+- **Multi-stage pipeline** (`extract` → `authorize` → `preprocess` → `validate` → `postprocess` → `structure` → `transform`)
+- **Advanced transformation hook** - `transform()` method for complex logic with DI access
 - **Field mapping** from nested structures via dot notation
 - **Vendor-independent validation** - use any validator
 - **PSR-7 compatible** HTTP message interface
@@ -135,6 +136,8 @@ final class ArticleController
 4. **Preprocess** - Clean and transform raw input data
 5. **Validate** - Check against validation rules with custom messages
 6. **Postprocess** - Apply final value transformations and formatting
+7. **Structure** - Structure validated data according to fields definition
+8. **Transform** - Apply complex transformations with access to injected dependencies
 
 ### Advanced Example
 
@@ -206,6 +209,72 @@ protected function messages(): array
     ];
 }
 ```
+
+---
+
+## 🔄 Advanced Data Transformation
+
+For complex transformations that require **injected dependencies**, **cross-field logic**, or **creating/removing fields**, override the `transform()` method:
+
+```php
+<?php declare(strict_types=1);
+
+namespace App\Requests;
+
+use App\Services\CategoryService;
+use Solo\Contracts\Validator\ValidatorInterface;
+use Solo\RequestHandler\AbstractRequestHandler;
+use Solo\RequestHandler\Field;
+
+final readonly class ProductIndexRequest extends AbstractRequestHandler
+{
+    public function __construct(
+        ValidatorInterface $validator,
+        private CategoryService $categoryService
+    ) {
+        parent::__construct($validator);
+    }
+
+    protected function fields(): array
+    {
+        return [
+            Field::for('category_id')->validate('integer|min:1'),
+            Field::for('status')->validate('string|in:active,inactive'),
+        ];
+    }
+
+    protected function transform(array $data): array
+    {
+        // Expand category_id to include child categories
+        if (isset($data['category_id'])) {
+            $data['category_id'] = $this->categoryService
+                ->getAllCategoryIdsWithChildren($data['category_id']);
+        }
+
+        // Transform status into database-specific filter
+        if (isset($data['status'])) {
+            $data['is_active'] = $data['status'] === 'active' ? 1 : 0;
+            unset($data['status']);
+        }
+
+        return $data;
+    }
+}
+```
+
+### When to Use `transform()`
+
+**Use `Field::postprocess()`** for simple value transformations:
+```php
+Field::for('email')
+    ->postprocess(fn($v) => strtolower(trim($v)))
+```
+
+**Use `transform()`** for complex logic:
+- Access to injected dependencies (services, repositories)
+- Cross-field logic (field A depends on field B)
+- Creating/removing fields dynamically
+- Complex business rules
 
 ---
 

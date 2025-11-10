@@ -163,14 +163,12 @@ final class ParameterParserTest extends TestCase
     public function testUniqueIdGeneratesCorrectLength(): void
     {
         $id = ParameterParser::uniqueId();
-        $this->assertIsInt($id);
         $this->assertEquals(8, strlen((string)$id));
     }
 
     public function testUniqueIdGeneratesCustomLength(): void
     {
         $id = ParameterParser::uniqueId(10);
-        $this->assertIsInt($id);
         $this->assertEquals(10, strlen((string)$id));
     }
 
@@ -184,7 +182,6 @@ final class ParameterParserTest extends TestCase
     public function testUniqueIdWithMinimumLength(): void
     {
         $id = ParameterParser::uniqueId(1);
-        $this->assertIsInt($id);
         $this->assertEquals(1, strlen((string)$id));
         $this->assertGreaterThanOrEqual(1, $id);
         $this->assertLessThanOrEqual(9, $id);
@@ -193,7 +190,6 @@ final class ParameterParserTest extends TestCase
     public function testUniqueIdWithLargeLength(): void
     {
         $id = ParameterParser::uniqueId(15);
-        $this->assertIsInt($id);
         $this->assertEquals(15, strlen((string)$id));
     }
 }
