@@ -1,489 +1,320 @@
-# Request Handler 🛡️
+# Request Handler
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/solophp/request-handler.svg)](https://packagist.org/packages/solophp/request-handler)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![PHP Version](https://img.shields.io/badge/PHP-8.2%2B-8892BF.svg)](https://php.net/)
 
-**Robust request validation & authorization layer for HTTP inputs with type-safe handlers and modern PHP 8+ architecture**
+Dynamic request DTOs with validation for PHP 8.2+. Define your request structure once using class-level attributes, get only present fields in response.
 
-## How It Works
+## Features
 
-Fields are conditionally processed based on their presence in requests and default values:
-- **Present in request** → Always included in results
-- **Missing + has `default()`** → Included with default value
-- **Missing + no default** → Excluded from results entirely
-- **Validation** → Only runs on present fields or those marked as `required`
+- **Dynamic DTOs** - only fields present in the request become properties
+- **Class-level field definitions** - clean syntax with repeatable `#[Field]` attributes
+- **Automatic type casting** - built-in casters for int, float, bool, array, datetime
+- **Custom casters** - extend with your own type converters
+- **Pre/Post processing** - transform values before validation or after
+- **Nested input mapping** - access deeply nested request data with dot notation
+- **Default values** - define fallback values for missing fields
+- **Reflection caching** - metadata parsed once and cached for performance
+- **PSR-7 compatible** - works with any PSR-7 HTTP message implementation
+- **Vendor-independent validation** - use any validator implementing the interface
 
----
-
-## ✨ Features
-
-- **Smart field inclusion** - only processes relevant fields
-- **Type-safe processing** with readonly properties and strict types
-- **Multi-stage pipeline** (`extract` → `authorize` → `preprocess` → `validate` → `postprocess` → `structure` → `transform`)
-- **Advanced transformation hook** - `transform()` method for complex logic with DI access
-- **Field mapping** from nested structures via dot notation
-- **Vendor-independent validation** - use any validator
-- **PSR-7 compatible** HTTP message interface
-- **Built-in authorization** with simple overrides
-
----
-
-## 🔗 Dependencies
-
-- [PSR-7 HTTP Message Interface](https://github.com/php-fig/http-message) (`psr/http-message` ^2.0)
-- Any validator implementing `Solo\Contracts\Validator\ValidatorInterface`
-
-### Suggested Validators
-- [Solo Validator](https://github.com/solophp/validator) (`solophp/validator`) - Direct compatibility
----
-
-## 📥 Installation
+## Installation
 
 ```bash
 composer require solophp/request-handler
 ```
 
----
+## Quick Start
 
-## 🚀 Quick Start
-
-### Define a Request Handler
+### Define a Request DTO
 
 ```php
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace App\Requests;
 
-use Solo\RequestHandler\AbstractRequestHandler;
-use Solo\RequestHandler\Field;
+use Solo\RequestHandler\Attributes\AsRequest;
+use Solo\RequestHandler\Attributes\Field;
+use Solo\RequestHandler\Traits\DynamicProperties;
 
-final class CreateArticleRequest extends AbstractRequestHandler 
+#[AsRequest]
+#[Field('name', 'required|string|max:255')]
+#[Field('price', 'required|numeric|min:0', cast: 'float')]
+#[Field('stock', 'nullable|integer|min:0', cast: 'int', default: 0, hasDefault: true)]
+#[Field('description', 'nullable|string')]
+final class CreateProductRequest
 {
-    protected function fields(): array 
-    {
-        return [
-            Field::for('author_email')
-                ->mapFrom('meta.author.email')
-                ->validate('required|email'),
-                
-            Field::for('title')
-                ->validate('required|string|max:100')
-                ->preprocess(fn(mixed $value): string => trim((string)$value)),
-            
-            Field::for('status')
-                ->default('draft')
-                ->validate('string|in:draft,published')
-                ->postprocess(fn(mixed $value): string => strtoupper((string)$value))
-        ];
-    }
-
-    protected function authorize(): bool 
-    {
-        return $this->user()->can('create', Article::class);
-    }
+    use DynamicProperties;
 }
 ```
 
----
-
-### Handle in Controller
+### Use in Controller
 
 ```php
-<?php declare(strict_types=1);
+<?php
+
+declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Requests\CreateArticleRequest;
-use Solo\RequestHandler\Exceptions\{ValidationException, AuthorizationException};
+use App\Requests\CreateProductRequest;
+use Solo\RequestHandler\RequestHandler;
+use Solo\RequestHandler\Exceptions\ValidationException;
 
-final class ArticleController 
-{
-    public function store(ServerRequestInterface $request, CreateArticleRequest $articleRequest): array
-    {
-        try {
-            $data = $articleRequest->handle($request);
-            Article::create($data);
-            return ['success' => true, 'data' => $data];
-        } catch (ValidationException $e) {
-            return ['errors' => $e->getErrors()];
-        } catch (AuthorizationException $e) {
-            return ['message' => $e->getMessage(), 'code' => 403];
-        }
-    }
-}
-```
-
----
-
-## ⚙️ Field Configuration
-
-| Method                | Required? | Description                                      |
-|-----------------------|-----------|--------------------------------------------------|
-| `Field::for(string)`  | **Yes**   | Starts field definition                          |
-| `mapFrom(string)`     | No        | Map input from custom name/nested path          |
-| `default(mixed)`      | No        | Fallback value if field is missing              |
-| `validate(string)`    | No        | Validation rules (e.g., `required|string|max:5`) |
-| `preprocess(callable)`| No        | Transform raw input **before validation**       |
-| `postprocess(callable)`| No       | Modify value **after validation**               |
-| `hasDefault()`        | No        | Check if field has explicit default value       |  
-
-### Processing Pipeline
-
-1. **Extract Data** - Merge POST body and GET parameters (body priority)
-2. **Authorize** - Check user permissions via `authorize()` method
-3. **Map Input** - Resolve values using `mapFrom` paths with dot notation
-4. **Preprocess** - Clean and transform raw input data
-5. **Validate** - Check against validation rules with custom messages
-6. **Postprocess** - Apply final value transformations and formatting
-7. **Structure** - Structure validated data according to fields definition
-8. **Transform** - Apply complex transformations with access to injected dependencies
-
-### Advanced Example
-
-```php
-Field::for('categories')
-    ->mapFrom('meta.category_list')
-    ->preprocess(fn(mixed $value): array => 
-        is_string($value) ? explode(',', $value) : (array)$value
-    )
-    ->validate('array|min:1|max:10')
-    ->postprocess(fn(array $value): array => 
-        array_map('intval', array_unique($value))
-    )
-```
-
----
-
-## 🏗️ Architecture Overview
-
-The system employs a modular architecture with clear separation of concerns:
-
-**RequestProcessor** - Central coordinator managing the complete processing pipeline with dependency injection for all components.
-
-**DataExtractor** - Handles data extraction from requests, field mapping via dot notation, and preprocessing/postprocessing transformations.
-
-**Authorizer** - Manages authorization checks through simple interface integration with existing access control systems.
-
-**DataValidator** - Provides validation services with Solo Validator integration and comprehensive error message support.
-
----
-
-## 🔄 Request Data Handling
-
-- **Nested Structures**: Use dot notation (`mapFrom('user.profile.contact.email')`)
-- **GET**: Query parameters only
-- **POST/PUT/PATCH**: Merged body and query parameters (body takes priority)
-- **Files**: Access via `$request->getUploadedFiles()` with PSR-7 compatibility
-
----
-
-## ⚡ Error Handling
-
-### ValidationException (HTTP 422)
-```php
-catch (ValidationException $e) {
-    return ['errors' => $e->getErrors()]; // Format: ['field' => ['Error message']]
-}
-```
-
-### AuthorizationException (HTTP 403)
-```php
-catch (AuthorizationException $e) {
-    return ['message' => $e->getMessage()]; // "Unauthorized request"
-}
-```
-
----
-
-## 🚦 Custom Messages
-
-```php
-protected function messages(): array 
-{
-    return [
-        'author_email.required' => 'Author email is required for article creation',
-        'author_email.email' => 'Please provide a valid email address',
-        'status.in' => 'Status must be either draft or published',
-        'title.max' => 'Article title must not exceed :max characters'
-    ];
-}
-```
-
----
-
-## 🔄 Advanced Data Transformation
-
-For complex transformations that require **injected dependencies**, **cross-field logic**, or **creating/removing fields**, override the `transform()` method:
-
-```php
-<?php declare(strict_types=1);
-
-namespace App\Requests;
-
-use App\Services\CategoryService;
-use Solo\Contracts\Validator\ValidatorInterface;
-use Solo\RequestHandler\AbstractRequestHandler;
-use Solo\RequestHandler\Field;
-
-final readonly class ProductIndexRequest extends AbstractRequestHandler
+final class ProductController
 {
     public function __construct(
-        ValidatorInterface $validator,
-        private CategoryService $categoryService
-    ) {
-        parent::__construct($validator);
-    }
+        private readonly RequestHandler $requestHandler,
+        private readonly ProductService $productService,
+    ) {}
 
-    protected function fields(): array
+    public function store(ServerRequestInterface $request): ResponseInterface
     {
-        return [
-            Field::for('category_id')->validate('integer|min:1'),
-            Field::for('status')->validate('string|in:active,inactive'),
-        ];
-    }
+        try {
+            $data = $this->requestHandler->handle(CreateProductRequest::class, $request);
 
-    protected function transform(array $data): array
-    {
-        // Expand category_id to include child categories
-        if (isset($data['category_id'])) {
-            $data['category_id'] = $this->categoryService
-                ->getAllCategoryIdsWithChildren($data['category_id']);
+            // $data only contains properties that were in the request
+            $product = $this->productService->create($data->toArray());
+
+            return $this->json(['id' => $product->id], 201);
+        } catch (ValidationException $e) {
+            return $this->json(['errors' => $e->getErrors()], 422);
         }
-
-        // Transform status into database-specific filter
-        if (isset($data['status'])) {
-            $data['is_active'] = $data['status'] === 'active' ? 1 : 0;
-            unset($data['status']);
-        }
-
-        return $data;
     }
 }
 ```
 
-### When to Use `transform()`
+## The #[Field] Attribute
 
-**Use `Field::postprocess()`** for simple value transformations:
+All field configuration is done via the `#[Field]` attribute at class level:
+
 ```php
-Field::for('email')
-    ->postprocess(fn($v) => strtolower(trim($v)))
+#[Field(
+    name: 'fieldName',           // Property name (required)
+    rules: 'required|string',    // Validation rules (optional)
+    cast: 'int',                 // Type casting (optional)
+    mapFrom: 'input.path',       // Input path with dot notation (optional)
+    default: 'value',            // Default value (optional)
+    hasDefault: true,            // Whether default should be used (optional)
+    preProcess: 'trim',          // Pre-processor (optional)
+    postProcess: 'strtolower',   // Post-processor (optional)
+)]
 ```
 
-**Use `transform()`** for complex logic:
-- Access to injected dependencies (services, repositories)
-- Cross-field logic (field A depends on field B)
-- Creating/removing fields dynamically
-- Complex business rules
-
----
-
-## 🗂️ Repository Integration Helpers
-
-The `ParameterParser` helper class provides static methods for parsing request parameters into repository-compatible formats, designed to work seamlessly with repository patterns.
-
-### Index/List Request Pattern
+### Examples
 
 ```php
-<?php declare(strict_types=1);
+#[AsRequest]
+// Simple required field
+#[Field('name', 'required|string|max:255')]
+
+// Field with type casting
+#[Field('price', 'required|numeric', cast: 'float')]
+
+// Optional field with default
+#[Field('page', 'integer|min:1', cast: 'int', default: 1, hasDefault: true)]
+
+// Map from nested input
+#[Field('userId', 'required|integer', cast: 'int', mapFrom: 'user.id')]
+
+// Pre-process before validation
+#[Field('email', 'required|email', preProcess: 'trim')]
+
+// Post-process after validation
+#[Field('slug', 'required|string', postProcess: 'strtolower')]
+final class MyRequest
+{
+    use DynamicProperties;
+}
+```
+
+## Dynamic Properties
+
+The `DynamicProperties` trait provides the following methods:
+
+```php
+$data = $handler->handle(ProductRequest::class, $request);
+
+// Access property directly (throws Error if not present)
+$name = $data->name;
+
+// Check if property exists
+if (isset($data->description)) {
+    // ...
+}
+
+// Check with method
+if ($data->has('description')) {
+    // ...
+}
+
+// Get with default fallback
+$description = $data->get('description', 'No description');
+
+// Convert to array (only present fields)
+$array = $data->toArray();
+```
+
+### Behavior
+
+Only fields present in the HTTP request become properties:
+
+```php
+#[AsRequest]
+#[Field('name', 'required|string')]
+#[Field('description', 'nullable|string')]
+final class ProductRequest
+{
+    use DynamicProperties;
+}
+
+// Request: POST /products with body: {"name": "Widget"}
+$data = $handler->handle(ProductRequest::class, $request);
+
+$data->name;        // "Widget"
+$data->description; // Error: Undefined property
+isset($data->name);        // true
+isset($data->description); // false
+$data->toArray();   // ['name' => 'Widget']
+```
+
+## Type Casting
+
+**Built-in types:**
+
+| Cast | Converts to |
+|------|-------------|
+| `int`, `integer` | integer |
+| `float`, `double` | float |
+| `bool`, `boolean` | boolean (`"true"`, `"1"`, `"yes"`, `"on"` → `true`) |
+| `string` | string |
+| `array` | array (parses JSON or comma-separated string) |
+| `datetime` | DateTime object |
+| `datetime:Y-m-d` | DateTime with specific format |
+
+**Custom casters:**
+
+```php
+use Solo\RequestHandler\Casters\CasterInterface;
+
+final class MoneyCaster implements CasterInterface
+{
+    public function cast(mixed $value): Money
+    {
+        return new Money((int) round((float) $value * 100));
+    }
+}
+
+// Usage
+#[Field('amount', 'required|numeric', cast: MoneyCaster::class)]
+```
+
+## Processing Pipeline
+
+1. **Extract** - Merge POST body and GET parameters (body takes priority)
+2. **Map** - Resolve values using `mapFrom` paths
+3. **PreProcess** - Transform raw input before validation
+4. **Validate** - Check against validation rules
+5. **Cast** - Convert to target types
+6. **PostProcess** - Apply final transformations
+7. **Create** - Build DTO with only present fields
+
+## Pre/Post Processing
+
+```php
+// Global function
+#[Field('name', 'required|string', preProcess: 'trim')]
+
+// Static method in the DTO class
+#[Field('phone', 'required|string', preProcess: 'normalizePhone')]
+final class ContactRequest
+{
+    use DynamicProperties;
+
+    public static function normalizePhone(string $value): string
+    {
+        return preg_replace('/[^0-9+]/', '', $value);
+    }
+}
+
+// External processor class
+#[Field('slug', 'required|string', preProcess: SlugNormalizer::class)]
+```
+
+Processor classes must implement `PostProcessorInterface`:
+
+```php
+use Solo\RequestHandler\Casters\PostProcessorInterface;
+
+final class SlugNormalizer implements PostProcessorInterface
+{
+    public function process(mixed $value): mixed
+    {
+        return strtolower(preg_replace('/[^a-z0-9]+/i', '-', $value));
+    }
+}
+```
+
+## Error Handling
+
+```php
+use Solo\RequestHandler\Exceptions\ValidationException;
+
+try {
+    $data = $this->requestHandler->handle(MyRequest::class, $request);
+} catch (ValidationException $e) {
+    // $e->getErrors() returns: ['field' => ['Error message 1', 'Error message 2']]
+    return $this->json([
+        'success' => false,
+        'errors' => $e->getErrors(),
+    ], 422);
+}
+```
+
+## Full Example
+
+```php
+<?php
+
+declare(strict_types=1);
 
 namespace App\Requests;
 
-use Solo\RequestHandler\AbstractRequestHandler;
-use Solo\RequestHandler\Field;
-use Solo\RequestHandler\Helpers\ParameterParser;
+use Solo\RequestHandler\Attributes\AsRequest;
+use Solo\RequestHandler\Attributes\Field;
+use Solo\RequestHandler\Traits\DynamicProperties;
 
-final readonly class UserIndexRequest extends AbstractRequestHandler
+#[AsRequest]
+#[Field('customerId', 'required|integer|min:1', cast: 'int', mapFrom: 'customer.id')]
+#[Field('items', 'required|array|min:1')]
+#[Field('total', 'required|numeric|min:0', cast: 'float', postProcess: 'roundTotal')]
+#[Field('notes', 'nullable|string|max:500', preProcess: 'trim')]
+#[Field('status', 'nullable|string|in:pending,confirmed,shipped', default: 'pending', hasDefault: true)]
+#[Field('deliveryDate', 'nullable|date', cast: 'datetime:Y-m-d')]
+final class CreateOrderRequest
 {
-    protected function fields(): array
+    use DynamicProperties;
+
+    public static function roundTotal(float $value): float
     {
-        return [
-            Field::for('page')
-                ->default(1)
-                ->validate('integer|min:1')
-                ->postprocess(fn($v) => (int)$v),
-
-            Field::for('per_page')
-                ->default(15)
-                ->validate('integer|min:1|max:100')
-                ->postprocess(fn($v) => (int)$v),
-
-            Field::for('sort')
-                ->postprocess(fn($v) => ParameterParser::sort($v)),
-
-            Field::for('filter')
-                ->postprocess(fn($v) => ParameterParser::filter($v)),
-        ];
+        return round($value, 2);
     }
 }
 ```
 
-### ParameterParser Helper Methods
+## Dependencies
 
-The `ParameterParser` helper class provides static methods for parsing request parameters into repository-compatible formats:
+- PHP 8.2+
+- [PSR-7 HTTP Message Interface](https://github.com/php-fig/http-message) (`psr/http-message` ^2.0)
+- Any validator implementing `Solo\Contracts\Validator\ValidatorInterface`
 
-#### `ParameterParser::sort(?string $sort): ?array`
+### Suggested Validators
 
-Converts sort parameter from URL format to repository format:
-- `?sort=name` → `['name' => 'ASC']`
-- `?sort=-created_at` → `['created_at' => 'DESC']`
+- [Solo Validator](https://github.com/solophp/validator) (`solophp/validator`)
 
-#### `ParameterParser::filter($filter): array`
+## License
 
-Parses filter parameter for repository filtering:
-- `?filter[status]=active&filter[role]=admin` → `['filter' => ['status' => 'active', 'role' => 'admin']]`
-
-#### `ParameterParser::boolean(mixed $value): int`
-
-Converts boolean values to MySQL-compatible integers (0 or 1):
-- `true`, `"true"`, `"1"`, `"yes"`, `"on"` → `1`
-- `false`, `"false"`, `"0"`, `"no"`, `"off"` → `0`
-
-#### `ParameterParser::search(mixed $search): array`
-
-Parses search parameter for repository filtering:
-- Returns array of search terms or empty array
-
-#### `ParameterParser::uniqueId(int $length = 8): int`
-
-Generates a unique integer ID with specified length:
-- `ParameterParser::uniqueId()` → generates 8-digit unique ID (default)
-- `ParameterParser::uniqueId(10)` → generates 10-digit unique ID
-- Uses timestamp and random components for uniqueness
-
-```php
-<?php declare(strict_types=1);
-
-use Solo\RequestHandler\Helpers\ParameterParser;
-
-// Parse sorting parameters
-$sortData = ParameterParser::sort('-created_at'); // ['created_at' => 'DESC']
-
-// Parse filter parameters
-$filters = ParameterParser::filter(['status' => 'active']); // ['filter' => ['status' => 'active']]
-
-// Parse boolean values
-$isActive = ParameterParser::boolean('yes'); // 1
-$isDeleted = ParameterParser::boolean('false'); // 0
-
-// Parse search parameters
-$searchTerms = ParameterParser::search('john doe'); // ['john doe']
-
-// Generate unique IDs
-$id = ParameterParser::uniqueId(); // 12345678 (8-digit)
-$longId = ParameterParser::uniqueId(12); // 123456789012 (12-digit)
-```
-
-### Usage in Controllers
-
-```php
-<?php declare(strict_types=1);
-
-namespace App\Controllers;
-
-use App\Requests\UserIndexRequest;
-use App\Repositories\UserRepository;
-
-final class UserController
-{
-    public function index(ServerRequestInterface $request, UserIndexRequest $indexRequest): array
-    {
-        $data = $indexRequest->handle($request);
-        
-        // Clean, validated data ready for repository
-        $users = $this->userRepository->getBy(
-            criteria: $data['filter'],    // ['filter' => [...]] or []
-            orderBy: $data['sort'],       // ['field' => 'ASC/DESC'] or null
-            perPage: $data['per_page'],   // int
-            page: $data['page']           // int
-        );
-        
-        $total = $this->userRepository->countBy($data['filter']);
-        
-        return $this->paginate($users, $data['page'], $data['per_page'], $total);
-    }
-}
-```
-
-### URL Examples
-
-```bash
-# Basic pagination
-GET /users?page=2&per_page=25
-
-# Sorting (ascending)
-GET /users?sort=created_at
-
-# Sorting (descending)
-GET /users?sort=-name
-
-# Filtering
-GET /users?filter[status]=active&filter[role]=admin
-
-# Combined
-GET /users?sort=-created_at&filter[status]=active&page=2&per_page=10
-```
-
----
-
-## 📚 Public API
-
-| Method                                           | Description                                                              |
-|--------------------------------------------------|--------------------------------------------------------------------------|
-| `handle(ServerRequestInterface $request): array` | Main entry point: processes complete request pipeline                  |
-| `getFields(): array`                            | Returns field definitions for the handler                               |
-| `getMessages(): array`                          | Returns custom validation error messages                                |
-| `isAuthorized(): bool`                          | Checks authorization status for the request                             |
-
----
-
-## 🔧 Advanced Usage
-
-### Component Customization with Factory Methods
-
-For advanced use cases, you can customize individual components by overriding factory methods:
-
-```php
-final class ApiArticleRequest extends AbstractRequestHandler
-{
-    // Custom authorization logic
-    protected function createAuthorizer(): AuthorizerInterface
-    {
-        return new ApiTokenAuthorizer();
-    }
-    
-    // Custom data extraction for JSON API
-    protected function createDataExtractor(): DataExtractorInterface
-    {
-        return new JsonApiDataExtractor();
-    }
-
-    protected function fields(): array
-    {
-        return [
-            Field::for('data')->mapFrom('json.data')->validate('required|array')
-        ];
-    }
-}
-```
-
-## ⚙️ Requirements
-
-- **PHP 8.2+** with strict typing support
-- **PSR-7 HTTP Message Interface** for request/response handling
-- **Validator** implementing `Solo\Contracts\Validator\ValidatorInterface`
-
----
-
-## 🎯 Performance Features
-
-- **Readonly Properties** - Optimal opcache performance with immutable objects
-- **Minimal Memory Footprint** - Efficient dependency injection patterns
-- **Interface-based Design** - Clean architecture with separated concerns
-- **Component Reuse** - Efficient object creation with factory method pattern
-
----
-
-## 📄 License
-
-MIT License - See [LICENSE](LICENSE) for complete terms and conditions.
+MIT License - See [LICENSE](LICENSE) for details.
