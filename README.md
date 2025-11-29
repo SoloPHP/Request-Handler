@@ -3,6 +3,7 @@
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/solophp/request-handler.svg)](https://packagist.org/packages/solophp/request-handler)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![PHP Version](https://img.shields.io/badge/PHP-8.2%2B-8892BF.svg)](https://php.net/)
+[![Code Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 Dynamic request DTOs with validation for PHP 8.2+. Define your request structure once using class-level attributes, get only present fields in response.
 
@@ -43,7 +44,7 @@ use Solo\RequestHandler\Traits\DynamicProperties;
 #[AsRequest]
 #[Field('name', 'required|string|max:255')]
 #[Field('price', 'required|numeric|min:0', cast: 'float')]
-#[Field('stock', 'nullable|integer|min:0', cast: 'int', default: 0, hasDefault: true)]
+#[Field('stock', 'nullable|integer|min:0', cast: 'int', default: 0)]
 #[Field('description', 'nullable|string')]
 final class CreateProductRequest
 {
@@ -97,8 +98,7 @@ All field configuration is done via the `#[Field]` attribute at class level:
     rules: 'required|string',    // Validation rules (optional)
     cast: 'int',                 // Type casting (optional)
     mapFrom: 'input.path',       // Input path with dot notation (optional)
-    default: 'value',            // Default value (optional)
-    hasDefault: true,            // Whether default should be used (optional)
+    default: 'value',            // Default value
     preProcess: 'trim',          // Pre-processor (optional)
     postProcess: 'strtolower',   // Post-processor (optional)
 )]
@@ -115,7 +115,7 @@ All field configuration is done via the `#[Field]` attribute at class level:
 #[Field('price', 'required|numeric', cast: 'float')]
 
 // Optional field with default
-#[Field('page', 'integer|min:1', cast: 'int', default: 1, hasDefault: true)]
+#[Field('page', 'integer|min:1', cast: 'int', default: 1)]
 
 // Map from nested input
 #[Field('userId', 'required|integer', cast: 'int', mapFrom: 'user.id')]
@@ -292,7 +292,7 @@ use Solo\RequestHandler\Traits\DynamicProperties;
 #[Field('items', 'required|array|min:1')]
 #[Field('total', 'required|numeric|min:0', cast: 'float', postProcess: 'roundTotal')]
 #[Field('notes', 'nullable|string|max:500', preProcess: 'trim')]
-#[Field('status', 'nullable|string|in:pending,confirmed,shipped', default: 'pending', hasDefault: true)]
+#[Field('status', 'nullable|string|in:pending,confirmed,shipped', default: 'pending')]
 #[Field('deliveryDate', 'nullable|date', cast: 'datetime:Y-m-d')]
 final class CreateOrderRequest
 {

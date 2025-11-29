@@ -58,11 +58,6 @@ final class RequestHandler
             $value = $this->getValue($rawData, $property);
             $isEmpty = $value === null || $value === '';
 
-            // Skip fields not in request (unless has default with hasDefault=true)
-            if (!$hasValueInRequest && !$isEmpty) {
-                continue;
-            }
-
             // If field is empty and not in request, skip
             if ($isEmpty && !$hasValueInRequest) {
                 if ($property->hasDefault) {

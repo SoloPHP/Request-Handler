@@ -135,18 +135,19 @@ final class BuiltInCaster
             return null;
         }
 
-        // Extract format if specified: datetime:Y-m-d
-        $format = null;
-        if (str_contains($type, ':')) {
-            $format = substr($type, strpos($type, ':') + 1);
-            if ($format === 'immutable') {
-                $format = null;
-            }
-        }
-
         // Check for immutable variant
         $useImmutable = str_contains($type, 'immutable');
         $class = $useImmutable ? DateTimeImmutable::class : DateTime::class;
+
+        // Extract format if specified: datetime:Y-m-d or datetime:immutable:Y-m-d
+        $format = null;
+        if (str_contains($type, ':')) {
+            // Remove 'datetime' prefix and 'immutable' keyword to get format
+            $parts = explode(':', $type);
+            array_shift($parts); // remove 'datetime'
+            $parts = array_filter($parts, fn($p) => $p !== 'immutable');
+            $format = !empty($parts) ? implode(':', $parts) : null;
+        }
 
         if (is_int($value)) {
             return (new $class())->setTimestamp($value);

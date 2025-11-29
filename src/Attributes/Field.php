@@ -30,10 +30,14 @@ final readonly class Field
         public ?string $rules = null,
         public ?string $cast = null,
         public ?string $mapFrom = null,
-        public mixed $default = null,
-        public bool $hasDefault = false,
+        public mixed $default = new NotSet(),
         public ?string $preProcess = null,
         public ?string $postProcess = null,
     ) {
+    }
+
+    public function hasDefault(): bool
+    {
+        return !$this->default instanceof NotSet;
     }
 }

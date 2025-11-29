@@ -125,6 +125,120 @@ final class RequestHandlerTest extends TestCase
         $this->assertEquals('Test', $dto->name); // Trimmed
         $this->assertEquals('test-title', $dto->slug); // Slugified
     }
+
+    public function testHandleWithGetRequest(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('GET');
+        $request->method('getQueryParams')->willReturn(['name' => 'Test', 'price' => '20']);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(TestRequest::class, $request);
+
+        $this->assertEquals('Test', $dto->name);
+        $this->assertEquals(20.0, $dto->price);
+    }
+
+    public function testHandleWithCustomCaster(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['id' => '5']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(CustomCasterRequest::class, $request);
+
+        $this->assertEquals(10, $dto->id); // 5 * 2 = 10
+    }
+
+    public function testHandleWithPreProcessorInterface(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['value' => 'test']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(PreProcessorRequest::class, $request);
+
+        $this->assertEquals('pre_test', $dto->value);
+    }
+
+    public function testHandleWithPostProcessorInterface(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['value' => 'test']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(PostProcessorRequest::class, $request);
+
+        $this->assertEquals('test_post', $dto->value);
+    }
+
+    public function testHandleWithEmptyFieldHavingDefault(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['name' => 'Test', 'page' => '']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(TestRequest::class, $request);
+
+        $this->assertEquals('Test', $dto->name);
+        $this->assertEquals(1, $dto->page); // Default value
+    }
+
+    public function testHandleWithEmptyFieldWithoutDefault(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['name' => 'Test', 'description' => '']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(TestRequest::class, $request);
+
+        $this->assertNull($dto->description);
+    }
+
+    public function testHandleWithCasterAsProcessor(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['value' => 'test']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(CasterAsProcessorRequest::class, $request);
+
+        $this->assertEquals('casted_test', $dto->value);
+    }
+
+    public function testHandleWithUnknownProcessor(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['value' => 'test']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(UnknownProcessorRequest::class, $request);
+
+        // Unknown processor returns value unchanged
+        $this->assertEquals('test', $dto->value);
+    }
 }
 
 /**
@@ -138,7 +252,7 @@ final class RequestHandlerTest extends TestCase
 #[Field('name', 'required|string')]
 #[Field('price', 'required|numeric', cast: 'float')]
 #[Field('description', 'nullable|string')]
-#[Field('page', 'integer', default: 1, hasDefault: true)]
+#[Field('page', 'integer', default: 1)]
 #[Field('userId', 'integer', mapFrom: 'user.id')]
 final class TestRequest
 {
@@ -160,4 +274,86 @@ final class ProcessingRequest
     {
         return str_replace(' ', '-', strtolower($value));
     }
+}
+
+/**
+ * @property int $id
+ */
+#[AsRequest]
+#[Field('id', 'required|integer', cast: CustomCaster::class)]
+final class CustomCasterRequest
+{
+    use DynamicProperties;
+}
+
+/**
+ * @property string $value
+ */
+#[AsRequest]
+#[Field('value', 'required', preProcess: TestPreProcessor::class)]
+final class PreProcessorRequest
+{
+    use DynamicProperties;
+}
+
+/**
+ * @property string $value
+ */
+#[AsRequest]
+#[Field('value', 'required', postProcess: TestPostProcessor::class)]
+final class PostProcessorRequest
+{
+    use DynamicProperties;
+}
+
+final class CustomCaster implements \Solo\RequestHandler\Casters\CasterInterface
+{
+    public function cast(mixed $value): int
+    {
+        return (int) $value * 2;
+    }
+}
+
+final class TestPreProcessor implements \Solo\RequestHandler\Casters\PostProcessorInterface
+{
+    public function process(mixed $value): string
+    {
+        return 'pre_' . $value;
+    }
+}
+
+final class TestPostProcessor implements \Solo\RequestHandler\Casters\PostProcessorInterface
+{
+    public function process(mixed $value): string
+    {
+        return $value . '_post';
+    }
+}
+
+final class TestCasterAsProcessor implements \Solo\RequestHandler\Casters\CasterInterface
+{
+    public function cast(mixed $value): string
+    {
+        return 'casted_' . $value;
+    }
+}
+
+/**
+ * @property string $value
+ */
+#[AsRequest]
+#[Field('value', 'required', preProcess: TestCasterAsProcessor::class)]
+final class CasterAsProcessorRequest
+{
+    use DynamicProperties;
+}
+
+/**
+ * @property string $value
+ */
+#[AsRequest]
+#[Field('value', 'required', preProcess: 'nonExistentHandler')]
+final class UnknownProcessorRequest
+{
+    use DynamicProperties;
 }

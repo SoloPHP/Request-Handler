@@ -70,7 +70,7 @@ final class ReflectionCache
             inputName: $field->mapFrom ?? $field->name,
             type: null,
             isNullable: true,
-            hasDefault: $field->hasDefault,
+            hasDefault: $field->hasDefault(),
             defaultValue: $field->default,
             validationRules: $field->rules,
             castType: $field->cast,
