@@ -244,7 +244,7 @@ final class RequestHandlerTest extends TestCase
 /**
  * @property string $name
  * @property float $price
- * @property string $description
+ * @property string|null $description
  * @property int $page
  * @property int $userId
  */

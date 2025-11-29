@@ -68,7 +68,7 @@ final class RequestHandler
 
             // If field is empty but was in request, include it (user wants to clear)
             // Unless it has a default value
-            if ($isEmpty && $hasValueInRequest) {
+            if ($isEmpty) {
                 if ($property->hasDefault) {
                     $presentFields[$property->name] = $property->defaultValue;
                 } else {
