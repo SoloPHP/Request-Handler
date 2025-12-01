@@ -8,7 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Attributes\AsRequest;
 use Solo\RequestHandler\Attributes\Field;
-use Solo\RequestHandler\Traits\DynamicProperties;
+use Solo\RequestHandler\DynamicRequest;
 use InvalidArgumentException;
 
 final class ReflectionCacheTest extends TestCase
@@ -44,6 +44,15 @@ final class ReflectionCacheTest extends TestCase
 
         $this->cache->get(InvalidRequest::class);
     }
+
+    public function testBuildPropertyMetadataIncludesGroup(): void
+    {
+        $metadata = $this->cache->get(GroupedRequest::class);
+
+        $this->assertEquals('criteria', $metadata->properties['search']->group);
+        $this->assertEquals('criteria', $metadata->properties['status']->group);
+        $this->assertNull($metadata->properties['page']->group);
+    }
 }
 
 /**
@@ -51,12 +60,23 @@ final class ReflectionCacheTest extends TestCase
  */
 #[AsRequest]
 #[Field('name', 'required|string')]
-final class ValidRequest
+final class ValidRequest extends DynamicRequest
 {
-    use DynamicProperties;
 }
 
-final class InvalidRequest
+final class InvalidRequest extends DynamicRequest
 {
-    use DynamicProperties;
+}
+
+/**
+ * @property string $search
+ * @property string $status
+ * @property int $page
+ */
+#[AsRequest]
+#[Field('search', 'nullable|string', group: 'criteria')]
+#[Field('status', 'nullable|string', group: 'criteria')]
+#[Field('page', 'integer|min:1', cast: 'int', default: 1)]
+final class GroupedRequest extends DynamicRequest
+{
 }

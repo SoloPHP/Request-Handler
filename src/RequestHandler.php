@@ -36,12 +36,12 @@ final class RequestHandler
     }
 
     /**
-     * @template T of object
+     * @template T of DynamicRequest
      * @param class-string<T> $className
      * @return T
      * @throws ValidationException
      */
-    public function handle(string $className, ServerRequestInterface $request): object
+    public function handle(string $className, ServerRequestInterface $request): DynamicRequest
     {
         $metadata = $this->cache->get($className);
 
@@ -117,7 +117,7 @@ final class RequestHandler
         }
 
         // Create instance with dynamic properties
-        return $this->createInstance($className, $presentFields);
+        return $this->createInstance($className, $presentFields, $metadata->properties);
     }
 
     /**
@@ -248,20 +248,26 @@ final class RequestHandler
     }
 
     /**
-     * @template T of object
+     * @template T of DynamicRequest
      * @param class-string<T> $className
      * @param array<string, mixed> $data
+     * @param array<string, PropertyMetadata> $properties
      * @return T
      */
-    private function createInstance(string $className, array $data): object
+    private function createInstance(string $className, array $data, array $properties): DynamicRequest
     {
         $reflection = new ReflectionClass($className);
         $instance = $reflection->newInstanceWithoutConstructor();
 
-        // Set properties via __set magic method (from DynamicProperties trait)
-        foreach ($data as $name => $value) {
-            $instance->$name = $value;
+        $reflection->getProperty('data')->setValue($instance, $data);
+
+        $groups = [];
+        foreach ($properties as $name => $meta) {
+            if ($meta->group !== null && array_key_exists($name, $data)) {
+                $groups[$name] = $meta->group;
+            }
         }
+        $reflection->getProperty('groups')->setValue($instance, $groups);
 
         return $instance;
     }

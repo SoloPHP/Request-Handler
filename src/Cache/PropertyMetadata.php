@@ -20,6 +20,7 @@ final readonly class PropertyMetadata
         public ?string $castType,
         public ?string $preProcessor,
         public ?string $postProcessor,
+        public ?string $group = null,
     ) {
     }
 }

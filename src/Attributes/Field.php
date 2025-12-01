@@ -33,6 +33,7 @@ final readonly class Field
         public mixed $default = new NotSet(),
         public ?string $preProcess = null,
         public ?string $postProcess = null,
+        public ?string $group = null,
     ) {
     }
 

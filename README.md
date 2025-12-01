@@ -11,6 +11,7 @@ Dynamic request DTOs with validation for PHP 8.2+. Define your request structure
 
 - **Dynamic DTOs** - only fields present in the request become properties
 - **Class-level field definitions** - clean syntax with repeatable `#[Field]` attributes
+- **Field grouping** - organize fields into logical groups for easy extraction
 - **Automatic type casting** - built-in casters for int, float, bool, array, datetime
 - **Custom casters** - extend with your own type converters
 - **Pre/Post processing** - transform values before validation or after
@@ -39,16 +40,15 @@ namespace App\Requests;
 
 use Solo\RequestHandler\Attributes\AsRequest;
 use Solo\RequestHandler\Attributes\Field;
-use Solo\RequestHandler\Traits\DynamicProperties;
+use Solo\RequestHandler\DynamicRequest;
 
 #[AsRequest]
 #[Field('name', 'required|string|max:255')]
 #[Field('price', 'required|numeric|min:0', cast: 'float')]
 #[Field('stock', 'nullable|integer|min:0', cast: 'int', default: 0)]
 #[Field('description', 'nullable|string')]
-final class CreateProductRequest
+final class CreateProductRequest extends DynamicRequest
 {
-    use DynamicProperties;
 }
 ```
 
@@ -98,9 +98,10 @@ All field configuration is done via the `#[Field]` attribute at class level:
     rules: 'required|string',    // Validation rules (optional)
     cast: 'int',                 // Type casting (optional)
     mapFrom: 'input.path',       // Input path with dot notation (optional)
-    default: 'value',            // Default value
+    default: 'value',            // Default value (optional)
     preProcess: 'trim',          // Pre-processor (optional)
     postProcess: 'strtolower',   // Post-processor (optional)
+    group: 'groupName',          // Field group for extraction (optional)
 )]
 ```
 
@@ -125,15 +126,47 @@ All field configuration is done via the `#[Field]` attribute at class level:
 
 // Post-process after validation
 #[Field('slug', 'required|string', postProcess: 'strtolower')]
-final class MyRequest
+
+// Group fields for extraction
+#[Field('search', 'nullable|string', group: 'criteria')]
+#[Field('deleted', 'nullable|in:only,with', group: 'criteria')]
+final class MyRequest extends DynamicRequest
 {
-    use DynamicProperties;
 }
 ```
 
-## Dynamic Properties
+## Field Grouping
 
-The `DynamicProperties` trait provides the following methods:
+Group related fields together and extract them as an array:
+
+```php
+#[AsRequest]
+#[Field('search', 'nullable|string', group: 'criteria')]
+#[Field('status', 'nullable|in:active,inactive', group: 'criteria')]
+#[Field('page', 'integer|min:1', cast: 'int', default: 1)]
+#[Field('per_page', 'integer|min:1|max:100', cast: 'int', default: 20)]
+final class UserIndexRequest extends DynamicRequest
+{
+}
+
+// In controller:
+$data = $this->requestHandler->handle(UserIndexRequest::class, $request);
+
+// Extract all criteria fields at once
+$criteria = $data->group('criteria');
+// ['search' => 'john', 'status' => 'active']
+
+// Use for repository queries
+$users = $this->userRepository->findBy(
+    $criteria,
+    $data->per_page,
+    $data->page
+);
+```
+
+## DynamicRequest Methods
+
+The `DynamicRequest` base class provides the following methods:
 
 ```php
 $data = $handler->handle(ProductRequest::class, $request);
@@ -156,6 +189,9 @@ $description = $data->get('description', 'No description');
 
 // Convert to array (only present fields)
 $array = $data->toArray();
+
+// Get fields by group
+$criteria = $data->group('criteria');
 ```
 
 ### Behavior
@@ -166,9 +202,8 @@ Only fields present in the HTTP request become properties:
 #[AsRequest]
 #[Field('name', 'required|string')]
 #[Field('description', 'nullable|string')]
-final class ProductRequest
+final class ProductRequest extends DynamicRequest
 {
-    use DynamicProperties;
 }
 
 // Request: POST /products with body: {"name": "Widget"}
@@ -230,10 +265,8 @@ final class MoneyCaster implements CasterInterface
 
 // Static method in the DTO class
 #[Field('phone', 'required|string', preProcess: 'normalizePhone')]
-final class ContactRequest
+final class ContactRequest extends DynamicRequest
 {
-    use DynamicProperties;
-
     public static function normalizePhone(string $value): string
     {
         return preg_replace('/[^0-9+]/', '', $value);
@@ -285,7 +318,7 @@ namespace App\Requests;
 
 use Solo\RequestHandler\Attributes\AsRequest;
 use Solo\RequestHandler\Attributes\Field;
-use Solo\RequestHandler\Traits\DynamicProperties;
+use Solo\RequestHandler\DynamicRequest;
 
 #[AsRequest]
 #[Field('customerId', 'required|integer|min:1', cast: 'int', mapFrom: 'customer.id')]
@@ -294,10 +327,8 @@ use Solo\RequestHandler\Traits\DynamicProperties;
 #[Field('notes', 'nullable|string|max:500', preProcess: 'trim')]
 #[Field('status', 'nullable|string|in:pending,confirmed,shipped', default: 'pending')]
 #[Field('deliveryDate', 'nullable|date', cast: 'datetime:Y-m-d')]
-final class CreateOrderRequest
+final class CreateOrderRequest extends DynamicRequest
 {
-    use DynamicProperties;
-
     public static function roundTotal(float $value): float
     {
         return round($value, 2);

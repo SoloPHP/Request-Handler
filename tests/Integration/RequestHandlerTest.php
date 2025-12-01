@@ -7,9 +7,9 @@ namespace Solo\RequestHandler\Tests\Integration;
 use PHPUnit\Framework\TestCase;
 use Solo\RequestHandler\Attributes\AsRequest;
 use Solo\RequestHandler\Attributes\Field;
+use Solo\RequestHandler\DynamicRequest;
 use Solo\RequestHandler\Exceptions\ValidationException;
 use Solo\RequestHandler\RequestHandler;
-use Solo\RequestHandler\Traits\DynamicProperties;
 use Solo\Contracts\Validator\ValidatorInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -239,6 +239,40 @@ final class RequestHandlerTest extends TestCase
         // Unknown processor returns value unchanged
         $this->assertEquals('test', $dto->value);
     }
+
+    public function testGroupReturnsFieldsWithSameGroup(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('GET');
+        $request->method('getQueryParams')->willReturn([
+            'search' => 'test',
+            'deleted' => 'only',
+            'page' => '2',
+            'per_page' => '10'
+        ]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(GroupedRequest::class, $request);
+
+        $criteria = $dto->group('criteria');
+        $this->assertEquals(['search' => 'test', 'deleted' => 'only'], $criteria);
+        $this->assertArrayNotHasKey('page', $criteria);
+        $this->assertArrayNotHasKey('per_page', $criteria);
+    }
+
+    public function testGroupReturnsEmptyArrayWhenNoFieldsMatch(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('GET');
+        $request->method('getQueryParams')->willReturn(['page' => '1']);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(GroupedRequest::class, $request);
+
+        $this->assertEquals([], $dto->group('criteria'));
+    }
 }
 
 /**
@@ -254,9 +288,8 @@ final class RequestHandlerTest extends TestCase
 #[Field('description', 'nullable|string')]
 #[Field('page', 'integer', default: 1)]
 #[Field('userId', 'integer', mapFrom: 'user.id')]
-final class TestRequest
+final class TestRequest extends DynamicRequest
 {
-    use DynamicProperties;
 }
 
 /**
@@ -265,11 +298,9 @@ final class TestRequest
  */
 #[AsRequest]
 #[Field('name', 'string', preProcess: 'trim')]
-#[Field('slug', 'string', postProcess: 'slugify')] // Simplified for test
-final class ProcessingRequest
+#[Field('slug', 'string', postProcess: 'slugify')]
+final class ProcessingRequest extends DynamicRequest
 {
-    use DynamicProperties;
-
     public static function slugify(string $value): string
     {
         return str_replace(' ', '-', strtolower($value));
@@ -281,9 +312,8 @@ final class ProcessingRequest
  */
 #[AsRequest]
 #[Field('id', 'required|integer', cast: CustomCaster::class)]
-final class CustomCasterRequest
+final class CustomCasterRequest extends DynamicRequest
 {
-    use DynamicProperties;
 }
 
 /**
@@ -291,9 +321,8 @@ final class CustomCasterRequest
  */
 #[AsRequest]
 #[Field('value', 'required', preProcess: TestPreProcessor::class)]
-final class PreProcessorRequest
+final class PreProcessorRequest extends DynamicRequest
 {
-    use DynamicProperties;
 }
 
 /**
@@ -301,9 +330,23 @@ final class PreProcessorRequest
  */
 #[AsRequest]
 #[Field('value', 'required', postProcess: TestPostProcessor::class)]
-final class PostProcessorRequest
+final class PostProcessorRequest extends DynamicRequest
 {
-    use DynamicProperties;
+}
+
+/**
+ * @property string $search
+ * @property string $deleted
+ * @property int $page
+ * @property int $per_page
+ */
+#[AsRequest]
+#[Field('search', 'nullable|string', group: 'criteria')]
+#[Field('deleted', 'nullable|in:only,with', group: 'criteria')]
+#[Field('page', 'integer|min:1', cast: 'int', default: 1)]
+#[Field('per_page', 'integer|min:1|max:100', cast: 'int', default: 20)]
+final class GroupedRequest extends DynamicRequest
+{
 }
 
 final class CustomCaster implements \Solo\RequestHandler\Casters\CasterInterface
@@ -343,9 +386,8 @@ final class TestCasterAsProcessor implements \Solo\RequestHandler\Casters\Caster
  */
 #[AsRequest]
 #[Field('value', 'required', preProcess: TestCasterAsProcessor::class)]
-final class CasterAsProcessorRequest
+final class CasterAsProcessorRequest extends DynamicRequest
 {
-    use DynamicProperties;
 }
 
 /**
@@ -353,7 +395,6 @@ final class CasterAsProcessorRequest
  */
 #[AsRequest]
 #[Field('value', 'required', preProcess: 'nonExistentHandler')]
-final class UnknownProcessorRequest
+final class UnknownProcessorRequest extends DynamicRequest
 {
-    use DynamicProperties;
 }

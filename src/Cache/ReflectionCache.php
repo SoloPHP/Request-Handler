@@ -76,6 +76,7 @@ final class ReflectionCache
             castType: $field->cast,
             preProcessor: $field->preProcess,
             postProcessor: $field->postProcess,
+            group: $field->group,
         );
     }
 

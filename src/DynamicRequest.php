@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Solo\RequestHandler\Traits;
+namespace Solo\RequestHandler;
 
 use Error;
 
 /**
- * Provides dynamic property access for request DTOs
+ * Base class for request DTOs with dynamic property access
  *
  * Properties are created only for fields present in the request.
  * Accessing a property that wasn't in the request throws an Error.
@@ -17,9 +17,8 @@ use Error;
  * #[AsRequest]
  * #[Field('name', 'required|string')]
  * #[Field('description', 'nullable|string')]
- * final class ProductRequest
+ * final class ProductRequest extends DynamicRequest
  * {
- *     use DynamicProperties;
  * }
  *
  * // Request: ['name' => 'Product']
@@ -32,29 +31,33 @@ use Error;
  * isset($data->description); // false
  *
  * $data->toArray();   // ['name' => 'Product']
+ * $data->group('criteria'); // ['search' => '...', 'deleted' => '...']
  * ```
  */
-trait DynamicProperties
+abstract class DynamicRequest
 {
     /** @var array<string, mixed> */
-    private array $dynamicPropertiesData = [];
+    protected array $data = [];
+
+    /** @var array<string, string> */
+    protected array $groups = [];
 
     public function __get(string $name): mixed
     {
-        if (!array_key_exists($name, $this->dynamicPropertiesData)) {
+        if (!array_key_exists($name, $this->data)) {
             throw new Error("Undefined property: " . static::class . "::\${$name}");
         }
-        return $this->dynamicPropertiesData[$name];
+        return $this->data[$name];
     }
 
     public function __isset(string $name): bool
     {
-        return array_key_exists($name, $this->dynamicPropertiesData);
+        return array_key_exists($name, $this->data);
     }
 
     public function __set(string $name, mixed $value): void
     {
-        $this->dynamicPropertiesData[$name] = $value;
+        $this->data[$name] = $value;
     }
 
     /**
@@ -64,7 +67,7 @@ trait DynamicProperties
      */
     public function toArray(): array
     {
-        return $this->dynamicPropertiesData;
+        return $this->data;
     }
 
     /**
@@ -72,7 +75,7 @@ trait DynamicProperties
      */
     public function has(string $name): bool
     {
-        return array_key_exists($name, $this->dynamicPropertiesData);
+        return array_key_exists($name, $this->data);
     }
 
     /**
@@ -80,6 +83,22 @@ trait DynamicProperties
      */
     public function get(string $name, mixed $default = null): mixed
     {
-        return $this->dynamicPropertiesData[$name] ?? $default;
+        return $this->data[$name] ?? $default;
+    }
+
+    /**
+     * Get all properties belonging to a specific group
+     *
+     * @return array<string, mixed>
+     */
+    public function group(string $name): array
+    {
+        $result = [];
+        foreach ($this->data as $property => $value) {
+            if (($this->groups[$property] ?? null) === $name) {
+                $result[$property] = $value;
+            }
+        }
+        return $result;
     }
 }
