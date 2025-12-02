@@ -48,6 +48,10 @@ final class RequestHandler
     {
         $metadata = $this->cache->get($className);
 
+        // Create instance early to get custom messages
+        $reflection = new ReflectionClass($className);
+        $instance = $reflection->newInstanceWithoutConstructor();
+
         // Extract raw data from request
         $rawData = $this->extractData($request);
 
@@ -109,7 +113,7 @@ final class RequestHandler
 
         // Validate
         if (!empty($validationRules)) {
-            $this->validate($validationData, $validationRules);
+            $this->validate($validationData, $validationRules, $instance->getMessages());
         }
 
         // Cast and post-process
@@ -127,8 +131,8 @@ final class RequestHandler
             $presentFields[$name] = $value;
         }
 
-        // Create instance and set properties
-        return $this->createInstance($className, $presentFields);
+        // Set property values on instance
+        return $this->populateInstance($instance, $reflection, $presentFields);
     }
 
     /**
@@ -247,11 +251,12 @@ final class RequestHandler
     /**
      * @param array<string, mixed> $data
      * @param array<string, string> $rules
+     * @param array<string, string> $messages
      * @throws ValidationException
      */
-    private function validate(array $data, array $rules): void
+    private function validate(array $data, array $rules, array $messages = []): void
     {
-        $errors = $this->validator->validate($data, $rules);
+        $errors = $this->validator->validate($data, $rules, $messages);
 
         if (!empty($errors)) {
             throw new ValidationException($errors);
@@ -260,27 +265,21 @@ final class RequestHandler
 
     /**
      * @template T of Request
-     * @param class-string<T> $className
+     * @param T $instance
+     * @param ReflectionClass<T> $reflection
      * @param array<string, mixed> $data
      * @return T
      */
-    private function createInstance(string $className, array $data): Request
+    private function populateInstance(Request $instance, ReflectionClass $reflection, array $data): Request
     {
-        $reflection = new ReflectionClass($className);
-        $instance = $reflection->newInstanceWithoutConstructor();
-
-        // Set property values
         foreach ($data as $name => $value) {
             try {
                 $property = $reflection->getProperty($name);
                 if ($property->isPublic() && !$property->isStatic()) {
                     // Runtime protection: prevent null assignment to non-nullable types
-                    // This should not happen if configuration is valid,
-                    // but we add this as an extra safety layer
                     if ($value === null) {
                         $type = $property->getType();
                         if ($type && !$type->allowsNull()) {
-                            // Skip setting null for non-nullable types
                             continue;
                         }
                     }
@@ -288,7 +287,7 @@ final class RequestHandler
                     $property->setValue($instance, $value);
                 }
             } catch (\ReflectionException) {
-                // Property doesn't exist - ignore (as per requirements)
+                // Property doesn't exist - ignore
             }
         }
 

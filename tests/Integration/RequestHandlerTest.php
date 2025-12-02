@@ -333,6 +333,29 @@ final class RequestHandlerTest extends TestCase
         $this->assertEquals('test', $dto->value);
     }
 
+    public function testCustomMessagesArePassedToValidator(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['name' => 'Test', 'email' => 'invalid']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        // Verify that custom messages are passed to validator
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(
+                ['name' => 'Test', 'email' => 'invalid'],
+                ['name' => 'required|string', 'email' => 'required|email'],
+                [
+                    'name.required' => 'Please enter your name',
+                    'email.email' => 'Please enter a valid email',
+                ]
+            )
+            ->willReturn([]);
+
+        $this->handler->handle(CustomMessagesTestRequest::class, $request);
+    }
+
     public function testStaticPropertiesIgnoredInCreateInstance(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
@@ -393,14 +416,17 @@ final class RequestHandlerTest extends TestCase
         $this->assertEquals(['key' => 'value'], $dto->data);
     }
 
-    public function testCreateInstanceIgnoresNonExistentProperties(): void
+    public function testPopulateInstanceIgnoresNonExistentProperties(): void
     {
-        // Use reflection to call createInstance with invalid property name
-        $reflection = new \ReflectionClass($this->handler);
-        $method = $reflection->getMethod('createInstance');
+        // Use reflection to call populateInstance with invalid property name
+        $handlerReflection = new \ReflectionClass($this->handler);
+        $method = $handlerReflection->getMethod('populateInstance');
+
+        $classReflection = new \ReflectionClass(TestRequest::class);
+        $instance = $classReflection->newInstanceWithoutConstructor();
 
         // Call with data containing non-existent property
-        $dto = $method->invoke($this->handler, TestRequest::class, [
+        $dto = $method->invoke($this->handler, $instance, $classReflection, [
             'name' => 'Test',
             'nonExistent' => 'ignored', // This property doesn't exist
         ]);
@@ -409,14 +435,17 @@ final class RequestHandlerTest extends TestCase
         $this->assertFalse(property_exists($dto, 'nonExistent'));
     }
 
-    public function testCreateInstanceSkipsNullForNonNullableTypes(): void
+    public function testPopulateInstanceSkipsNullForNonNullableTypes(): void
     {
         // Test the runtime protection that prevents null assignment to non-nullable types
-        $reflection = new \ReflectionClass($this->handler);
-        $method = $reflection->getMethod('createInstance');
+        $handlerReflection = new \ReflectionClass($this->handler);
+        $method = $handlerReflection->getMethod('populateInstance');
+
+        $classReflection = new \ReflectionClass(NonNullableRequest::class);
+        $instance = $classReflection->newInstanceWithoutConstructor();
 
         // Attempt to set null to a non-nullable string property
-        $dto = $method->invoke($this->handler, NonNullableRequest::class, [
+        $dto = $method->invoke($this->handler, $instance, $classReflection, [
             'id' => null,  // This should be skipped (id is non-nullable int)
             'name' => 'Test',
         ]);
@@ -585,4 +614,21 @@ final class NonNullableRequest extends Request
 {
     public int $id;
     public string $name;
+}
+
+final class CustomMessagesTestRequest extends Request
+{
+    #[Field(rules: 'required|string')]
+    public string $name;
+
+    #[Field(rules: 'required|email')]
+    public string $email;
+
+    protected function messages(): array
+    {
+        return [
+            'name.required' => 'Please enter your name',
+            'email.email' => 'Please enter a valid email',
+        ];
+    }
 }

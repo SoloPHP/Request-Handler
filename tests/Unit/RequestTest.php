@@ -208,6 +208,25 @@ final class RequestTest extends TestCase
         $this->assertArrayNotHasKey(StaticGroupRequest::class, $cache);
         $this->assertArrayHasKey(MultiGroupRequest::class, $cache);
     }
+
+    public function testMessagesReturnsEmptyArrayByDefault(): void
+    {
+        $dto = new TestRequest();
+
+        $this->assertEquals([], $dto->getMessages());
+    }
+
+    public function testCustomMessagesAreReturned(): void
+    {
+        $dto = new CustomMessagesRequest();
+
+        $expected = [
+            'name.required' => 'Name is required',
+            'email.email' => 'Invalid email format',
+        ];
+
+        $this->assertEquals($expected, $dto->getMessages());
+    }
 }
 
 final class TestRequest extends Request
@@ -240,4 +259,21 @@ final class MultiGroupRequest extends Request
 
     #[Field(group: 'criteria')]
     public ?string $status;
+}
+
+final class CustomMessagesRequest extends Request
+{
+    #[Field(rules: 'required|string')]
+    public string $name;
+
+    #[Field(rules: 'required|email')]
+    public string $email;
+
+    protected function messages(): array
+    {
+        return [
+            'name.required' => 'Name is required',
+            'email.email' => 'Invalid email format',
+        ];
+    }
 }

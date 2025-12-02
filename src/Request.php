@@ -136,6 +136,40 @@ abstract class Request
     }
 
     /**
+     * Custom validation error messages
+     *
+     * Override this method to provide custom error messages for validation rules.
+     *
+     * Example:
+     * ```php
+     * protected function messages(): array
+     * {
+     *     return [
+     *         'email.required' => 'Please provide your email address',
+     *         'email.email' => 'Invalid email format',
+     *         'age.min' => 'You must be at least 18 years old',
+     *     ];
+     * }
+     * ```
+     *
+     * @return array<string, string>
+     */
+    protected function messages(): array
+    {
+        return [];
+    }
+
+    /**
+     * Get custom validation messages
+     *
+     * @return array<string, string>
+     */
+    public function getMessages(): array
+    {
+        return $this->messages();
+    }
+
+    /**
      * Clear the static group cache
      *
      * Useful for long-running processes (Swoole, RoadRunner, Laravel Octane)
