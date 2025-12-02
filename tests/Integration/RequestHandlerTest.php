@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace Solo\RequestHandler\Tests\Integration;
 
 use PHPUnit\Framework\TestCase;
-use Solo\RequestHandler\Attributes\AsRequest;
 use Solo\RequestHandler\Attributes\Field;
-use Solo\RequestHandler\DynamicRequest;
+use Solo\RequestHandler\Request;
 use Solo\RequestHandler\Exceptions\ValidationException;
 use Solo\RequestHandler\RequestHandler;
 use Solo\Contracts\Validator\ValidatorInterface;
@@ -31,6 +30,7 @@ final class RequestHandlerTest extends TestCase
         $request->method('getParsedBody')->willReturn(['name' => 'Test Item', 'price' => '10.50']);
         $request->method('getQueryParams')->willReturn([]);
 
+        // name and price are required (no ? and no default), so 'required' is auto-added
         $this->validator->expects($this->once())
             ->method('validate')
             ->with(
@@ -227,17 +227,16 @@ final class RequestHandlerTest extends TestCase
 
     public function testHandleWithUnknownProcessor(): void
     {
+        // Unknown processor now throws ConfigurationException at metadata building time
+        $this->expectException(\Solo\RequestHandler\Exceptions\ConfigurationException::class);
+        $this->expectExceptionMessage("has invalid preProcess 'nonExistentHandler'");
+
         $request = $this->createMock(ServerRequestInterface::class);
         $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['value' => 'test']);
         $request->method('getQueryParams')->willReturn([]);
 
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handle(UnknownProcessorRequest::class, $request);
-
-        // Unknown processor returns value unchanged
-        $this->assertEquals('test', $dto->value);
+        $this->handler->handle(UnknownProcessorRequest::class, $request);
     }
 
     public function testGroupReturnsFieldsWithSameGroup(): void
@@ -271,82 +270,223 @@ final class RequestHandlerTest extends TestCase
 
         $dto = $this->handler->handle(GroupedRequest::class, $request);
 
-        $this->assertEquals([], $dto->group('criteria'));
+        // After refactoring: properties with default null are now always initialized
+        // This is correct behavior - fixes the "must not be accessed before initialization" bug
+        $this->assertEquals(['search' => null, 'deleted' => null], $dto->group('criteria'));
+    }
+
+    public function testFieldAttributeIsOptional(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['name' => 'John', 'email' => 'john@example.com']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        // Only properties with validation rules will be validated
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(
+                ['name' => 'John'],
+                ['name' => 'required|string']
+            )
+            ->willReturn([]);
+
+        $dto = $this->handler->handle(NoAttributeRequest::class, $request);
+
+        $this->assertEquals('John', $dto->name);
+        $this->assertEquals('john@example.com', $dto->email);
+        $this->assertEquals(18, $dto->age); // Default value
+    }
+
+    public function testRequiredFieldMissing(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn([]); // Missing required field
+        $request->method('getQueryParams')->willReturn([]);
+
+        // name is required (has 'required' in rules) but missing
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(
+                ['name' => null],
+                ['name' => 'required|string']
+            )
+            ->willReturn(['name' => ['The name field is required']]);
+
+        $this->expectException(ValidationException::class);
+        $this->handler->handle(NoAttributeRequest::class, $request);
+    }
+
+    public function testOptionalFieldWithoutRulesHasNoValidation(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['value' => 'test']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        // Optional field with no rules - no validation called
+        $this->validator->expects($this->never())->method('validate');
+
+        $dto = $this->handler->handle(OptionalNoRulesRequest::class, $request);
+
+        $this->assertEquals('test', $dto->value);
+    }
+
+    public function testStaticPropertiesIgnoredInCreateInstance(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['name' => 'Test']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        StaticRequest::$counter = 5;
+        $dto = $this->handler->handle(StaticRequest::class, $request);
+
+        $this->assertEquals('Test', $dto->name);
+        $this->assertEquals(5, StaticRequest::$counter); // Static not modified
+    }
+
+    public function testNonCasterClassInCastIsIgnored(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['value' => 'test']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(InvalidCasterRequest::class, $request);
+
+        // Value unchanged because class doesn't implement CasterInterface
+        $this->assertEquals('test', $dto->value);
+    }
+
+    public function testExplicitBuiltInCast(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['value' => '42']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(ExplicitBuiltInCastRequest::class, $request);
+
+        $this->assertSame(42, $dto->value);
+    }
+
+    public function testNonBuiltInTypeWithoutCast(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['data' => ['key' => 'value']]);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(NonBuiltInTypeRequest::class, $request);
+
+        // Array returned as-is (stdClass is not a built-in type for casting)
+        $this->assertEquals(['key' => 'value'], $dto->data);
+    }
+
+    public function testCreateInstanceIgnoresNonExistentProperties(): void
+    {
+        // Use reflection to call createInstance with invalid property name
+        $reflection = new \ReflectionClass($this->handler);
+        $method = $reflection->getMethod('createInstance');
+
+        // Call with data containing non-existent property
+        $dto = $method->invoke($this->handler, TestRequest::class, [
+            'name' => 'Test',
+            'nonExistent' => 'ignored', // This property doesn't exist
+        ]);
+
+        $this->assertEquals('Test', $dto->name);
+        $this->assertFalse(property_exists($dto, 'nonExistent'));
+    }
+
+    public function testCreateInstanceSkipsNullForNonNullableTypes(): void
+    {
+        // Test the runtime protection that prevents null assignment to non-nullable types
+        $reflection = new \ReflectionClass($this->handler);
+        $method = $reflection->getMethod('createInstance');
+
+        // Attempt to set null to a non-nullable string property
+        $dto = $method->invoke($this->handler, NonNullableRequest::class, [
+            'id' => null,  // This should be skipped (id is non-nullable int)
+            'name' => 'Test',
+        ]);
+
+        $this->assertEquals('Test', $dto->name);
+        $this->assertFalse(isset($dto->id)); // Should remain uninitialized
     }
 }
 
-/**
- * @property string $name
- * @property float $price
- * @property string|null $description
- * @property int $page
- * @property int $userId
- */
-#[AsRequest]
-#[Field('name', 'required|string')]
-#[Field('price', 'required|numeric', cast: 'float')]
-#[Field('description', 'nullable|string')]
-#[Field('page', 'integer', default: 1)]
-#[Field('userId', 'integer', mapFrom: 'user.id')]
-final class TestRequest extends DynamicRequest
+final class TestRequest extends Request
 {
+    #[Field(rules: 'required|string')]
+    public string $name;
+
+    #[Field(rules: 'required|numeric')]
+    public float $price;
+
+    public ?string $description = null;
+
+    public int $page = 1;
+
+    #[Field(mapFrom: 'user.id')]
+    public ?int $userId = null;
 }
 
-/**
- * @property string $name
- * @property string $slug
- */
-#[AsRequest]
-#[Field('name', 'string', preProcess: 'trim')]
-#[Field('slug', 'string', postProcess: 'slugify')]
-final class ProcessingRequest extends DynamicRequest
+final class ProcessingRequest extends Request
 {
+    #[Field(preProcess: 'trim')]
+    public string $name;
+
+    #[Field(postProcess: 'slugify')]
+    public string $slug;
+
     public static function slugify(string $value): string
     {
         return str_replace(' ', '-', strtolower($value));
     }
 }
 
-/**
- * @property int $id
- */
-#[AsRequest]
-#[Field('id', 'required|integer', cast: CustomCaster::class)]
-final class CustomCasterRequest extends DynamicRequest
+final class CustomCasterRequest extends Request
 {
+    #[Field(cast: CustomCaster::class)]
+    public int $id;
 }
 
-/**
- * @property string $value
- */
-#[AsRequest]
-#[Field('value', 'required', preProcess: TestPreProcessor::class)]
-final class PreProcessorRequest extends DynamicRequest
+final class PreProcessorRequest extends Request
 {
+    #[Field(preProcess: TestPreProcessor::class)]
+    public string $value;
 }
 
-/**
- * @property string $value
- */
-#[AsRequest]
-#[Field('value', 'required', postProcess: TestPostProcessor::class)]
-final class PostProcessorRequest extends DynamicRequest
+final class PostProcessorRequest extends Request
 {
+    #[Field(postProcess: TestPostProcessor::class)]
+    public string $value;
 }
 
-/**
- * @property string $search
- * @property string $deleted
- * @property int $page
- * @property int $per_page
- */
-#[AsRequest]
-#[Field('search', 'nullable|string', group: 'criteria')]
-#[Field('deleted', 'nullable|in:only,with', group: 'criteria')]
-#[Field('page', 'integer|min:1', cast: 'int', default: 1)]
-#[Field('per_page', 'integer|min:1|max:100', cast: 'int', default: 20)]
-final class GroupedRequest extends DynamicRequest
+final class GroupedRequest extends Request
 {
+    #[Field(group: 'criteria')]
+    public ?string $search = null;
+
+    #[Field(rules: 'in:only,with', group: 'criteria')]
+    public ?string $deleted = null;
+
+    #[Field(rules: 'min:1')]
+    public int $page = 1;
+
+    #[Field(rules: 'min:1|max:100')]
+    public int $per_page = 20;
 }
 
 final class CustomCaster implements \Solo\RequestHandler\Casters\CasterInterface
@@ -381,20 +521,68 @@ final class TestCasterAsProcessor implements \Solo\RequestHandler\Casters\Caster
     }
 }
 
-/**
- * @property string $value
- */
-#[AsRequest]
-#[Field('value', 'required', preProcess: TestCasterAsProcessor::class)]
-final class CasterAsProcessorRequest extends DynamicRequest
+final class CasterAsProcessorRequest extends Request
 {
+    #[Field(preProcess: TestCasterAsProcessor::class)]
+    public string $value;
 }
 
-/**
- * @property string $value
- */
-#[AsRequest]
-#[Field('value', 'required', preProcess: 'nonExistentHandler')]
-final class UnknownProcessorRequest extends DynamicRequest
+final class UnknownProcessorRequest extends Request
 {
+    #[Field(preProcess: 'nonExistentHandler')]
+    public string $value;
+}
+
+// Test: #[Field] is optional, properties without it still work
+final class NoAttributeRequest extends Request
+{
+    #[Field(rules: 'required|string')]
+    public string $name;
+
+    public ?string $email = null;  // No rules - won't be validated
+    public int $age = 18;          // No rules - won't be validated
+}
+
+final class OptionalNoRulesRequest extends Request
+{
+    public ?string $value = null;
+}
+
+final class StaticRequest extends Request
+{
+    public static int $counter = 0;
+    public string $name;
+}
+
+// Class that doesn't implement CasterInterface
+final class NotACaster
+{
+    public function cast(mixed $value): string
+    {
+        return 'should_not_work';
+    }
+}
+
+final class InvalidCasterRequest extends Request
+{
+    #[Field(cast: NotACaster::class)]
+    public string $value;
+}
+
+final class ExplicitBuiltInCastRequest extends Request
+{
+    #[Field(cast: 'int')]
+    public int $value;
+}
+
+final class NonBuiltInTypeRequest extends Request
+{
+    /** @var mixed */
+    public $data;
+}
+
+final class NonNullableRequest extends Request
+{
+    public int $id;
+    public string $name;
 }

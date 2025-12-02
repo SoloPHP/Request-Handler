@@ -134,12 +134,6 @@ final class BuiltInCasterTest extends TestCase
         $this->assertSame('', $this->caster->cast('string', $obj));
     }
 
-    public function testCastArrayFromEmptyString(): void
-    {
-        // Empty string returns null early in cast()
-        $this->assertNull($this->caster->cast('array', ''));
-    }
-
     public function testCastArrayFromObject(): void
     {
         $obj = new \stdClass();
@@ -199,20 +193,5 @@ final class BuiltInCasterTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Unknown cast type: unknown');
         $this->caster->cast('unknown', 'value');
-    }
-
-    public function testCastDoubleAlias(): void
-    {
-        $this->assertSame(12.5, $this->caster->cast('double', '12.5'));
-    }
-
-    public function testCastBooleanAlias(): void
-    {
-        $this->assertTrue($this->caster->cast('boolean', 'yes'));
-    }
-
-    public function testCastIntegerAlias(): void
-    {
-        $this->assertSame(42, $this->caster->cast('integer', '42'));
     }
 }

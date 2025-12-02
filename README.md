@@ -5,21 +5,24 @@
 [![PHP Version](https://img.shields.io/badge/PHP-8.2%2B-8892BF.svg)](https://php.net/)
 [![Code Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
-Dynamic request DTOs with validation for PHP 8.2+. Define your request structure once using class-level attributes, get only present fields in response.
+**Type-safe Request DTOs for PHP 8.2+**
+
+Transform raw HTTP requests into strictly typed Data Transfer Objects (DTOs) with automatic validation, type casting, and full IDE support.
+
+---
 
 ## Features
 
-- **Dynamic DTOs** - only fields present in the request become properties
-- **Class-level field definitions** - clean syntax with repeatable `#[Field]` attributes
-- **Field grouping** - organize fields into logical groups for easy extraction
-- **Automatic type casting** - built-in casters for int, float, bool, array, datetime
-- **Custom casters** - extend with your own type converters
-- **Pre/Post processing** - transform values before validation or after
-- **Nested input mapping** - access deeply nested request data with dot notation
-- **Default values** - define fallback values for missing fields
-- **Reflection caching** - metadata parsed once and cached for performance
-- **PSR-7 compatible** - works with any PSR-7 HTTP message implementation
-- **Vendor-independent validation** - use any validator implementing the interface
+- **Type-Safe**: Properties are strictly typed with automatic casting from request data.
+- **IDE Friendly**: Full autocomplete and static analysis support.
+- **Clean Syntax**: Use `#[Field]` attributes directly on properties.
+- **Automatic Casting**: Converts strings to `int`, `float`, `bool`, `array`, and `DateTime`.
+- **Field Grouping**: Organize fields (e.g., filters, pagination) for easy extraction.
+- **Nested Mapping**: Map deeply nested input (e.g., `user.profile.name`) to flat properties.
+- **High Performance**: Reflection metadata is cached for optimal speed.
+- **PSR-7 Compatible**: Works with any PSR-7 compliant HTTP library.
+
+---
 
 ## Installation
 
@@ -27,325 +30,420 @@ Dynamic request DTOs with validation for PHP 8.2+. Define your request structure
 composer require solophp/request-handler
 ```
 
+---
+
 ## Quick Start
 
-### Define a Request DTO
+### 1. Define a Request DTO
+
+Create a class extending `Request` and define your public properties with the `#[Field]` attribute.
 
 ```php
 <?php
-
-declare(strict_types=1);
 
 namespace App\Requests;
 
-use Solo\RequestHandler\Attributes\AsRequest;
 use Solo\RequestHandler\Attributes\Field;
-use Solo\RequestHandler\DynamicRequest;
+use Solo\RequestHandler\Request;
 
-#[AsRequest]
-#[Field('name', 'required|string|max:255')]
-#[Field('price', 'required|numeric|min:0', cast: 'float')]
-#[Field('stock', 'nullable|integer|min:0', cast: 'int', default: 0)]
-#[Field('description', 'nullable|string')]
-final class CreateProductRequest extends DynamicRequest
+final class CreateProductRequest extends Request
 {
+#[Field(rules: 'required|string|max:255')]
+public string $name;
+
+#[Field(rules: 'required|numeric|min:0')]
+public float $price;
+
+#[Field(rules: 'nullable|integer|min:0')]
+public int $stock = 0;
+
+#[Field(rules: 'nullable|string')]
+public ?string $description = null;
 }
 ```
 
-### Use in Controller
+### 2. Handle the Request
+
+Inject `RequestHandler` and use it to process the incoming PSR-7 request.
 
 ```php
-<?php
-
-declare(strict_types=1);
-
-namespace App\Controllers;
-
 use App\Requests\CreateProductRequest;
 use Solo\RequestHandler\RequestHandler;
 use Solo\RequestHandler\Exceptions\ValidationException;
 
-final class ProductController
+class ProductController
 {
-    public function __construct(
-        private readonly RequestHandler $requestHandler,
-        private readonly ProductService $productService,
-    ) {}
+public function __construct(
+    private readonly RequestHandler $requestHandler,
+    private readonly ProductService $productService,
+) {}
 
-    public function store(ServerRequestInterface $request): ResponseInterface
-    {
-        try {
-            $data = $this->requestHandler->handle(CreateProductRequest::class, $request);
+public function store(ServerRequestInterface $request): ResponseInterface
+{
+    try {
+        // 1. Validate, Cast, and Create DTO
+        $dto = $this->requestHandler->handle(CreateProductRequest::class, $request);
 
-            // $data only contains properties that were in the request
-            $product = $this->productService->create($data->toArray());
+        // 2. Use Typed Data (Full IDE Support)
+        $this->productService->create(
+            name: $dto->name,          // string
+            price: $dto->price,        // float
+            stock: $dto->stock,        // int
+            description: $dto->description // ?string
+        );
 
-            return $this->json(['id' => $product->id], 201);
-        } catch (ValidationException $e) {
-            return $this->json(['errors' => $e->getErrors()], 422);
-        }
+        return $this->json(['status' => 'created'], 201);
+
+    } catch (ValidationException $e) {
+        return $this->json(['errors' => $e->getErrors()], 422);
     }
 }
+}
 ```
 
-## The #[Field] Attribute
+### ⚠️ Important: Accessing Uninitialized Properties
 
-All field configuration is done via the `#[Field]` attribute at class level:
+If a property was not present in the request (and has no default value), accessing it directly will cause a PHP Error.
 
 ```php
-#[Field(
-    name: 'fieldName',           // Property name (required)
-    rules: 'required|string',    // Validation rules (optional)
-    cast: 'int',                 // Type casting (optional)
-    mapFrom: 'input.path',       // Input path with dot notation (optional)
-    default: 'value',            // Default value (optional)
-    preProcess: 'trim',          // Pre-processor (optional)
-    postProcess: 'strtolower',   // Post-processor (optional)
-    group: 'groupName',          // Field group for extraction (optional)
-)]
+$dto = $handler->handle(ProductRequest::class, $request);
+
+// If 'description' was missing in the request:
+echo $dto->description; // ❌ Error: Typed property must not be accessed before initialization
+
+// Correct way to check:
+if (isset($dto->description)) { // or $dto->has('description')
+echo $dto->description;
+}
+
+// Or get with default value:
+$desc = $dto->get('description', 'No description');
 ```
 
-### Examples
+---
+
+## Documentation
+
+### The `#[Field]` Attribute
+
+The `#[Field]` attribute is the core of this library. It tells the handler how to process each property.
+
+| Parameter | Description | Example |
+| :--- | :--- | :--- |
+| `rules` | Validation rules string. | `'required|email'` |
+| `cast` | Explicit type casting (optional). | `'datetime:Y-m-d'` |
+| `mapFrom` | Dot-notation path to source data. | `'user.profile.id'` |
+| `group` | Group name for bulk extraction. | `'filters'` |
+| `preProcess` | Function to run *before* validation. | `'trim'` |
+| `postProcess` | Function to run *after* validation. | `'strtolower'` |
+
+### Common Scenarios
+
+#### Required vs. Optional Fields
+
+- **Required**: Must be present in the request. Use `rules: 'required'`.
+- **Optional**: May be missing. Do **not** use `required`.
+- **Nullable**: Can be present but `null`. Use `rules: 'nullable'`.
 
 ```php
-#[AsRequest]
-// Simple required field
-#[Field('name', 'required|string|max:255')]
+// 1. Required (Must be present, cannot be null)
+#[Field(rules: 'required|string')]
+public string $username;
 
-// Field with type casting
-#[Field('price', 'required|numeric', cast: 'float')]
+// 2. Optional (Can be missing, defaults to null)
+#[Field(rules: 'string')]
+public ?string $bio = null;
 
-// Optional field with default
-#[Field('page', 'integer|min:1', cast: 'int', default: 1)]
+// 3. Required Nullable (Must be present, but can be null)
+#[Field(rules: 'required|nullable|string')]
+public ?string $reason; // ✅ No default value
 
-// Map from nested input
-#[Field('userId', 'required|integer', cast: 'int', mapFrom: 'user.id')]
+// 4. Optional with Default
+#[Field(rules: 'integer')]
+public int $page = 1;
+```
 
-// Pre-process before validation
-#[Field('email', 'required|email', preProcess: 'trim')]
+#### Automatic Type Casting
 
-// Post-process after validation
-#[Field('slug', 'required|string', postProcess: 'strtolower')]
+The library automatically casts input values based on the PHP property type.
 
-// Group fields for extraction
-#[Field('search', 'nullable|string', group: 'criteria')]
-#[Field('deleted', 'nullable|in:only,with', group: 'criteria')]
-final class MyRequest extends DynamicRequest
+**Boolean Casting Table**
+
+| Input Value | Result (bool) |
+| :--- | :--- |
+| `true`, `"true"`, `"1"`, `"on"`, `"yes"` | `true` |
+| `false`, `"false"`, `"0"`, `"off"`, `"no"`, `""` (empty string), `null` | `false` |
+| Any other non-empty string | `true` |
+
+**Array Casting Logic**
+
+The library attempts to intelligently convert strings to arrays:
+
+1. **JSON**: If valid JSON array/object (`[1,2]` or `{"a":1}`), it decodes it.
+2. **CSV**: If string contains commas (`a,b,c`), it explodes and trims it.
+3. **Single Value**: If non-empty string (`hello`), wraps it in array (`['hello']`).
+4. **Empty**: Empty string becomes empty array `[]`.
+
+```php
+public array $tags;
+
+// "tag1, tag2" -> ["tag1", "tag2"]
+// "[\"a\", \"b\"]" -> ["a", "b"]
+// "hello" -> ["hello"]
+```
+
+#### DateTime Casting
+
+Use the `cast` parameter for date conversions.
+
+```php
+#[Field(cast: 'datetime:Y-m-d H:i:s')]
+public DateTime $eventDate;
+
+#[Field(cast: 'datetime:immutable:Y-m-d')]
+public DateTimeImmutable $birthDate;
+```
+
+#### Nested Data Mapping
+
+Map deeply nested JSON or array structures to flat properties.
+
+```php
+// Request: {"user": {"details": {"age": 30}}}
+
+#[Field(mapFrom: 'user.details.age')]
+public int $userAge; // 30
+```
+
+#### Field Grouping
+
+Group related fields to extract them together. Useful for search filters or pagination.
+
+```php
+class SearchRequest extends Request
 {
-}
-```
+#[Field(group: 'filter')]
+public ?string $status = null;
 
-## Field Grouping
+#[Field(group: 'filter')]
+public ?string $role = null;
 
-Group related fields together and extract them as an array:
-
-```php
-#[AsRequest]
-#[Field('search', 'nullable|string', group: 'criteria')]
-#[Field('status', 'nullable|in:active,inactive', group: 'criteria')]
-#[Field('page', 'integer|min:1', cast: 'int', default: 1)]
-#[Field('per_page', 'integer|min:1|max:100', cast: 'int', default: 20)]
-final class UserIndexRequest extends DynamicRequest
-{
-}
-
-// In controller:
-$data = $this->requestHandler->handle(UserIndexRequest::class, $request);
-
-// Extract all criteria fields at once
-$criteria = $data->group('criteria');
-// ['search' => 'john', 'status' => 'active']
-
-// Use for repository queries
-$users = $this->userRepository->findBy(
-    $criteria,
-    $data->per_page,
-    $data->page
-);
-```
-
-## DynamicRequest Methods
-
-The `DynamicRequest` base class provides the following methods:
-
-```php
-$data = $handler->handle(ProductRequest::class, $request);
-
-// Access property directly (throws Error if not present)
-$name = $data->name;
-
-// Check if property exists
-if (isset($data->description)) {
-    // ...
-}
-
-// Check with method
-if ($data->has('description')) {
-    // ...
-}
-
-// Get with default fallback
-$description = $data->get('description', 'No description');
-
-// Convert to array (only present fields)
-$array = $data->toArray();
-
-// Get fields by group
-$criteria = $data->group('criteria');
-```
-
-### Behavior
-
-Only fields present in the HTTP request become properties:
-
-```php
-#[AsRequest]
-#[Field('name', 'required|string')]
-#[Field('description', 'nullable|string')]
-final class ProductRequest extends DynamicRequest
-{
-}
-
-// Request: POST /products with body: {"name": "Widget"}
-$data = $handler->handle(ProductRequest::class, $request);
-
-$data->name;        // "Widget"
-$data->description; // Error: Undefined property
-isset($data->name);        // true
-isset($data->description); // false
-$data->toArray();   // ['name' => 'Widget']
-```
-
-## Type Casting
-
-**Built-in types:**
-
-| Cast | Converts to |
-|------|-------------|
-| `int`, `integer` | integer |
-| `float`, `double` | float |
-| `bool`, `boolean` | boolean (`"true"`, `"1"`, `"yes"`, `"on"` → `true`) |
-| `string` | string |
-| `array` | array (parses JSON or comma-separated string) |
-| `datetime` | DateTime object |
-| `datetime:Y-m-d` | DateTime with specific format |
-
-**Custom casters:**
-
-```php
-use Solo\RequestHandler\Casters\CasterInterface;
-
-final class MoneyCaster implements CasterInterface
-{
-    public function cast(mixed $value): Money
-    {
-        return new Money((int) round((float) $value * 100));
-    }
+#[Field(group: 'pagination')]
+public int $page = 1;
 }
 
 // Usage
-#[Field('amount', 'required|numeric', cast: MoneyCaster::class)]
+$filters = $dto->group('filter'); 
+// Result: ['status' => 'active', 'role' => 'admin']
 ```
 
-## Processing Pipeline
+#### Pre & Post Processing
 
-1. **Extract** - Merge POST body and GET parameters (body takes priority)
-2. **Map** - Resolve values using `mapFrom` paths
-3. **PreProcess** - Transform raw input before validation
-4. **Validate** - Check against validation rules
-5. **Cast** - Convert to target types
-6. **PostProcess** - Apply final transformations
-7. **Create** - Build DTO with only present fields
-
-## Pre/Post Processing
-
-```php
-// Global function
-#[Field('name', 'required|string', preProcess: 'trim')]
-
-// Static method in the DTO class
-#[Field('phone', 'required|string', preProcess: 'normalizePhone')]
-final class ContactRequest extends DynamicRequest
-{
-    public static function normalizePhone(string $value): string
-    {
-        return preg_replace('/[^0-9+]/', '', $value);
-    }
-}
-
-// External processor class
-#[Field('slug', 'required|string', preProcess: SlugNormalizer::class)]
-```
-
-Processor classes must implement `PostProcessorInterface`:
+Transform data before or after validation.
 
 ```php
 use Solo\RequestHandler\Casters\PostProcessorInterface;
 
-final class SlugNormalizer implements PostProcessorInterface
+class SlugProcessor implements PostProcessorInterface
 {
-    public function process(mixed $value): mixed
-    {
-        return strtolower(preg_replace('/[^a-z0-9]+/i', '-', $value));
-    }
+public function process(mixed $value): string
+{
+    return strtolower(preg_replace('/[^a-z0-9]+/i', '-', trim($value)));
+}
+}
+
+class ArticleRequest extends Request
+{
+#[Field(postProcess: SlugProcessor::class)]
+public string $slug;
+
+// Or use a static method reference
+#[Field(preProcess: 'trim')]
+public string $title;
 }
 ```
 
-## Error Handling
+---
+
+## Advanced Usage
+
+### Custom Casters
+
+Create complex type conversions by implementing `CasterInterface`.
 
 ```php
-use Solo\RequestHandler\Exceptions\ValidationException;
+use Solo\RequestHandler\Casters\CasterInterface;
+
+class MoneyCaster implements CasterInterface
+{
+public function cast(mixed $value): Money
+{
+    return Money::fromFloat((float) $value);
+}
+}
+
+// Usage
+#[Field(cast: MoneyCaster::class)]
+public Money $price;
+```
+
+### Accessing Data
+
+The `Request` object provides several methods to access data safely.
+
+```php
+$dto = $handler->handle(MyRequest::class, $request);
+
+// 1. Direct Access (Recommended)
+echo $dto->name;
+
+// 2. Check Initialization (for optional fields)
+if (isset($dto->bio)) { ... }
+// OR
+if ($dto->has('bio')) { ... }
+
+// 3. Get with Default
+echo $dto->get('bio', 'No bio provided');
+
+// 4. Convert to Array
+$data = $dto->toArray();
+```
+
+---
+
+## Configuration Validation
+
+The library validates your DTO configuration at runtime to prevent logical errors.
+
+```php
+use Solo\RequestHandler\Exceptions\ConfigurationException;
 
 try {
-    $data = $this->requestHandler->handle(MyRequest::class, $request);
+$dto = $handler->handle(InvalidRequest::class, $request);
+} catch (ConfigurationException $e) {
+// Developer error - invalid DTO configuration
+// Log this and return 500
+error_log($e->getMessage());
+return $this->json(['error' => 'Internal Server Error'], 500);
 } catch (ValidationException $e) {
-    // $e->getErrors() returns: ['field' => ['Error message 1', 'Error message 2']]
-    return $this->json([
-        'success' => false,
-        'errors' => $e->getErrors(),
-    ], 422);
+// User error - invalid input data
+return $this->json(['errors' => $e->getErrors()], 422);
 }
 ```
 
-## Full Example
+| Error | Cause | Fix |
+| :--- | :--- | :--- |
+| `ConfigurationException` | `nullable` rule on non-nullable property. | Make property nullable: `?string`. |
+| `ConfigurationException` | `required` rule on property with default value. | Remove default value OR remove `required`. |
+| `ConfigurationException` | Incompatible `cast` type. | Ensure cast type matches property type. |
 
+---
+
+## Best Practices
+
+1.  **Always initialize nullable properties**: Use `public ?string $bio = null;` instead of `public ?string $bio;` to avoid uninitialized access errors if you want them to be optional by default.
+2.  **Use `strict_types`**: Always add `declare(strict_types=1);` to your DTO files.
+3.  **Group related fields**: Use the `group` parameter for filters, pagination, or sorting parameters.
+4.  **Validate after casting**: Remember that validation runs *before* casting, but you can use `preProcess` to modify data before validation if needed.
+5.  **Test edge cases**: Ensure your DTO handles `null`, empty strings, and unexpected types gracefully.
+
+---
+
+## Validator Requirements
+
+This package requires a validator implementing `Solo\Contracts\Validator\ValidatorInterface`.
+
+We recommend using [solophp/validator](https://github.com/SoloPHP/Validator) which implements this interface and supports all required rules:
+
+```bash
+composer require solophp/validator
+```
+
+### Required Rules
+
+| Rule | Description | Example |
+|------|-------------|---------|
+| `required` | Field must be present and not empty | `'required'` |
+| `nullable` | Field can be `null` | `'nullable'` |
+
+### Recommended Rules
+
+These rules are commonly used with Request Handler:
+
+| Rule | Description | Example |
+|------|-------------|---------|
+| `string` | Value must be a string | `'string'` |
+| `integer` | Value must be an integer | `'integer'` |
+| `numeric` | Value must be numeric | `'numeric'` |
+| `email` | Value must be a valid email | `'email'` |
+| `min:n` | Minimum length | `'min:1'` |
+| `max:n` | Maximum length | `'max:255'` |
+| `min_value:n` | Minimum numeric value | `'min_value:0'` |
+| `max_value:n` | Maximum numeric value | `'max_value:100'` |
+| `in:a,b,c` | Value must be in list | `'in:active,inactive'` |
+| `boolean` | Value must be boolean-like | `'boolean'` |
+| `array` | Value must be an array | `'array'` |
+| `length:n` | Exact length | `'length:10'` |
+| `date` | Value must be a valid date | `'date'` |
+| `date_format:f` | Value must match date format | `'date_format:Y-m-d'` |
+
+All these rules are supported by [solophp/validator](https://github.com/SoloPHP/Validator)
+
+---
+
+## FAQ
+
+**Q: Why do I get an Error when accessing a property?**
+A: The property was not present in the request and has no default value. Use `isset($dto->prop)`, `$dto->has('prop')`, or `$dto->get('prop', 'default')`.
+
+**Q: How do I handle an array of objects?**
+A: Use a custom caster that iterates through the array and instantiates objects.
+
+**Q: Can I use union types?**
+A: Yes, but the automatic casting will try to cast to the most appropriate type. Ensure your logic handles the result.
+
+**Q: How do I integrate with Laravel/Symfony validators?**
+A: Create an adapter class that implements `Solo\Contracts\Validator\ValidatorInterface` and wraps your framework's validator. See the "Validator Requirements" section above for examples.
+
+---
+
+## Migration from Arrays
+
+If you are migrating from `$request->input()` or `$_POST` arrays:
+
+**Before:**
 ```php
-<?php
-
-declare(strict_types=1);
-
-namespace App\Requests;
-
-use Solo\RequestHandler\Attributes\AsRequest;
-use Solo\RequestHandler\Attributes\Field;
-use Solo\RequestHandler\DynamicRequest;
-
-#[AsRequest]
-#[Field('customerId', 'required|integer|min:1', cast: 'int', mapFrom: 'customer.id')]
-#[Field('items', 'required|array|min:1')]
-#[Field('total', 'required|numeric|min:0', cast: 'float', postProcess: 'roundTotal')]
-#[Field('notes', 'nullable|string|max:500', preProcess: 'trim')]
-#[Field('status', 'nullable|string|in:pending,confirmed,shipped', default: 'pending')]
-#[Field('deliveryDate', 'nullable|date', cast: 'datetime:Y-m-d')]
-final class CreateOrderRequest extends DynamicRequest
-{
-    public static function roundTotal(float $value): float
-    {
-        return round($value, 2);
-    }
+$name = $request->input('name', 'default');
+$age = (int) $request->input('age', 0);
+if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+throw new ValidationException('Invalid email');
 }
 ```
 
-## Dependencies
+**After:**
+```php
+#[Field(rules: 'required|string|max:255')]
+public string $name;
 
-- PHP 8.2+
-- [PSR-7 HTTP Message Interface](https://github.com/php-fig/http-message) (`psr/http-message` ^2.0)
-- Any validator implementing `Solo\Contracts\Validator\ValidatorInterface`
+#[Field(rules: 'integer|min:0')]
+public int $age = 0;
 
-### Suggested Validators
+#[Field(rules: 'required|email')]
+public string $email;
+```
 
-- [Solo Validator](https://github.com/solophp/validator) (`solophp/validator`)
+**Benefits:**
+*   ✅ Automatic validation
+*   ✅ Strict typing
+*   ✅ IDE Autocomplete
+*   ✅ No more "magic strings" for array keys
+
+---
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) for details.
+MIT License. See [LICENSE](LICENSE) for details.

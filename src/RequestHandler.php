@@ -28,6 +28,9 @@ final class RequestHandler
     private ReflectionCache $cache;
     private BuiltInCaster $builtInCaster;
 
+    /** @var array<class-string, PostProcessorInterface|CasterInterface|object> */
+    private array $processors = [];
+
     public function __construct(
         private readonly ValidatorInterface $validator
     ) {
@@ -36,12 +39,12 @@ final class RequestHandler
     }
 
     /**
-     * @template T of DynamicRequest
+     * @template T of Request
      * @param class-string<T> $className
      * @return T
      * @throws ValidationException
      */
-    public function handle(string $className, ServerRequestInterface $request): DynamicRequest
+    public function handle(string $className, ServerRequestInterface $request): Request
     {
         $metadata = $this->cache->get($className);
 
@@ -49,33 +52,41 @@ final class RequestHandler
         $rawData = $this->extractData($request);
 
         // Process fields
+        /** @var array<string, mixed> $validationData */
         $validationData = [];
+        /** @var array<string, string> $validationRules */
         $validationRules = [];
+        /** @var array<string, mixed> $presentFields */
         $presentFields = [];
 
         foreach ($metadata->properties as $property) {
-            $hasValueInRequest = $this->hasValue($rawData, $property->inputName);
-            $value = $this->getValue($rawData, $property);
+            $hasValueInRequest = false;
+            $value = $this->getValue($rawData, $property->inputName, $hasValueInRequest);
             $isEmpty = $value === null || $value === '';
 
-            // If field is empty and not in request, skip
+            // If field is empty and not in request
             if ($isEmpty && !$hasValueInRequest) {
+                // Use default if available
                 if ($property->hasDefault) {
-                    $presentFields[$property->name] = $property->defaultValue;
+                    // Property already has default value from class definition
+                    continue;
+                } elseif ($property->isRequired && $property->validationRules !== null) {
+                    // Required field missing - add to validation to trigger error
+                    $validationData[$property->name] = null;
+                    $validationRules[$property->name] = $property->validationRules;
                 }
                 continue;
             }
 
-            // If field is empty but was in request, include it (user wants to clear)
-            // Unless it has a default value
+            // If field is empty but was in request (user wants to clear)
             if ($isEmpty) {
-                if ($property->hasDefault) {
+                if ($property->hasDefault && $property->defaultValue !== null) {
                     $presentFields[$property->name] = $property->defaultValue;
                 } else {
                     $presentFields[$property->name] = null;
                 }
-                // Only validate required fields (not nullable)
-                if ($property->validationRules !== null && !str_contains($property->validationRules, 'nullable')) {
+                // Validate required fields
+                if ($property->isRequired && $property->validationRules !== null) {
                     $validationData[$property->name] = $value;
                     $validationRules[$property->name] = $property->validationRules;
                 }
@@ -87,9 +98,9 @@ final class RequestHandler
                 $value = $this->runProcessor($property->preProcessor, $value, $className);
             }
 
-            // Store for validation
-            $validationData[$property->name] = $value;
+            // Store for validation (only if there are rules)
             if ($property->validationRules !== null) {
+                $validationData[$property->name] = $value;
                 $validationRules[$property->name] = $property->validationRules;
             }
 
@@ -116,8 +127,8 @@ final class RequestHandler
             $presentFields[$name] = $value;
         }
 
-        // Create instance with dynamic properties
-        return $this->createInstance($className, $presentFields, $metadata->properties);
+        // Create instance and set properties
+        return $this->createInstance($className, $presentFields);
     }
 
     /**
@@ -139,39 +150,15 @@ final class RequestHandler
     /**
      * @param array<string, mixed> $data
      */
-    private function getValue(array $data, PropertyMetadata $property): mixed
-    {
-        return $this->getNestedValue($data, $property->inputName);
-    }
-
-    /**
-     * @param array<string, mixed> $data
-     */
-    private function hasValue(array $data, string $path): bool
+    private function getValue(array $data, string $path, bool &$hasValue): mixed
     {
         $keys = explode('.', $path);
         $current = $data;
+        $hasValue = true;
 
         foreach ($keys as $key) {
             if (!is_array($current) || !array_key_exists($key, $current)) {
-                return false;
-            }
-            $current = $current[$key];
-        }
-
-        return true;
-    }
-
-    /**
-     * @param array<string, mixed> $data
-     */
-    private function getNestedValue(array $data, string $path): mixed
-    {
-        $keys = explode('.', $path);
-        $current = $data;
-
-        foreach ($keys as $key) {
-            if (!is_array($current) || !array_key_exists($key, $current)) {
+                $hasValue = false;
                 return null;
             }
             $current = $current[$key];
@@ -192,7 +179,8 @@ final class RequestHandler
 
         // Check if it's a class implementing PostProcessorInterface or CasterInterface
         if (class_exists($handler)) {
-            $processor = new $handler();
+            $processor = $this->getOrCreateProcessor($handler);
+
             if ($processor instanceof PostProcessorInterface) {
                 return $processor->process($value);
             }
@@ -206,7 +194,24 @@ final class RequestHandler
             return $className::$handler($value);
         }
 
+        // This should never be reached if ReflectionCache validation is working correctly
+        // @codeCoverageIgnoreStart
         return $value;
+        // @codeCoverageIgnoreEnd
+    }
+
+    /**
+     * Get or create a cached processor/caster instance
+     *
+     * @param class-string $className
+     */
+    private function getOrCreateProcessor(string $className): object
+    {
+        if (!isset($this->processors[$className])) {
+            $this->processors[$className] = new $className();
+        }
+
+        return $this->processors[$className];
     }
 
     private function castValue(mixed $value, PropertyMetadata $property): mixed
@@ -223,11 +228,17 @@ final class RequestHandler
 
             // Custom caster class
             if (class_exists($property->castType)) {
-                $caster = new $property->castType();
+                $caster = $this->getOrCreateProcessor($property->castType);
+
                 if ($caster instanceof CasterInterface) {
                     return $caster->cast($value);
                 }
             }
+        }
+
+        // If no explicit cast, use property type for automatic casting
+        if ($property->type !== null && $this->builtInCaster->isBuiltIn($property->type)) {
+            return $this->builtInCaster->cast($property->type, $value);
         }
 
         return $value;
@@ -248,26 +259,38 @@ final class RequestHandler
     }
 
     /**
-     * @template T of DynamicRequest
+     * @template T of Request
      * @param class-string<T> $className
      * @param array<string, mixed> $data
-     * @param array<string, PropertyMetadata> $properties
      * @return T
      */
-    private function createInstance(string $className, array $data, array $properties): DynamicRequest
+    private function createInstance(string $className, array $data): Request
     {
         $reflection = new ReflectionClass($className);
         $instance = $reflection->newInstanceWithoutConstructor();
 
-        $reflection->getProperty('data')->setValue($instance, $data);
+        // Set property values
+        foreach ($data as $name => $value) {
+            try {
+                $property = $reflection->getProperty($name);
+                if ($property->isPublic() && !$property->isStatic()) {
+                    // Runtime protection: prevent null assignment to non-nullable types
+                    // This should not happen if configuration is valid,
+                    // but we add this as an extra safety layer
+                    if ($value === null) {
+                        $type = $property->getType();
+                        if ($type && !$type->allowsNull()) {
+                            // Skip setting null for non-nullable types
+                            continue;
+                        }
+                    }
 
-        $groups = [];
-        foreach ($properties as $name => $meta) {
-            if ($meta->group !== null && array_key_exists($name, $data)) {
-                $groups[$name] = $meta->group;
+                    $property->setValue($instance, $value);
+                }
+            } catch (\ReflectionException) {
+                // Property doesn't exist - ignore (as per requirements)
             }
         }
-        $reflection->getProperty('groups')->setValue($instance, $groups);
 
         return $instance;
     }

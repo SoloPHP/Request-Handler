@@ -7,38 +7,30 @@ namespace Solo\RequestHandler\Attributes;
 use Attribute;
 
 /**
- * Defines a field for request DTO with validation and casting rules
+ * Marks a property to be populated from HTTP request
  *
  * Example:
  * ```php
- * #[AsRequest]
- * #[Field('name', 'required|string|max:255')]
- * #[Field('price', 'required|numeric', cast: 'float')]
- * #[Field('description', 'nullable|string')]
- * #[Field('status', 'string|in:draft,active', default: 'draft')]
- * final class ProductRequest
- * {
- *     use DynamicProperties;
- * }
+ * #[Field(rules: 'required|string')]
+ * public string $name;
+ *
+ * #[Field(rules: 'integer', cast: 'int', mapFrom: 'user.id')]
+ * public int $userId;
+ *
+ * #[Field(rules: 'nullable|string', group: 'criteria')]
+ * public ?string $search = null;
  * ```
  */
-#[Attribute(Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE)]
-final readonly class Field
+#[Attribute(Attribute::TARGET_PROPERTY)]
+final class Field
 {
     public function __construct(
-        public string $name,
         public ?string $rules = null,
         public ?string $cast = null,
         public ?string $mapFrom = null,
-        public mixed $default = new NotSet(),
         public ?string $preProcess = null,
         public ?string $postProcess = null,
         public ?string $group = null,
     ) {
-    }
-
-    public function hasDefault(): bool
-    {
-        return !$this->default instanceof NotSet;
     }
 }
