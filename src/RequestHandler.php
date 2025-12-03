@@ -42,7 +42,6 @@ final class RequestHandler
      * @template T of Request
      * @param class-string<T> $className
      * @return T
-     * @throws ValidationException
      */
     public function handle(string $className, ServerRequestInterface $request): Request
     {
