@@ -217,25 +217,36 @@ public int $userAge; // 30
 
 #### Field Grouping
 
-Group related fields to extract them together. Useful for search filters or pagination.
+Group related fields to extract them together. Returns a flat array:
+- **Array properties**: contents are merged into result
+- **Scalar properties**: added by property name
 
 ```php
 class SearchRequest extends Request
 {
-#[Field(group: 'filter')]
-public ?string $status = null;
+    #[Field(group: 'criteria')]
+    public array $search = [];
 
-#[Field(group: 'filter')]
-public ?string $role = null;
+    #[Field(group: 'criteria')]
+    public array $filters = [];
 
-#[Field(group: 'pagination')]
-public int $page = 1;
+    #[Field(group: 'criteria')]
+    public int $limit = 10;
 }
 
-// Usage
-$filters = $dto->group('filter'); 
-// Result: ['status' => 'active', 'role' => 'admin']
+// Given: $dto->search = ['name' => ['LIKE', '%test%']]
+//        $dto->filters = ['status' => 'active']
+//        $dto->limit = 20
+
+$criteria = $dto->group('criteria');
+// Result: [
+//     'name' => ['LIKE', '%test%'],  // merged from $search
+//     'status' => 'active',           // merged from $filters
+//     'limit' => 20                   // scalar by property name
+// ]
 ```
+
+**Note:** A `LogicException` is thrown if duplicate keys are detected across properties in the same group.
 
 #### Pre & Post Processing
 

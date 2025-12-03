@@ -90,8 +90,12 @@ abstract class Request
     }
 
     /**
-     * Get all properties belonging to a specific group
+     * Get all properties belonging to a specific group as a flat array
      *
+     * If property value is an array, its contents are merged into the result.
+     * Scalar values are added by property name.
+     *
+     * @throws \LogicException When duplicate keys are detected
      * @return array<string, mixed>
      */
     public function group(string $groupName): array
@@ -104,8 +108,29 @@ abstract class Request
 
         $result = [];
         foreach (self::$groupCache[$class][$groupName] as $property) {
-            if ($property->isInitialized($this)) {
-                $result[$property->getName()] = $property->getValue($this);
+            if (!$property->isInitialized($this)) {
+                continue;
+            }
+
+            $value = $property->getValue($this);
+
+            if (is_array($value)) {
+                foreach ($value as $key => $v) {
+                    if (array_key_exists($key, $result)) {
+                        throw new \LogicException(
+                            "Duplicate key '$key' in group '$groupName' from property '{$property->getName()}'"
+                        );
+                    }
+                    $result[$key] = $v;
+                }
+            } else {
+                $key = $property->getName();
+                if (array_key_exists($key, $result)) {
+                    throw new \LogicException(
+                        "Duplicate key '$key' in group '$groupName' from property '{$property->getName()}'"
+                    );
+                }
+                $result[$key] = $value;
             }
         }
 

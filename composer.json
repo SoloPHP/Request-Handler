@@ -40,14 +40,13 @@
     "optimize-autoloader": true
   },
   "scripts": {
-    "test": "XDEBUG_MODE=coverage phpunit",
-    "analyse": "phpstan analyse",
-    "cs-check": "phpcs",
-    "cs-fix": "phpcbf",
-    "quality": [
-      "@test",
-      "@analyse",
-      "@cs-check"
+    "cs-check": "phpcs --standard=PSR12 src/",
+    "cs-fix": "phpcbf --standard=PSR12 src/",
+    "analyze": "phpstan analyze",
+    "test": [
+      "@cs-check",
+      "@analyze",
+      "phpunit"
     ]
   }
 }

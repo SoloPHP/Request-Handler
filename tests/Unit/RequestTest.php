@@ -227,6 +227,62 @@ final class RequestTest extends TestCase
 
         $this->assertEquals($expected, $dto->getMessages());
     }
+
+    public function testGroupFlattensArrayProperties(): void
+    {
+        $dto = new ArrayGroupRequest();
+        $dto->search = ['name' => ['LIKE', '%Admin%']];
+        $dto->deleted = ['deleted_at' => ['!=', null]];
+
+        $result = $dto->group('criteria');
+
+        $expected = [
+            'name' => ['LIKE', '%Admin%'],
+            'deleted_at' => ['!=', null],
+        ];
+
+        $this->assertEquals($expected, $result);
+    }
+
+    public function testGroupMixesArraysAndScalars(): void
+    {
+        $dto = new MixedTypeGroupRequest();
+        $dto->filters = ['status' => 'active'];
+        $dto->limit = 10;
+
+        $result = $dto->group('criteria');
+
+        $expected = [
+            'status' => 'active',
+            'limit' => 10,
+        ];
+
+        $this->assertEquals($expected, $result);
+    }
+
+    public function testGroupThrowsExceptionOnDuplicateKeyFromArrays(): void
+    {
+        $dto = new DuplicateKeyRequest();
+        $dto->first = ['name' => 'value1'];
+        $dto->second = ['name' => 'value2'];
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage("Duplicate key 'name' in group 'criteria' from property 'second'");
+
+        $dto->group('criteria');
+    }
+
+    public function testGroupThrowsExceptionOnDuplicateKeyFromScalar(): void
+    {
+        $dto = new ScalarDuplicateRequest();
+        $dto->filters = ['limit' => 100];
+        $dto->limit = 10;
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage("Duplicate key 'limit' in group 'criteria' from property 'limit'");
+
+        $dto->group('criteria');
+    }
 }
 
 final class TestRequest extends Request
@@ -276,4 +332,46 @@ final class CustomMessagesRequest extends Request
             'email.email' => 'Invalid email format',
         ];
     }
+}
+
+final class ArrayGroupRequest extends Request
+{
+    /** @var array<string, mixed> */
+    #[Field(group: 'criteria')]
+    public array $search;
+
+    /** @var array<string, mixed> */
+    #[Field(group: 'criteria')]
+    public array $deleted;
+}
+
+final class MixedTypeGroupRequest extends Request
+{
+    /** @var array<string, mixed> */
+    #[Field(group: 'criteria')]
+    public array $filters;
+
+    #[Field(group: 'criteria')]
+    public int $limit;
+}
+
+final class DuplicateKeyRequest extends Request
+{
+    /** @var array<string, mixed> */
+    #[Field(group: 'criteria')]
+    public array $first;
+
+    /** @var array<string, mixed> */
+    #[Field(group: 'criteria')]
+    public array $second;
+}
+
+final class ScalarDuplicateRequest extends Request
+{
+    /** @var array<string, mixed> */
+    #[Field(group: 'criteria')]
+    public array $filters;
+
+    #[Field(group: 'criteria')]
+    public int $limit;
 }
