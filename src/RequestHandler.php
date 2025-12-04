@@ -32,7 +32,8 @@ final class RequestHandler
     private array $processors = [];
 
     public function __construct(
-        private readonly ValidatorInterface $validator
+        private readonly ValidatorInterface $validator,
+        private readonly bool $autoTrim = true
     ) {
         $this->cache = new ReflectionCache();
         $this->builtInCaster = new BuiltInCaster();
@@ -65,6 +66,12 @@ final class RequestHandler
         foreach ($metadata->properties as $property) {
             $hasValueInRequest = false;
             $value = $this->getValue($rawData, $property->inputName, $hasValueInRequest);
+
+            // Auto-trim strings
+            if ($this->autoTrim && is_string($value)) {
+                $value = trim($value);
+            }
+
             $isEmpty = $value === null || $value === '';
 
             // If field is empty and not in request

@@ -23,6 +23,11 @@ final class RequestHandlerTest extends TestCase
         $this->handler = new RequestHandler($this->validator);
     }
 
+    private function createHandler(bool $autoTrim = true): RequestHandler
+    {
+        return new RequestHandler($this->validator, $autoTrim);
+    }
+
     public function testHandleExtractsAndValidatesData(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
@@ -453,6 +458,68 @@ final class RequestHandlerTest extends TestCase
         $this->assertEquals('Test', $dto->name);
         $this->assertFalse(isset($dto->id)); // Should remain uninitialized
     }
+
+    public function testAutoTrimEnabledByDefault(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['name' => '  Test  ', 'price' => '10.50']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(
+                ['name' => 'Test', 'price' => '10.50'],
+                ['name' => 'required|string', 'price' => 'required|numeric']
+            )
+            ->willReturn([]);
+
+        $dto = $this->handler->handle(TestRequest::class, $request);
+
+        $this->assertEquals('Test', $dto->name);
+    }
+
+    public function testAutoTrimCanBeDisabled(): void
+    {
+        $handler = $this->createHandler(autoTrim: false);
+
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['name' => '  Test  ', 'price' => '10.50']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(
+                ['name' => '  Test  ', 'price' => '10.50'],
+                ['name' => 'required|string', 'price' => 'required|numeric']
+            )
+            ->willReturn([]);
+
+        $dto = $handler->handle(TestRequest::class, $request);
+
+        $this->assertEquals('  Test  ', $dto->name);
+    }
+
+    public function testAutoTrimOnlyAffectsStrings(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn([
+            'name' => '  Test  ',
+            'tags' => ['  tag1  ', '  tag2  ']
+        ]);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(AutoTrimArrayRequest::class, $request);
+
+        // String is trimmed
+        $this->assertEquals('Test', $dto->name);
+        // Array values are NOT trimmed (autoTrim only affects string values at top level)
+        $this->assertEquals(['  tag1  ', '  tag2  '], $dto->tags);
+    }
 }
 
 final class TestRequest extends Request
@@ -614,6 +681,12 @@ final class NonNullableRequest extends Request
 {
     public int $id;
     public string $name;
+}
+
+final class AutoTrimArrayRequest extends Request
+{
+    public string $name;
+    public array $tags = [];
 }
 
 final class CustomMessagesTestRequest extends Request

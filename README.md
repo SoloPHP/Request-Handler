@@ -21,6 +21,7 @@ Transform raw HTTP requests into strictly typed Data Transfer Objects (DTOs) wit
 - **Nested Mapping**: Map deeply nested input (e.g., `user.profile.name`) to flat properties.
 - **High Performance**: Reflection metadata is cached for optimal speed.
 - **PSR-7 Compatible**: Works with any PSR-7 compliant HTTP library.
+- **Auto Trim**: Automatically trims whitespace from string inputs (configurable).
 
 ---
 
@@ -128,14 +129,14 @@ $desc = $dto->get('description', 'No description');
 
 The `#[Field]` attribute is the core of this library. It tells the handler how to process each property.
 
-| Parameter | Description | Example |
-| :--- | :--- | :--- |
-| `rules` | Validation rules string. | `'required|email'` |
-| `cast` | Explicit type casting (optional). | `'datetime:Y-m-d'` |
-| `mapFrom` | Dot-notation path to source data. | `'user.profile.id'` |
-| `group` | Group name for bulk extraction. | `'filters'` |
-| `preProcess` | Function to run *before* validation. | `'trim'` |
-| `postProcess` | Function to run *after* validation. | `'strtolower'` |
+| Parameter     | Description                          | Example              |
+|:--------------|:-------------------------------------|:---------------------|
+| `rules`       | Validation rules string.             | `'required\|email'`  |
+| `cast`        | Explicit type casting (optional).    | `'datetime:Y-m-d'`   |
+| `mapFrom`     | Dot-notation path to source data.    | `'user.profile.id'`  |
+| `group`       | Group name for bulk extraction.      | `'filters'`          |
+| `preProcess`  | Function to run *before* validation. | `'trim'`             |
+| `postProcess` | Function to run *after* validation.  | `'strtolower'`       |
 
 ### Common Scenarios
 
@@ -247,6 +248,27 @@ $criteria = $dto->group('criteria');
 ```
 
 **Note:** A `LogicException` is thrown if duplicate keys are detected across properties in the same group.
+
+#### Auto Trim
+
+By default, `RequestHandler` automatically trims whitespace from all string inputs before validation.
+
+```php
+// Input: "  John Doe  " -> Stored as: "John Doe"
+#[Field(rules: 'required|string')]
+public string $name;
+```
+
+**Disable Auto Trim:**
+
+```php
+// Globally disable auto-trim
+$handler = new RequestHandler($validator, autoTrim: false);
+
+// Or use preProcess for specific fields when autoTrim is disabled
+#[Field(preProcess: 'trim')]
+public string $name;
+```
 
 #### Pre & Post Processing
 
