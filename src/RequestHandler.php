@@ -42,9 +42,10 @@ final class RequestHandler
     /**
      * @template T of Request
      * @param class-string<T> $className
+     * @param array<string, mixed> $routeParams
      * @return T
      */
-    public function handle(string $className, ServerRequestInterface $request): Request
+    public function handle(string $className, ServerRequestInterface $request, array $routeParams = []): Request
     {
         $metadata = $this->cache->get($className);
 
@@ -64,6 +65,12 @@ final class RequestHandler
         $presentFields = [];
 
         foreach ($metadata->properties as $property) {
+            // Generate UUID if field has uuid: true and no value in request
+            if ($property->uuid) {
+                $presentFields[$property->name] = $this->generateUuid();
+                continue;
+            }
+
             $hasValueInRequest = false;
             $value = $this->getValue($rawData, $property->inputName, $hasValueInRequest);
 
@@ -119,6 +126,7 @@ final class RequestHandler
 
         // Validate
         if (!empty($validationRules)) {
+            $validationRules = $this->replaceRulePlaceholders($validationRules, $routeParams);
             $this->validate($validationData, $validationRules, $instance->getMessages());
         }
 
@@ -270,6 +278,31 @@ final class RequestHandler
     }
 
     /**
+     * Replace {key} placeholders in rules with values from route params
+     *
+     * @param array<string, string> $rules
+     * @param array<string, mixed> $routeParams
+     * @return array<string, string>
+     */
+    private function replaceRulePlaceholders(array $rules, array $routeParams): array
+    {
+        if (empty($routeParams)) {
+            return $rules;
+        }
+
+        $replacements = [];
+        foreach ($routeParams as $key => $value) {
+            $replacements['{' . $key . '}'] = (string) $value;
+        }
+
+        foreach ($rules as $field => $rule) {
+            $rules[$field] = strtr($rule, $replacements);
+        }
+
+        return $rules;
+    }
+
+    /**
      * @template T of Request
      * @param T $instance
      * @param ReflectionClass<T> $reflection
@@ -298,5 +331,24 @@ final class RequestHandler
         }
 
         return $instance;
+    }
+
+    /**
+     * Generate UUID v4
+     */
+    private function generateUuid(): string
+    {
+        $uuid = random_bytes(16);
+        $uuid[6] = $uuid[6] & "\x0F" | "\x40"; // version 4
+        $uuid[8] = $uuid[8] & "\x3F" | "\x80"; // variant RFC 4122
+
+        $hex = bin2hex($uuid);
+
+        return
+            substr($hex, 0, 8) . '-' .
+            substr($hex, 8, 4) . '-' .
+            substr($hex, 12, 4) . '-' .
+            substr($hex, 16, 4) . '-' .
+            substr($hex, 20, 12);
     }
 }

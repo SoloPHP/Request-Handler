@@ -104,6 +104,11 @@ final class ReflectionCache
         $this->validateProcessor($field?->preProcess, $className, $name, 'preProcess');
         $this->validateProcessor($field?->postProcess, $className, $name, 'postProcess');
 
+        // Check 5: uuid fields must be string type
+        if ($field?->uuid === true && $phpType !== 'string') {
+            throw ConfigurationException::uuidRequiresStringType($className, $name, $phpType);
+        }
+
         return new PropertyMetadata(
             name: $name,
             inputName: $field->mapFrom ?? $name,
@@ -117,6 +122,7 @@ final class ReflectionCache
             postProcessor: $field?->postProcess,
             group: $field?->group,
             isRequired: $isRequired,
+            uuid: $field->uuid ?? false,
         );
     }
 

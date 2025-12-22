@@ -31,6 +31,7 @@ final class Field
         public ?string $preProcess = null,
         public ?string $postProcess = null,
         public ?string $group = null,
+        public bool $uuid = false,
     ) {
     }
 }

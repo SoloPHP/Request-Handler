@@ -244,6 +244,22 @@ final class ReflectionCacheTest extends TestCase
 
         $this->cache->get(InvalidClassProcessorRequest::class);
     }
+
+    public function testUuidFieldMetadata(): void
+    {
+        $metadata = $this->cache->get(UuidFieldRequest::class);
+
+        $this->assertTrue($metadata->properties['id']->uuid);
+        $this->assertFalse($metadata->properties['name']->uuid);
+    }
+
+    public function testUuidWithNonStringTypeThrowsException(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("has 'uuid: true' but type is 'int'");
+
+        $this->cache->get(InvalidUuidTypeRequest::class);
+    }
 }
 
 final class ValidRequest extends Request
@@ -445,4 +461,21 @@ final class ClassWithoutInterface
     {
         return $value;
     }
+}
+
+// ✅ VALID: uuid field
+final class UuidFieldRequest extends Request
+{
+    #[Field(uuid: true)]
+    public string $id;
+
+    #[Field(rules: 'required|string')]
+    public string $name;
+}
+
+// ❌ INVALID: uuid with non-string type
+final class InvalidUuidTypeRequest extends Request
+{
+    #[Field(uuid: true)]
+    public int $id;
 }

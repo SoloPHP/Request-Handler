@@ -3,7 +3,7 @@
 namespace Solo\RequestHandler\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use Solo\RequestHandler\Exceptions\{AuthorizationException, ValidationException};
+use Solo\RequestHandler\Exceptions\{AuthorizationException, ConfigurationException, ValidationException};
 
 final class ExceptionsTest extends TestCase
 {
@@ -42,5 +42,13 @@ final class ExceptionsTest extends TestCase
         $exception = new ValidationException();
 
         $this->assertEquals([], $exception->getErrors());
+    }
+
+    public function testConfigurationExceptionUuidRequiresStringType(): void
+    {
+        $exception = ConfigurationException::uuidRequiresStringType('App\\Request', 'id', 'int');
+
+        $this->assertStringContainsString("has 'uuid: true' but type is 'int'", $exception->getMessage());
+        $this->assertStringContainsString('App\\Request::$id', $exception->getMessage());
     }
 }

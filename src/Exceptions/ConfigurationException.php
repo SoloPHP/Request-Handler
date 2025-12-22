@@ -93,4 +93,23 @@ final class ConfigurationException extends Exception
             $processorName
         ));
     }
+
+    /**
+     * UUID field must have string type
+     *
+     * Example: #[Field(uuid: true)] public int $id;
+     */
+    public static function uuidRequiresStringType(
+        string $className,
+        string $propertyName,
+        ?string $propertyType
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has 'uuid: true' but type is '%s'. " .
+            "UUID fields must have 'string' type.",
+            $className,
+            $propertyName,
+            $propertyType ?? 'mixed'
+        ));
+    }
 }

@@ -99,6 +99,25 @@ public function store(ServerRequestInterface $request): ResponseInterface
         return $this->json(['errors' => $e->getErrors()], 422);
     }
 }
+
+// For update operations with route parameters:
+public function update(ServerRequestInterface $request, int $id): ResponseInterface
+{
+    try {
+        // Pass route params for placeholder replacement in rules
+        $dto = $this->requestHandler->handle(
+            UpdateProductRequest::class,
+            $request,
+            ['id' => $id]  // {id} in rules will be replaced with actual value
+        );
+
+        $this->productService->update($id, $dto);
+        return $this->json(['status' => 'updated']);
+
+    } catch (ValidationException $e) {
+        return $this->json(['errors' => $e->getErrors()], 422);
+    }
+}
 }
 ```
 
@@ -137,6 +156,7 @@ The `#[Field]` attribute is the core of this library. It tells the handler how t
 | `group`       | Group name for bulk extraction.      | `'filters'`          |
 | `preProcess`  | Function to run *before* validation. | `'trim'`             |
 | `postProcess` | Function to run *after* validation.  | `'strtolower'`       |
+| `uuid`        | Auto-generate UUID v4 for the field. | `true`               |
 
 ### Common Scenarios
 
@@ -270,6 +290,59 @@ $handler = new RequestHandler($validator, autoTrim: false);
 public string $name;
 ```
 
+#### Auto-Generated UUIDs
+
+Use `uuid: true` to automatically generate a UUID v4 for a field. This is useful for creating new entities with unique identifiers.
+
+```php
+class CreateOrderRequest extends Request
+{
+    #[Field(uuid: true)]
+    public string $id;
+
+    #[Field(rules: 'required|string')]
+    public string $productName;
+}
+
+// Usage:
+$dto = $handler->handle(CreateOrderRequest::class, $request);
+echo $dto->id; // "550e8400-e29b-41d4-a716-446655440000"
+```
+
+**Notes:**
+- When `uuid: true` is set, any value provided in the request for this field is ignored - a new UUID is always generated.
+- UUID fields must have `string` type. A `ConfigurationException` will be thrown if the type is different.
+
+#### Route Parameter Placeholders
+
+Use `{placeholder}` syntax in validation rules to inject route parameters. This is useful for update operations where you need to exclude the current record from unique checks.
+
+```php
+class UpdateUserRequest extends Request
+{
+    #[Field(rules: 'required|email|unique:users,email,{id}')]
+    public string $email;
+}
+
+// Usage:
+$dto = $handler->handle(
+    UpdateUserRequest::class,
+    $request,
+    ['id' => 123]  // Route params
+);
+// Rule becomes: 'required|email|unique:users,email,123'
+```
+
+Multiple placeholders are supported:
+
+```php
+#[Field(rules: 'required|unique:users,email,{userId},tenant_id,{tenantId}')]
+public string $email;
+
+// With routeParams: ['userId' => 42, 'tenantId' => 99]
+// Rule becomes: 'required|unique:users,email,42,tenant_id,99'
+```
+
 #### Pre & Post Processing
 
 Transform data before or after validation.
@@ -369,6 +442,7 @@ return $this->json(['errors' => $e->getErrors()], 422);
 | `ConfigurationException` | `nullable` rule on non-nullable property. | Make property nullable: `?string`. |
 | `ConfigurationException` | `required` rule on property with default value. | Remove default value OR remove `required`. |
 | `ConfigurationException` | Incompatible `cast` type. | Ensure cast type matches property type. |
+| `ConfigurationException` | `uuid: true` on non-string property. | Change property type to `string`. |
 
 ---
 
