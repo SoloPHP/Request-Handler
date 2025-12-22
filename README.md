@@ -13,15 +13,18 @@ Transform raw HTTP requests into strictly typed Data Transfer Objects (DTOs) wit
 
 ## Features
 
-- **Type-Safe**: Properties are strictly typed with automatic casting from request data.
-- **IDE Friendly**: Full autocomplete and static analysis support.
-- **Clean Syntax**: Use `#[Field]` attributes directly on properties.
-- **Automatic Casting**: Converts strings to `int`, `float`, `bool`, `array`, and `DateTime`.
-- **Field Grouping**: Organize fields (e.g., filters, pagination) for easy extraction.
-- **Nested Mapping**: Map deeply nested input (e.g., `user.profile.name`) to flat properties.
-- **High Performance**: Reflection metadata is cached for optimal speed.
-- **PSR-7 Compatible**: Works with any PSR-7 compliant HTTP library.
-- **Auto Trim**: Automatically trims whitespace from string inputs (configurable).
+- **Attribute-based DTOs:** Define request structures using `#[Field]` attributes on typed properties
+- **Type-Safe Properties:** Full IDE autocomplete and static analysis support with strict typing
+- **Automatic Type Casting:** Built-in support for `int`, `float`, `bool`, `string`, `array`, and `DateTime`/`DateTimeImmutable`
+- **UUID Generation:** Auto-generate UUID v4 for fields with `uuid: true` parameter
+- **Route Parameter Placeholders:** Use `{placeholder}` syntax in validation rules with `$routeParams` injection
+- **Field Grouping:** Organize fields into logical groups with `group` parameter and extract via `group()` method
+- **Nested Mapping:** Map deeply nested input data to flat properties via `mapFrom` with dot notation
+- **Processing Pipeline:** Support for `preProcess` and `postProcess` hooks (functions, classes, or static methods)
+- **Auto Trim:** Automatic whitespace trimming for string inputs (configurable)
+- **Custom Messages:** Override validation error messages via `messages()` method
+- **Configuration Validation:** Early detection of invalid configurations via `ConfigurationException`
+- **Reflection Caching:** Optimized performance with cached metadata
 
 ---
 
