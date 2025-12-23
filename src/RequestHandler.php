@@ -134,8 +134,10 @@ final class RequestHandler
         foreach ($presentFields as $name => $value) {
             $property = $metadata->properties[$name];
 
-            // Cast
-            $value = $this->castValue($value, $property);
+            // Cast (skip when postProcessor is defined, as it handles transformation)
+            if ($property->postProcessor === null) {
+                $value = $this->castValue($value, $property);
+            }
 
             // Post-process
             if ($property->postProcessor !== null) {

@@ -372,6 +372,8 @@ public string $title;
 }
 ```
 
+**Note:** When `postProcess` is defined, automatic type casting based on property type is skipped. The postProcessor receives the raw (validated) value and is responsible for returning the correctly typed result.
+
 ---
 
 ## Advanced Usage

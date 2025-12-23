@@ -565,6 +565,22 @@ final class RequestHandlerTest extends TestCase
 
         $this->assertEquals('Updated Name', $dto->name);
     }
+
+    public function testPostProcessorSkipsAutoCast(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        // Send JSON string - without the fix, auto-cast would convert it to ['["a","b"]'] (single value wrapped)
+        $request->method('getParsedBody')->willReturn(['tags' => '["a","b"]']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(PostProcessorSkipsCastRequest::class, $request);
+
+        // PostProcessor receives raw string and decodes it properly
+        $this->assertEquals(['a', 'b'], $dto->tags);
+    }
 }
 
 final class TestRequest extends Request
@@ -765,4 +781,20 @@ final class RouteParamsRequest extends Request
 {
     #[Field(rules: 'required|string|unique:products,name,{id}')]
     public string $name;
+}
+
+final class PostProcessorSkipsCastRequest extends Request
+{
+    /** @var array<string>|null */
+    #[Field(postProcess: JsonToArrayProcessor::class)]
+    public ?array $tags = null;
+}
+
+final class JsonToArrayProcessor implements \Solo\RequestHandler\Casters\PostProcessorInterface
+{
+    /** @return array<string> */
+    public function process(mixed $value): array
+    {
+        return json_decode($value, true);
+    }
 }
