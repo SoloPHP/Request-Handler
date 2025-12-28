@@ -52,17 +52,17 @@ use Solo\RequestHandler\Request;
 
 final class CreateProductRequest extends Request
 {
-#[Field(rules: 'required|string|max:255')]
-public string $name;
+    #[Field(rules: 'required|string|max:255')]
+    public string $name;
 
-#[Field(rules: 'required|numeric|min:0')]
-public float $price;
+    #[Field(rules: 'required|numeric|min:0')]
+    public float $price;
 
-#[Field(rules: 'nullable|integer|min:0')]
-public int $stock = 0;
+    #[Field(rules: 'nullable|integer|min:0')]
+    public int $stock = 0;
 
-#[Field(rules: 'nullable|string')]
-public ?string $description = null;
+    #[Field(rules: 'nullable|string')]
+    public ?string $description = null;
 }
 ```
 
@@ -77,54 +77,54 @@ use Solo\RequestHandler\Exceptions\ValidationException;
 
 class ProductController
 {
-public function __construct(
-    private readonly RequestHandler $requestHandler,
-    private readonly ProductService $productService,
-) {}
+    public function __construct(
+        private readonly RequestHandler $requestHandler,
+        private readonly ProductService $productService,
+    ) {}
 
-public function store(ServerRequestInterface $request): ResponseInterface
-{
-    try {
-        // 1. Validate, Cast, and Create DTO
-        $dto = $this->requestHandler->handle(CreateProductRequest::class, $request);
+    public function store(ServerRequestInterface $request): ResponseInterface
+    {
+        try {
+            // 1. Validate, Cast, and Create DTO
+            $dto = $this->requestHandler->handle(CreateProductRequest::class, $request);
 
-        // 2. Use Typed Data (Full IDE Support)
-        $this->productService->create(
-            name: $dto->name,          // string
-            price: $dto->price,        // float
-            stock: $dto->stock,        // int
-            description: $dto->description // ?string
-        );
+            // 2. Use Typed Data (Full IDE Support)
+            $this->productService->create(
+                name: $dto->name,          // string
+                price: $dto->price,        // float
+                stock: $dto->stock,        // int
+                description: $dto->description // ?string
+            );
 
-        return $this->json(['status' => 'created'], 201);
+            return $this->json(['status' => 'created'], 201);
 
-    } catch (ValidationException $e) {
-        return $this->json(['errors' => $e->getErrors()], 422);
+        } catch (ValidationException $e) {
+            return $this->json(['errors' => $e->getErrors()], 422);
+        }
     }
-}
 
-// For update operations with route parameters:
-public function update(ServerRequestInterface $request, int $id): ResponseInterface
-{
-    try {
-        // Pass route params for placeholder replacement in rules
-        $dto = $this->requestHandler->handle(
-            UpdateProductRequest::class,
-            $request,
-            ['id' => $id]  // {id} in rules will be replaced with actual value
-        );
+    // For update operations with route parameters:
+    public function update(ServerRequestInterface $request, int $id): ResponseInterface
+    {
+        try {
+            // Pass route params for placeholder replacement in rules
+            $dto = $this->requestHandler->handle(
+                UpdateProductRequest::class,
+                $request,
+                ['id' => $id]  // {id} in rules will be replaced with actual value
+            );
 
-        $this->productService->update($id, $dto);
-        return $this->json(['status' => 'updated']);
+            $this->productService->update($id, $dto);
+            return $this->json(['status' => 'updated']);
 
-    } catch (ValidationException $e) {
-        return $this->json(['errors' => $e->getErrors()], 422);
+        } catch (ValidationException $e) {
+            return $this->json(['errors' => $e->getErrors()], 422);
+        }
     }
-}
 }
 ```
 
-### ⚠️ Important: Accessing Uninitialized Properties
+### Important: Accessing Uninitialized Properties
 
 If a property was not present in the request (and has no default value), accessing it directly will cause a PHP Error.
 
@@ -132,11 +132,11 @@ If a property was not present in the request (and has no default value), accessi
 $dto = $handler->handle(ProductRequest::class, $request);
 
 // If 'description' was missing in the request:
-echo $dto->description; // ❌ Error: Typed property must not be accessed before initialization
+echo $dto->description; // Error: Typed property must not be accessed before initialization
 
 // Correct way to check:
 if (isset($dto->description)) { // or $dto->has('description')
-echo $dto->description;
+    echo $dto->description;
 }
 
 // Or get with default value:
@@ -160,6 +160,7 @@ The `#[Field]` attribute is the core of this library. It tells the handler how t
 | `preProcess`  | Function to run *before* validation. | `'trim'`             |
 | `postProcess` | Function to run *after* validation.  | `'strtolower'`       |
 | `uuid`        | Auto-generate UUID v4 for the field. | `true`               |
+| `exclude`     | Exclude field from `toArray()` output. | `true`             |
 
 ### Common Scenarios
 
@@ -180,7 +181,7 @@ public ?string $bio = null;
 
 // 3. Required Nullable (Must be present, but can be null)
 #[Field(rules: 'required|nullable|string')]
-public ?string $reason; // ✅ No default value
+public ?string $reason; // No default value
 
 // 4. Optional with Default
 #[Field(rules: 'integer')]
@@ -193,11 +194,11 @@ The library automatically casts input values based on the PHP property type.
 
 **Boolean Casting Table**
 
-| Input Value | Result (bool) |
-| :--- | :--- |
-| `true`, `"true"`, `"1"`, `"on"`, `"yes"` | `true` |
-| `false`, `"false"`, `"0"`, `"off"`, `"no"`, `""` (empty string), `null` | `false` |
-| Any other non-empty string | `true` |
+| Input Value                                                              | Result  |
+|:-------------------------------------------------------------------------|:--------|
+| `true`, `"true"`, `"1"`, `"on"`, `"yes"`                                 | `true`  |
+| `false`, `"false"`, `"0"`, `"off"`, `"no"`, `""` (empty string), `null`  | `false` |
+| Any other non-empty string                                               | `true`  |
 
 **Array Casting Logic**
 
@@ -316,6 +317,18 @@ echo $dto->id; // "550e8400-e29b-41d4-a716-446655440000"
 - When `uuid: true` is set, any value provided in the request for this field is ignored - a new UUID is always generated.
 - UUID fields must have `string` type. A `ConfigurationException` will be thrown if the type is different.
 
+#### Excluded Fields
+
+Use `exclude: true` to exclude a field from `toArray()` output. The field will still be populated from request data and validated normally.
+
+```php
+#[Field(rules: 'in:pending,processing', exclude: true)]
+public string $status = 'pending';
+
+// Request {"status": "processing"} will set $dto->status = "processing"
+// $dto->toArray() will NOT include 'status'
+```
+
 #### Route Parameter Placeholders
 
 Use `{placeholder}` syntax in validation rules to inject route parameters. This is useful for update operations where you need to exclude the current record from unique checks.
@@ -355,20 +368,20 @@ use Solo\RequestHandler\Casters\PostProcessorInterface;
 
 class SlugProcessor implements PostProcessorInterface
 {
-public function process(mixed $value): string
-{
-    return strtolower(preg_replace('/[^a-z0-9]+/i', '-', trim($value)));
-}
+    public function process(mixed $value): string
+    {
+        return strtolower(preg_replace('/[^a-z0-9]+/i', '-', trim($value)));
+    }
 }
 
 class ArticleRequest extends Request
 {
-#[Field(postProcess: SlugProcessor::class)]
-public string $slug;
+    #[Field(postProcess: SlugProcessor::class)]
+    public string $slug;
 
-// Or use a static method reference
-#[Field(preProcess: 'trim')]
-public string $title;
+    // Or use a static method reference
+    #[Field(preProcess: 'trim')]
+    public string $title;
 }
 ```
 
@@ -387,10 +400,10 @@ use Solo\RequestHandler\Casters\CasterInterface;
 
 class MoneyCaster implements CasterInterface
 {
-public function cast(mixed $value): Money
-{
-    return Money::fromFloat((float) $value);
-}
+    public function cast(mixed $value): Money
+    {
+        return Money::fromFloat((float) $value);
+    }
 }
 
 // Usage
@@ -430,34 +443,34 @@ The library validates your DTO configuration at runtime to prevent logical error
 use Solo\RequestHandler\Exceptions\ConfigurationException;
 
 try {
-$dto = $handler->handle(InvalidRequest::class, $request);
+    $dto = $handler->handle(InvalidRequest::class, $request);
 } catch (ConfigurationException $e) {
-// Developer error - invalid DTO configuration
-// Log this and return 500
-error_log($e->getMessage());
-return $this->json(['error' => 'Internal Server Error'], 500);
+    // Developer error - invalid DTO configuration
+    // Log this and return 500
+    error_log($e->getMessage());
+    return $this->json(['error' => 'Internal Server Error'], 500);
 } catch (ValidationException $e) {
-// User error - invalid input data
-return $this->json(['errors' => $e->getErrors()], 422);
+    // User error - invalid input data
+    return $this->json(['errors' => $e->getErrors()], 422);
 }
 ```
 
-| Error | Cause | Fix |
-| :--- | :--- | :--- |
-| `ConfigurationException` | `nullable` rule on non-nullable property. | Make property nullable: `?string`. |
-| `ConfigurationException` | `required` rule on property with default value. | Remove default value OR remove `required`. |
-| `ConfigurationException` | Incompatible `cast` type. | Ensure cast type matches property type. |
-| `ConfigurationException` | `uuid: true` on non-string property. | Change property type to `string`. |
+| Error                    | Cause                                            | Fix                                          |
+|:-------------------------|:-------------------------------------------------|:---------------------------------------------|
+| `ConfigurationException` | `nullable` rule on non-nullable property.        | Make property nullable: `?string`.           |
+| `ConfigurationException` | `required` rule on property with default value.  | Remove default value OR remove `required`.   |
+| `ConfigurationException` | Incompatible `cast` type.                        | Ensure cast type matches property type.      |
+| `ConfigurationException` | `uuid: true` on non-string property.             | Change property type to `string`.            |
 
 ---
 
 ## Best Practices
 
-1.  **Always initialize nullable properties**: Use `public ?string $bio = null;` instead of `public ?string $bio;` to avoid uninitialized access errors if you want them to be optional by default.
-2.  **Use `strict_types`**: Always add `declare(strict_types=1);` to your DTO files.
-3.  **Group related fields**: Use the `group` parameter for filters, pagination, or sorting parameters.
-4.  **Validate after casting**: Remember that validation runs *before* casting, but you can use `preProcess` to modify data before validation if needed.
-5.  **Test edge cases**: Ensure your DTO handles `null`, empty strings, and unexpected types gracefully.
+1. **Always initialize nullable properties**: Use `public ?string $bio = null;` instead of `public ?string $bio;` to avoid uninitialized access errors if you want them to be optional by default.
+2. **Use `strict_types`**: Always add `declare(strict_types=1);` to your DTO files.
+3. **Group related fields**: Use the `group` parameter for filters, pagination, or sorting parameters.
+4. **Validate after casting**: Remember that validation runs *before* casting, but you can use `preProcess` to modify data before validation if needed.
+5. **Test edge cases**: Ensure your DTO handles `null`, empty strings, and unexpected types gracefully.
 
 ---
 
@@ -473,31 +486,31 @@ composer require solophp/validator
 
 ### Required Rules
 
-| Rule | Description | Example |
-|------|-------------|---------|
+| Rule       | Description                        | Example      |
+|:-----------|:-----------------------------------|:-------------|
 | `required` | Field must be present and not empty | `'required'` |
-| `nullable` | Field can be `null` | `'nullable'` |
+| `nullable` | Field can be `null`                | `'nullable'` |
 
 ### Recommended Rules
 
 These rules are commonly used with Request Handler:
 
-| Rule | Description | Example |
-|------|-------------|---------|
-| `string` | Value must be a string | `'string'` |
-| `integer` | Value must be an integer | `'integer'` |
-| `numeric` | Value must be numeric | `'numeric'` |
-| `email` | Value must be a valid email | `'email'` |
-| `min:n` | Minimum length | `'min:1'` |
-| `max:n` | Maximum length | `'max:255'` |
-| `min_value:n` | Minimum numeric value | `'min_value:0'` |
-| `max_value:n` | Maximum numeric value | `'max_value:100'` |
-| `in:a,b,c` | Value must be in list | `'in:active,inactive'` |
-| `boolean` | Value must be boolean-like | `'boolean'` |
-| `array` | Value must be an array | `'array'` |
-| `length:n` | Exact length | `'length:10'` |
-| `date` | Value must be a valid date | `'date'` |
-| `date_format:f` | Value must match date format | `'date_format:Y-m-d'` |
+| Rule           | Description                   | Example              |
+|:---------------|:------------------------------|:---------------------|
+| `string`       | Value must be a string        | `'string'`           |
+| `integer`      | Value must be an integer      | `'integer'`          |
+| `numeric`      | Value must be numeric         | `'numeric'`          |
+| `email`        | Value must be a valid email   | `'email'`            |
+| `min:n`        | Minimum length                | `'min:1'`            |
+| `max:n`        | Maximum length                | `'max:255'`          |
+| `min_value:n`  | Minimum numeric value         | `'min_value:0'`      |
+| `max_value:n`  | Maximum numeric value         | `'max_value:100'`    |
+| `in:a,b,c`     | Value must be in list         | `'in:active,inactive'` |
+| `boolean`      | Value must be boolean-like    | `'boolean'`          |
+| `array`        | Value must be an array        | `'array'`            |
+| `length:n`     | Exact length                  | `'length:10'`        |
+| `date`         | Value must be a valid date    | `'date'`             |
+| `date_format:f`| Value must match date format  | `'date_format:Y-m-d'` |
 
 All these rules are supported by [solophp/validator](https://github.com/SoloPHP/Validator)
 
@@ -528,7 +541,7 @@ If you are migrating from `$request->input()` or `$_POST` arrays:
 $name = $request->input('name', 'default');
 $age = (int) $request->input('age', 0);
 if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-throw new ValidationException('Invalid email');
+    throw new ValidationException('Invalid email');
 }
 ```
 
@@ -545,17 +558,12 @@ public string $email;
 ```
 
 **Benefits:**
-*   ✅ Automatic validation
-*   ✅ Strict typing
-*   ✅ IDE Autocomplete
-*   ✅ No more "magic strings" for array keys
+- Automatic validation
+- Strict typing
+- IDE Autocomplete
+- No more "magic strings" for array keys
 
 ---
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.

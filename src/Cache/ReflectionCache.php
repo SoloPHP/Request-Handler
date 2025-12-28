@@ -123,6 +123,7 @@ final class ReflectionCache
             group: $field?->group,
             isRequired: $isRequired,
             uuid: $field->uuid ?? false,
+            exclude: $field->exclude ?? false,
         );
     }
 

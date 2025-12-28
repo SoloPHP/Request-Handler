@@ -43,7 +43,7 @@ abstract class Request
     }
 
     /**
-     * Returns all initialized properties as array
+     * Returns all initialized properties as array (excluding fields with exclude: true)
      *
      * @return array<string, mixed>
      */
@@ -52,9 +52,16 @@ abstract class Request
         $result = [];
 
         foreach ($this->getReflection()->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
-            if (!$property->isStatic() && $property->isInitialized($this)) {
-                $result[$property->getName()] = $property->getValue($this);
+            if ($property->isStatic() || !$property->isInitialized($this)) {
+                continue;
             }
+
+            $attributes = $property->getAttributes(Attributes\Field::class);
+            if (!empty($attributes) && $attributes[0]->newInstance()->exclude) {
+                continue;
+            }
+
+            $result[$property->getName()] = $property->getValue($this);
         }
 
         return $result;

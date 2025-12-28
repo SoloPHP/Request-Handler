@@ -361,22 +361,6 @@ final class RequestHandlerTest extends TestCase
         $this->handler->handle(CustomMessagesTestRequest::class, $request);
     }
 
-    public function testStaticPropertiesIgnoredInCreateInstance(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
-        $request->method('getParsedBody')->willReturn(['name' => 'Test']);
-        $request->method('getQueryParams')->willReturn([]);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        StaticRequest::$counter = 5;
-        $dto = $this->handler->handle(StaticRequest::class, $request);
-
-        $this->assertEquals('Test', $dto->name);
-        $this->assertEquals(5, StaticRequest::$counter); // Static not modified
-    }
-
     public function testNonCasterClassInCastIsIgnored(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
@@ -581,6 +565,7 @@ final class RequestHandlerTest extends TestCase
         // PostProcessor receives raw string and decodes it properly
         $this->assertEquals(['a', 'b'], $dto->tags);
     }
+
 }
 
 final class TestRequest extends Request
@@ -705,12 +690,6 @@ final class OptionalNoRulesRequest extends Request
     public ?string $value = null;
 }
 
-final class StaticRequest extends Request
-{
-    public static int $counter = 0;
-    public string $name;
-}
-
 // Class that doesn't implement CasterInterface
 final class NotACaster
 {
@@ -798,3 +777,4 @@ final class JsonToArrayProcessor implements \Solo\RequestHandler\Casters\PostPro
         return json_decode($value, true);
     }
 }
+

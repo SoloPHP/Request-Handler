@@ -23,6 +23,7 @@ final readonly class PropertyMetadata
         public ?string $group,
         public bool $isRequired,
         public bool $uuid = false,
+        public bool $exclude = false,
     ) {
     }
 }

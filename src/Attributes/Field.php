@@ -19,6 +19,9 @@ use Attribute;
  *
  * #[Field(rules: 'nullable|string', group: 'criteria')]
  * public ?string $search = null;
+ *
+ * #[Field(rules: 'string|max:100', exclude: true)]
+ * public string $internalField = 'default';
  * ```
  */
 #[Attribute(Attribute::TARGET_PROPERTY)]
@@ -32,6 +35,7 @@ final class Field
         public ?string $postProcess = null,
         public ?string $group = null,
         public bool $uuid = false,
+        public bool $exclude = false,
     ) {
     }
 }

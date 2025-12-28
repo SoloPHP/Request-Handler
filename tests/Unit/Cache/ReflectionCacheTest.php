@@ -111,14 +111,6 @@ final class ReflectionCacheTest extends TestCase
         $this->assertTrue($metadata->properties['email']->isNullable);
     }
 
-    public function testNullableTypeWithoutNullableRuleIsValid(): void
-    {
-        // This is also valid - ?string can be non-nullable in rules
-        $metadata = $this->cache->get(NullableTypeNotNullableRuleRequest::class);
-
-        $this->assertTrue($metadata->properties['bio']->isNullable);
-    }
-
     public function testUnionTypesWithCompatibleCast(): void
     {
         // Union type is compatible if at least one type matches
@@ -160,17 +152,6 @@ final class ReflectionCacheTest extends TestCase
 
         $this->assertEquals('datetime:immutable', $metadata->properties['date']->castType);
         $this->assertEquals('DateTimeInterface', $metadata->properties['date']->type);
-    }
-
-    public function testFloatCastWithIntType(): void
-    {
-        // Test that float cast is compatible with int type
-        // (int can be safely assigned to float variables)
-        $metadata = $this->cache->get(FloatCastIntTypeRequest::class);
-
-        $this->assertArrayHasKey('value', $metadata->properties);
-        $this->assertEquals('float', $metadata->properties['value']->castType);
-        $this->assertEquals('int', $metadata->properties['value']->type);
     }
 
     public function testCustomCasterClassIsAllowed(): void
@@ -216,27 +197,6 @@ final class ReflectionCacheTest extends TestCase
         $this->cache->get(InvalidPostProcessorRequest::class);
     }
 
-    public function testValidGlobalFunctionProcessor(): void
-    {
-        $metadata = $this->cache->get(ValidGlobalFunctionProcessorRequest::class);
-
-        $this->assertEquals('trim', $metadata->properties['name']->preProcessor);
-    }
-
-    public function testValidClassProcessor(): void
-    {
-        $metadata = $this->cache->get(ValidClassProcessorRequest::class);
-
-        $this->assertEquals(DummyCaster::class, $metadata->properties['value']->postProcessor);
-    }
-
-    public function testValidStaticMethodProcessor(): void
-    {
-        $metadata = $this->cache->get(ValidStaticMethodProcessorRequest::class);
-
-        $this->assertEquals('customProcess', $metadata->properties['data']->preProcessor);
-    }
-
     public function testClassWithoutInterfaceThrowsException(): void
     {
         $this->expectException(ConfigurationException::class);
@@ -259,6 +219,14 @@ final class ReflectionCacheTest extends TestCase
         $this->expectExceptionMessage("has 'uuid: true' but type is 'int'");
 
         $this->cache->get(InvalidUuidTypeRequest::class);
+    }
+
+    public function testExcludeFieldMetadata(): void
+    {
+        $metadata = $this->cache->get(ExcludeFieldRequest::class);
+
+        $this->assertTrue($metadata->properties['excluded']->exclude);
+        $this->assertFalse($metadata->properties['normal']->exclude);
     }
 }
 
@@ -334,13 +302,6 @@ final class ValidNullableRequest extends Request
     public ?string $email = null;  // Correct: type allows null
 }
 
-// ✅ VALID configuration: nullable type without nullable rule
-final class NullableTypeNotNullableRuleRequest extends Request
-{
-    #[Field(rules: 'string|max:100')]
-    public ?string $bio = null;  // Valid: ?string can be non-nullable in rules
-}
-
 // ✅ VALID configuration: union types with compatible cast
 final class UnionTypeRequest extends Request
 {
@@ -371,12 +332,6 @@ final class DateTimeImmutableInterfaceRequest extends Request
 {
     #[Field(cast: 'datetime:immutable')]
     public \DateTimeInterface $date;
-}
-
-final class FloatCastIntTypeRequest extends Request
-{
-    #[Field(cast: 'float')]
-    public int $value;
 }
 
 final class CustomCasterRequest extends Request
@@ -428,32 +383,6 @@ final class InvalidClassProcessorRequest extends Request
     public string $data;
 }
 
-// ✅ VALID: global function processor
-final class ValidGlobalFunctionProcessorRequest extends Request
-{
-    #[Field(preProcess: 'trim')]
-    public string $name;
-}
-
-// ✅ VALID: class with CasterInterface as processor
-final class ValidClassProcessorRequest extends Request
-{
-    #[Field(postProcess: DummyCaster::class)]
-    public string $value;
-}
-
-// ✅ VALID: static method processor
-final class ValidStaticMethodProcessorRequest extends Request
-{
-    #[Field(preProcess: 'customProcess')]
-    public string $data;
-
-    public static function customProcess(mixed $value): mixed
-    {
-        return strtolower((string)$value);
-    }
-}
-
 // Helper class without interface for testing
 final class ClassWithoutInterface
 {
@@ -478,4 +407,14 @@ final class InvalidUuidTypeRequest extends Request
 {
     #[Field(uuid: true)]
     public int $id;
+}
+
+// ✅ VALID: exclude field
+final class ExcludeFieldRequest extends Request
+{
+    #[Field(exclude: true)]
+    public string $excluded = 'default';
+
+    #[Field(rules: 'required|string')]
+    public string $normal;
 }

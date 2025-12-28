@@ -283,6 +283,17 @@ final class RequestTest extends TestCase
 
         $dto->group('criteria');
     }
+
+    public function testToArrayExcludesFieldsWithExcludeTrue(): void
+    {
+        $dto = new ExcludedFieldToArrayRequest();
+        $dto->name = 'John';
+
+        $result = $dto->toArray();
+
+        $this->assertEquals(['name' => 'John'], $result);
+        $this->assertArrayNotHasKey('internal', $result);
+    }
 }
 
 final class TestRequest extends Request
@@ -374,4 +385,12 @@ final class ScalarDuplicateRequest extends Request
 
     #[Field(group: 'criteria')]
     public int $limit;
+}
+
+final class ExcludedFieldToArrayRequest extends Request
+{
+    public string $name;
+
+    #[Field(exclude: true)]
+    public string $internal = 'secret';
 }
