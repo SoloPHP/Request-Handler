@@ -9,6 +9,9 @@ namespace Solo\RequestHandler\Cache;
  */
 final readonly class PropertyMetadata
 {
+    /**
+     * @param array<string, mixed> $generatorOptions
+     */
     public function __construct(
         public string $name,
         public string $inputName,
@@ -22,7 +25,8 @@ final readonly class PropertyMetadata
         public ?string $postProcessor,
         public ?string $group,
         public bool $isRequired,
-        public bool $uuid = false,
+        public ?string $generator = null,
+        public array $generatorOptions = [],
         public bool $exclude = false,
     ) {
     }

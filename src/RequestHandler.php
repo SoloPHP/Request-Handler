@@ -9,8 +9,9 @@ use Solo\Contracts\Validator\ValidatorInterface;
 use Solo\RequestHandler\Cache\PropertyMetadata;
 use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Casters\BuiltInCaster;
-use Solo\RequestHandler\Casters\CasterInterface;
-use Solo\RequestHandler\Casters\PostProcessorInterface;
+use Solo\RequestHandler\Contracts\CasterInterface;
+use Solo\RequestHandler\Contracts\ProcessorInterface;
+use Solo\RequestHandler\Contracts\GeneratorInterface;
 use Solo\RequestHandler\Exceptions\ValidationException;
 use ReflectionClass;
 
@@ -28,7 +29,7 @@ final class RequestHandler
     private ReflectionCache $cache;
     private BuiltInCaster $builtInCaster;
 
-    /** @var array<class-string, PostProcessorInterface|CasterInterface|object> */
+    /** @var array<class-string, ProcessorInterface|CasterInterface|object> */
     private array $processors = [];
 
     public function __construct(
@@ -65,9 +66,14 @@ final class RequestHandler
         $presentFields = [];
 
         foreach ($metadata->properties as $property) {
-            // Generate UUID if field has uuid: true and no value in request
-            if ($property->uuid) {
-                $presentFields[$property->name] = $this->generateUuid();
+            // Generate value if field has generator
+            if ($property->generator !== null) {
+                /** @var class-string<GeneratorInterface> $generatorClass */
+                $generatorClass = $property->generator;
+                $presentFields[$property->name] = $this->runGenerator(
+                    $generatorClass,
+                    $property->generatorOptions
+                );
                 continue;
             }
 
@@ -197,11 +203,11 @@ final class RequestHandler
             return $handler($value);
         }
 
-        // Check if it's a class implementing PostProcessorInterface or CasterInterface
+        // Check if it's a class implementing ProcessorInterface or CasterInterface
         if (class_exists($handler)) {
             $processor = $this->getOrCreateProcessor($handler);
 
-            if ($processor instanceof PostProcessorInterface) {
+            if ($processor instanceof ProcessorInterface) {
                 return $processor->process($value);
             }
             if ($processor instanceof CasterInterface) {
@@ -336,21 +342,21 @@ final class RequestHandler
     }
 
     /**
-     * Generate UUID v4
+     * Run generator and return generated value
+     *
+     * @param class-string<GeneratorInterface> $generatorClass
+     * @param array<string, mixed> $options
      */
-    private function generateUuid(): string
+    private function runGenerator(string $generatorClass, array $options): mixed
     {
-        $uuid = random_bytes(16);
-        $uuid[6] = $uuid[6] & "\x0F" | "\x40"; // version 4
-        $uuid[8] = $uuid[8] & "\x3F" | "\x80"; // variant RFC 4122
+        $generator = $this->getOrCreateProcessor($generatorClass);
 
-        $hex = bin2hex($uuid);
+        if ($generator instanceof GeneratorInterface) {
+            return $generator->generate($options);
+        }
 
-        return
-            substr($hex, 0, 8) . '-' .
-            substr($hex, 8, 4) . '-' .
-            substr($hex, 12, 4) . '-' .
-            substr($hex, 16, 4) . '-' .
-            substr($hex, 20, 12);
+        // @codeCoverageIgnoreStart
+        return null;
+        // @codeCoverageIgnoreEnd
     }
 }

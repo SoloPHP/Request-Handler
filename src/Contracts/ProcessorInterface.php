@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Solo\RequestHandler\Casters;
+namespace Solo\RequestHandler\Contracts;
 
 /**
- * Interface for custom post-processors
+ * Interface for custom processors (preProcess and postProcess)
  *
- * Implement this interface to create reusable post-processing logic
+ * Implement this interface to create reusable processing logic
  *
  * Example:
  * ```php
- * final class SlugNormalizer implements PostProcessorInterface
+ * final class SlugNormalizer implements ProcessorInterface
  * {
  *     public function process(mixed $value): string
  *     {
@@ -20,7 +20,7 @@ namespace Solo\RequestHandler\Casters;
  * }
  * ```
  */
-interface PostProcessorInterface
+interface ProcessorInterface
 {
     public function process(mixed $value): mixed;
 }

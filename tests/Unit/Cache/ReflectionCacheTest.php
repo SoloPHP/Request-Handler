@@ -9,6 +9,7 @@ use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Attributes\Field;
 use Solo\RequestHandler\Request;
 use Solo\RequestHandler\Exceptions\ConfigurationException;
+use Solo\RequestHandler\Contracts\GeneratorInterface;
 
 final class ReflectionCacheTest extends TestCase
 {
@@ -205,20 +206,29 @@ final class ReflectionCacheTest extends TestCase
         $this->cache->get(InvalidClassProcessorRequest::class);
     }
 
-    public function testUuidFieldMetadata(): void
+    public function testGeneratorFieldMetadata(): void
     {
-        $metadata = $this->cache->get(UuidFieldRequest::class);
+        $metadata = $this->cache->get(GeneratorFieldRequest::class);
 
-        $this->assertTrue($metadata->properties['id']->uuid);
-        $this->assertFalse($metadata->properties['name']->uuid);
+        $this->assertEquals(TestGenerator::class, $metadata->properties['id']->generator);
+        $this->assertEquals(['table' => 'users'], $metadata->properties['id']->generatorOptions);
+        $this->assertNull($metadata->properties['name']->generator);
     }
 
-    public function testUuidWithNonStringTypeThrowsException(): void
+    public function testInvalidGeneratorThrowsException(): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("has 'uuid: true' but type is 'int'");
+        $this->expectExceptionMessage("has invalid generator");
 
-        $this->cache->get(InvalidUuidTypeRequest::class);
+        $this->cache->get(InvalidGeneratorRequest::class);
+    }
+
+    public function testNonExistentGeneratorThrowsException(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("class does not exist");
+
+        $this->cache->get(NonExistentGeneratorRequest::class);
     }
 
     public function testExcludeFieldMetadata(): void
@@ -354,7 +364,7 @@ final class ArrayCastRequest extends Request
 }
 
 // Dummy caster for testing custom caster compatibility
-final class DummyCaster implements \Solo\RequestHandler\Casters\CasterInterface
+final class DummyCaster implements \Solo\RequestHandler\Contracts\CasterInterface
 {
     public function cast(mixed $value): mixed
     {
@@ -392,21 +402,44 @@ final class ClassWithoutInterface
     }
 }
 
-// ✅ VALID: uuid field
-final class UuidFieldRequest extends Request
+// ✅ VALID: generator field
+final class GeneratorFieldRequest extends Request
 {
-    #[Field(uuid: true)]
+    #[Field(generator: TestGenerator::class, generatorOptions: ['table' => 'users'])]
     public string $id;
 
     #[Field(rules: 'required|string')]
     public string $name;
 }
 
-// ❌ INVALID: uuid with non-string type
-final class InvalidUuidTypeRequest extends Request
+// ❌ INVALID: generator that doesn't implement GeneratorInterface
+final class InvalidGeneratorRequest extends Request
 {
-    #[Field(uuid: true)]
-    public int $id;
+    #[Field(generator: NotAGenerator::class)]
+    public string $id;
+}
+
+// ❌ INVALID: non-existent generator class
+final class NonExistentGeneratorRequest extends Request
+{
+    #[Field(generator: 'NonExistentGenerator')]
+    public string $id;
+}
+
+final class TestGenerator implements GeneratorInterface
+{
+    public function generate(array $options = []): string
+    {
+        return 'generated_value';
+    }
+}
+
+final class NotAGenerator
+{
+    public function generate(): string
+    {
+        return 'not_a_generator';
+    }
 }
 
 // ✅ VALID: exclude field

@@ -22,6 +22,12 @@ use Attribute;
  *
  * #[Field(rules: 'string|max:100', exclude: true)]
  * public string $internalField = 'default';
+ *
+ * #[Field(generator: UuidGenerator::class)]
+ * public string $id;
+ *
+ * #[Field(generator: IntIdGenerator::class, generatorOptions: ['table' => 'users'])]
+ * public int $id;
  * ```
  */
 #[Attribute(Attribute::TARGET_PROPERTY)]
@@ -34,7 +40,9 @@ final class Field
         public ?string $preProcess = null,
         public ?string $postProcess = null,
         public ?string $group = null,
-        public bool $uuid = false,
+        public ?string $generator = null,
+        /** @var array<string, mixed> */
+        public array $generatorOptions = [],
         public bool $exclude = false,
     ) {
     }

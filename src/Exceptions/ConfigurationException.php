@@ -85,7 +85,7 @@ final class ConfigurationException extends Exception
     ): self {
         return new self(sprintf(
             "Property %s::\$%s has invalid %s '%s'. " .
-            "Processor must be: a global function, a class implementing PostProcessorInterface/CasterInterface, " .
+            "Processor must be: a global function, a class implementing ProcessorInterface/CasterInterface, " .
             "or a static method on the Request class.",
             $className,
             $propertyName,
@@ -95,21 +95,22 @@ final class ConfigurationException extends Exception
     }
 
     /**
-     * UUID field must have string type
+     * Invalid generator class
      *
-     * Example: #[Field(uuid: true)] public int $id;
+     * Example: #[Field(generator: 'NonExistentClass')] public string $id;
      */
-    public static function uuidRequiresStringType(
+    public static function invalidGenerator(
         string $className,
         string $propertyName,
-        ?string $propertyType
+        string $generatorClass,
+        string $reason
     ): self {
         return new self(sprintf(
-            "Property %s::\$%s has 'uuid: true' but type is '%s'. " .
-            "UUID fields must have 'string' type.",
+            "Property %s::\$%s has invalid generator '%s': %s.",
             $className,
             $propertyName,
-            $propertyType ?? 'mixed'
+            $generatorClass,
+            $reason
         ));
     }
 }

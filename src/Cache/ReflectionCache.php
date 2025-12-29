@@ -7,6 +7,7 @@ namespace Solo\RequestHandler\Cache;
 use ReflectionClass;
 use ReflectionProperty;
 use Solo\RequestHandler\Attributes\Field;
+use Solo\RequestHandler\Contracts\GeneratorInterface;
 use Solo\RequestHandler\Exceptions\ConfigurationException;
 
 /**
@@ -104,9 +105,9 @@ final class ReflectionCache
         $this->validateProcessor($field?->preProcess, $className, $name, 'preProcess');
         $this->validateProcessor($field?->postProcess, $className, $name, 'postProcess');
 
-        // Check 5: uuid fields must be string type
-        if ($field?->uuid === true && $phpType !== 'string') {
-            throw ConfigurationException::uuidRequiresStringType($className, $name, $phpType);
+        // Check 5: generator must implement GeneratorInterface
+        if ($field?->generator !== null) {
+            $this->validateGenerator($field->generator, $className, $name);
         }
 
         return new PropertyMetadata(
@@ -122,7 +123,8 @@ final class ReflectionCache
             postProcessor: $field?->postProcess,
             group: $field?->group,
             isRequired: $isRequired,
-            uuid: $field->uuid ?? false,
+            generator: $field?->generator,
+            generatorOptions: $field->generatorOptions ?? [],
             exclude: $field->exclude ?? false,
         );
     }
@@ -219,7 +221,7 @@ final class ReflectionCache
 
     /**
      * Check if processor is valid (callable)
-     * Valid processors: global function, class with PostProcessorInterface/CasterInterface, static method on Request
+     * Valid processors: global function, class with ProcessorInterface/CasterInterface, static method on Request
      */
     private function isValidProcessor(string $processor, string $className): bool
     {
@@ -231,8 +233,8 @@ final class ReflectionCache
         // 2. Class with required interface
         if (class_exists($processor)) {
             $interfaces = class_implements($processor);
-            return isset($interfaces[\Solo\RequestHandler\Casters\PostProcessorInterface::class])
-                || isset($interfaces[\Solo\RequestHandler\Casters\CasterInterface::class]);
+            return isset($interfaces[\Solo\RequestHandler\Contracts\ProcessorInterface::class])
+                || isset($interfaces[\Solo\RequestHandler\Contracts\CasterInterface::class]);
         }
 
         // 3. Static method on Request class
@@ -241,5 +243,30 @@ final class ReflectionCache
         }
 
         return false;
+    }
+
+    /**
+     * Validate generator class implements GeneratorInterface
+     */
+    private function validateGenerator(string $generator, string $className, string $propertyName): void
+    {
+        if (!class_exists($generator)) {
+            throw ConfigurationException::invalidGenerator(
+                $className,
+                $propertyName,
+                $generator,
+                'class does not exist'
+            );
+        }
+
+        $interfaces = class_implements($generator);
+        if (!isset($interfaces[GeneratorInterface::class])) {
+            throw ConfigurationException::invalidGenerator(
+                $className,
+                $propertyName,
+                $generator,
+                'must implement GeneratorInterface'
+            );
+        }
     }
 }

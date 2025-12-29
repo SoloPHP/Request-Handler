@@ -16,7 +16,7 @@ Transform raw HTTP requests into strictly typed Data Transfer Objects (DTOs) wit
 - **Attribute-based DTOs:** Define request structures using `#[Field]` attributes on typed properties
 - **Type-Safe Properties:** Full IDE autocomplete and static analysis support with strict typing
 - **Automatic Type Casting:** Built-in support for `int`, `float`, `bool`, `string`, `array`, and `DateTime`/`DateTimeImmutable`
-- **UUID Generation:** Auto-generate UUID v4 for fields with `uuid: true` parameter
+- **Custom Generators:** Auto-generate field values (UUIDs, IDs, etc.) via `generator` parameter with custom options
 - **Route Parameter Placeholders:** Use `{placeholder}` syntax in validation rules with `$routeParams` injection
 - **Field Grouping:** Organize fields into logical groups with `group` parameter and extract via `group()` method
 - **Nested Mapping:** Map deeply nested input data to flat properties via `mapFrom` with dot notation
@@ -151,16 +151,17 @@ $desc = $dto->get('description', 'No description');
 
 The `#[Field]` attribute is the core of this library. It tells the handler how to process each property.
 
-| Parameter     | Description                          | Example              |
-|:--------------|:-------------------------------------|:---------------------|
-| `rules`       | Validation rules string.             | `'required\|email'`  |
-| `cast`        | Explicit type casting (optional).    | `'datetime:Y-m-d'`   |
-| `mapFrom`     | Dot-notation path to source data.    | `'user.profile.id'`  |
-| `group`       | Group name for bulk extraction.      | `'filters'`          |
-| `preProcess`  | Function to run *before* validation. | `'trim'`             |
-| `postProcess` | Function to run *after* validation.  | `'strtolower'`       |
-| `uuid`        | Auto-generate UUID v4 for the field. | `true`               |
-| `exclude`     | Exclude field from `toArray()` output. | `true`             |
+| Parameter          | Description                               | Example                     |
+|:-------------------|:------------------------------------------|:----------------------------|
+| `rules`            | Validation rules string.                  | `'required\|email'`         |
+| `cast`             | Explicit type casting (optional).         | `'datetime:Y-m-d'`          |
+| `mapFrom`          | Dot-notation path to source data.         | `'user.profile.id'`         |
+| `group`            | Group name for bulk extraction.           | `'filters'`                 |
+| `preProcess`       | Function to run *before* validation.      | `'trim'`                    |
+| `postProcess`      | Function to run *after* validation.       | `'strtolower'`              |
+| `generator`        | Class to generate field value.            | `UuidGenerator::class`      |
+| `generatorOptions` | Options array passed to generator.        | `['table' => 'users']`      |
+| `exclude`          | Exclude field from `toArray()` output.    | `true`                      |
 
 ### Common Scenarios
 
@@ -294,15 +295,48 @@ $handler = new RequestHandler($validator, autoTrim: false);
 public string $name;
 ```
 
-#### Auto-Generated UUIDs
+#### Field Value Generators
 
-Use `uuid: true` to automatically generate a UUID v4 for a field. This is useful for creating new entities with unique identifiers.
+Use `generator` to automatically generate field values. Implement `GeneratorInterface` to create custom generators.
 
 ```php
+use Solo\RequestHandler\Contracts\GeneratorInterface;
+
+// Custom UUID generator
+class UuidGenerator implements GeneratorInterface
+{
+    public function generate(array $options = []): string
+    {
+        return sprintf(
+            '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+            mt_rand(0, 0xffff),
+            mt_rand(0, 0x0fff) | 0x4000,
+            mt_rand(0, 0x3fff) | 0x8000,
+            mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
+        );
+    }
+}
+
+// Generator with options
+class SequenceGenerator implements GeneratorInterface
+{
+    public function generate(array $options = []): int
+    {
+        $table = $options['table'] ?? 'default';
+        // Your logic to get next ID from database
+        return $this->getNextId($table);
+    }
+}
+
+// Usage in Request
 class CreateOrderRequest extends Request
 {
-    #[Field(uuid: true)]
+    #[Field(generator: UuidGenerator::class)]
     public string $id;
+
+    #[Field(generator: SequenceGenerator::class, generatorOptions: ['table' => 'orders'])]
+    public int $orderNumber;
 
     #[Field(rules: 'required|string')]
     public string $productName;
@@ -311,11 +345,13 @@ class CreateOrderRequest extends Request
 // Usage:
 $dto = $handler->handle(CreateOrderRequest::class, $request);
 echo $dto->id; // "550e8400-e29b-41d4-a716-446655440000"
+echo $dto->orderNumber; // 12345
 ```
 
 **Notes:**
-- When `uuid: true` is set, any value provided in the request for this field is ignored - a new UUID is always generated.
-- UUID fields must have `string` type. A `ConfigurationException` will be thrown if the type is different.
+- When `generator` is set, any value provided in the request for this field is ignored - a new value is always generated.
+- Generator class must implement `GeneratorInterface`.
+- Use `generatorOptions` to pass configuration to the generator.
 
 #### Excluded Fields
 
@@ -364,9 +400,9 @@ public string $email;
 Transform data before or after validation.
 
 ```php
-use Solo\RequestHandler\Casters\PostProcessorInterface;
+use Solo\RequestHandler\Contracts\ProcessorInterface;
 
-class SlugProcessor implements PostProcessorInterface
+class SlugProcessor implements ProcessorInterface
 {
     public function process(mixed $value): string
     {
@@ -396,7 +432,7 @@ class ArticleRequest extends Request
 Create complex type conversions by implementing `CasterInterface`.
 
 ```php
-use Solo\RequestHandler\Casters\CasterInterface;
+use Solo\RequestHandler\Contracts\CasterInterface;
 
 class MoneyCaster implements CasterInterface
 {
@@ -455,12 +491,12 @@ try {
 }
 ```
 
-| Error                    | Cause                                            | Fix                                          |
-|:-------------------------|:-------------------------------------------------|:---------------------------------------------|
-| `ConfigurationException` | `nullable` rule on non-nullable property.        | Make property nullable: `?string`.           |
-| `ConfigurationException` | `required` rule on property with default value.  | Remove default value OR remove `required`.   |
-| `ConfigurationException` | Incompatible `cast` type.                        | Ensure cast type matches property type.      |
-| `ConfigurationException` | `uuid: true` on non-string property.             | Change property type to `string`.            |
+| Error                    | Cause                                            | Fix                                                    |
+|:-------------------------|:-------------------------------------------------|:-------------------------------------------------------|
+| `ConfigurationException` | `nullable` rule on non-nullable property.        | Make property nullable: `?string`.                     |
+| `ConfigurationException` | `required` rule on property with default value.  | Remove default value OR remove `required`.             |
+| `ConfigurationException` | Incompatible `cast` type.                        | Ensure cast type matches property type.                |
+| `ConfigurationException` | Invalid `generator` class.                       | Ensure generator implements `GeneratorInterface`.      |
 
 ---
 

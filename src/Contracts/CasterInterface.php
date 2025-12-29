@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Solo\RequestHandler\Casters;
+namespace Solo\RequestHandler\Contracts;
 
 /**
  * Interface for custom type casters

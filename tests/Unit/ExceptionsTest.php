@@ -44,11 +44,17 @@ final class ExceptionsTest extends TestCase
         $this->assertEquals([], $exception->getErrors());
     }
 
-    public function testConfigurationExceptionUuidRequiresStringType(): void
+    public function testConfigurationExceptionInvalidGenerator(): void
     {
-        $exception = ConfigurationException::uuidRequiresStringType('App\\Request', 'id', 'int');
+        $exception = ConfigurationException::invalidGenerator(
+            'App\\Request',
+            'id',
+            'InvalidGenerator',
+            'class does not exist'
+        );
 
-        $this->assertStringContainsString("has 'uuid: true' but type is 'int'", $exception->getMessage());
+        $this->assertStringContainsString("has invalid generator 'InvalidGenerator'", $exception->getMessage());
         $this->assertStringContainsString('App\\Request::$id', $exception->getMessage());
+        $this->assertStringContainsString('class does not exist', $exception->getMessage());
     }
 }
