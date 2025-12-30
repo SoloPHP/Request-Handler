@@ -582,6 +582,34 @@ final class RequestHandlerTest extends TestCase
         $this->assertEquals(['a', 'b'], $dto->tags);
     }
 
+    public function testRegisterAllowsDependencyInjection(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['name' => 'Test']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        // Register generator with "injected" dependency
+        $generatorWithDep = new TestGeneratorWithDependency('injected_prefix');
+        $this->handler->register(TestGeneratorWithDependency::class, $generatorWithDep);
+
+        $dto = $this->handler->handle(RegisteredGeneratorRequest::class, $request);
+
+        $this->assertEquals('Test', $dto->name);
+        $this->assertEquals('injected_prefix_generated', $dto->id);
+    }
+
+    public function testRegisterReturnsSelfForChaining(): void
+    {
+        $result = $this->handler
+            ->register(TestPreProcessor::class, new TestPreProcessor())
+            ->register(TestPostProcessor::class, new TestPostProcessor());
+
+        $this->assertSame($this->handler, $result);
+    }
+
 }
 
 final class TestRequest extends Request
@@ -829,6 +857,27 @@ final class JsonToArrayProcessor implements \Solo\RequestHandler\Contracts\Proce
     public function process(mixed $value): array
     {
         return json_decode($value, true);
+    }
+}
+
+final class RegisteredGeneratorRequest extends Request
+{
+    #[Field(generator: TestGeneratorWithDependency::class)]
+    public string $id;
+
+    #[Field(rules: 'required|string')]
+    public string $name;
+}
+
+final class TestGeneratorWithDependency implements GeneratorInterface
+{
+    public function __construct(private readonly string $prefix)
+    {
+    }
+
+    public function generate(array $options = []): string
+    {
+        return $this->prefix . '_generated';
     }
 }
 

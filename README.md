@@ -353,6 +353,33 @@ echo $dto->orderNumber; // 12345
 - Generator class must implement `GeneratorInterface`.
 - Use `generatorOptions` to pass configuration to the generator.
 
+**Dependency Injection for Generators:**
+
+If your generator requires dependencies (e.g., database connection), use `register()` method:
+
+```php
+// Generator with dependencies
+class SequenceGenerator implements GeneratorInterface
+{
+    public function __construct(private readonly Connection $connection)
+    {
+    }
+
+    public function generate(array $options = []): int
+    {
+        $table = $options['table'] ?? 'sequences';
+        return $this->connection->getNextId($table);
+    }
+}
+
+// Register the generator instance with its dependencies
+$handler = new RequestHandler($validator);
+$handler->register(SequenceGenerator::class, new SequenceGenerator($connection));
+
+// Now the handler will use the registered instance instead of creating a new one
+$dto = $handler->handle(CreateOrderRequest::class, $request);
+```
+
 #### Excluded Fields
 
 Use `exclude: true` to exclude a field from `toArray()` output. The field will still be populated from request data and validated normally.

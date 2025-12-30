@@ -41,6 +41,25 @@ final class RequestHandler
     }
 
     /**
+     * Register a processor/caster/generator instance for dependency injection
+     *
+     * Use this method when your processor/caster/generator requires constructor dependencies.
+     *
+     * Example:
+     * ```php
+     * $handler->register(SequenceGenerator::class, new SequenceGenerator($connection));
+     * $handler->register(SlugProcessor::class, new SlugProcessor($transliterator));
+     * ```
+     *
+     * @param class-string $className
+     */
+    public function register(string $className, object $instance): self
+    {
+        $this->processors[$className] = $instance;
+        return $this;
+    }
+
+    /**
      * @template T of Request
      * @param class-string<T> $className
      * @param array<string, mixed> $routeParams
