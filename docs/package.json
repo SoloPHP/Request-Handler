@@ -1,0 +1,14 @@
+{
+  "name": "solo-request-handler-docs",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Documentation for Solo Request Handler",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.5.0"
+  }
+}
