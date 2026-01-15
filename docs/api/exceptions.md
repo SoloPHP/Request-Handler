@@ -11,7 +11,7 @@ namespace Solo\RequestHandler\Exceptions;
 
 final class ValidationException extends Exception
 {
-    public function __construct(array $errors = []);
+    public function __construct(array $errors = [], ?Exception $previous = null);
     public function getErrors(): array;
 }
 ```
