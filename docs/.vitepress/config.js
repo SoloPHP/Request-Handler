@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Solo Request Handler',
-  description: 'Type-safe Request DTOs for PHP 8.2+ with validation, casting, and generators',
+  description: 'Type-safe Request DTOs for PHP 8.2+ with validation, casting, and generators.',
   base: '/Request-Handler/',
   
   head: [
