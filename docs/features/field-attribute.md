@@ -15,6 +15,7 @@ The `#[Field]` attribute configures how each property is processed from HTTP req
     generator: ?string = null,
     generatorOptions: array = [],
     exclude: bool = false,
+    items: ?string = null,
 )]
 ```
 
@@ -29,6 +30,7 @@ The `#[Field]` attribute configures how each property is processed from HTTP req
 | `generator` | `?string` | Class to generate field value |
 | `generatorOptions` | `array` | Options passed to generator |
 | `exclude` | `bool` | Exclude from `toArray()` output |
+| `items` | `?string` | Request class for nested array items |
 
 ---
 
@@ -166,6 +168,33 @@ public string $internalStatus = 'pending';
 
 ---
 
+## items
+
+Validate and process arrays of nested objects through a referenced Request class:
+
+```php
+final class OrderItemRequest extends Request
+{
+    #[Field(rules: 'required|string')]
+    public string $product;
+
+    #[Field(rules: 'required|integer|min:1')]
+    public int $quantity;
+}
+
+final class CreateOrderRequest extends Request
+{
+    #[Field(rules: 'required|array|min:1', items: OrderItemRequest::class)]
+    public ?array $items = null;
+}
+```
+
+Each element is validated and cast individually. Errors use dot-notation: `items.0.product`.
+
+See [Nested Items](/features/nested-items) for details.
+
+---
+
 ## Optional Attribute
 
 The `#[Field]` attribute is optional. Properties without it are still processed but with defaults:
@@ -194,8 +223,8 @@ final class CreateOrderRequest extends Request
     #[Field(rules: 'required|integer|exists:users,id', mapFrom: 'customer.id')]
     public int $customerId;
 
-    #[Field(rules: 'required|array|min:1')]
-    public array $items;
+    #[Field(rules: 'required|array|min:1', items: OrderItemRequest::class)]
+    public ?array $items = null;
 
     #[Field(rules: 'nullable|string|max:500', preProcess: 'trim')]
     public ?string $notes = null;

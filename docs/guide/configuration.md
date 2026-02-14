@@ -71,6 +71,32 @@ $handler
     ->register(SlugProcessor::class, new SlugProcessor($transliterator));
 ```
 
+## handleArray()
+
+Process raw data arrays without a PSR-7 request:
+
+```php
+public function handleArray(string $className, array $data): Request
+```
+
+Useful for testing or manual processing:
+
+```php
+$dto = $handler->handleArray(OrderItemRequest::class, [
+    'product' => 'Widget',
+    'quantity' => '3',
+    'price' => '9.99',
+]);
+
+$dto->product;  // 'Widget'
+$dto->quantity; // 3 (int - auto-casted)
+$dto->price;    // 9.99 (float - auto-casted)
+```
+
+::: info
+`handleArray()` runs the same pipeline as `handle()` — validation, casting, pre/post-processing — but takes a plain array instead of `ServerRequestInterface`.
+:::
+
 ## Route Parameters
 
 Pass route parameters for placeholder replacement in validation rules:
@@ -100,6 +126,23 @@ public string $email;
 // With routeParams: ['userId' => 42, 'tenantId' => 99]
 // Rule becomes: 'unique:users,email,42,tenant_id,99'
 ```
+
+## Handle Raw Arrays
+
+Use `handleArray()` to create a Request DTO from a raw array instead of a PSR-7 request:
+
+```php
+$dto = $handler->handleArray(OrderItemRequest::class, [
+    'product' => 'Widget',
+    'quantity' => '3',
+    'price' => '9.99',
+]);
+
+$dto->product;  // 'Widget'
+$dto->quantity; // 3 (int - auto-casted)
+```
+
+This is useful for testing, CLI commands, or processing data from non-HTTP sources.
 
 ## Request Base Class
 

@@ -8,6 +8,7 @@ use ReflectionClass;
 use ReflectionProperty;
 use Solo\RequestHandler\Attributes\Field;
 use Solo\RequestHandler\Contracts\GeneratorInterface;
+use Solo\RequestHandler\Request;
 use Solo\RequestHandler\Exceptions\ConfigurationException;
 
 /**
@@ -110,6 +111,21 @@ final class ReflectionCache
             $this->validateGenerator($field->generator, $className, $name);
         }
 
+        // Check 6: items must be a Request subclass
+        if ($field?->items !== null) {
+            $this->validateItems($field->items, $className, $name);
+
+            // Check 7: items requires array type
+            if ($phpType !== null && $phpType !== 'array') {
+                throw ConfigurationException::itemsRequiresArrayType($className, $name, $phpType);
+            }
+
+            // Check 8: items + generator is invalid
+            if ($field->generator !== null) {
+                throw ConfigurationException::itemsWithGenerator($className, $name);
+            }
+        }
+
         return new PropertyMetadata(
             name: $name,
             inputName: $field->mapFrom ?? $name,
@@ -126,6 +142,7 @@ final class ReflectionCache
             generator: $field?->generator,
             generatorOptions: $field->generatorOptions ?? [],
             exclude: $field->exclude ?? false,
+            items: $field?->items,
         );
     }
 
@@ -243,6 +260,20 @@ final class ReflectionCache
         }
 
         return false;
+    }
+
+    /**
+     * Validate items class extends Request
+     */
+    private function validateItems(string $items, string $className, string $propertyName): void
+    {
+        if (!class_exists($items)) {
+            throw ConfigurationException::invalidItems($className, $propertyName, $items, 'class does not exist');
+        }
+
+        if (!is_subclass_of($items, Request::class)) {
+            throw ConfigurationException::invalidItems($className, $propertyName, $items, 'must extend Request');
+        }
     }
 
     /**

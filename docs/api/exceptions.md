@@ -116,6 +116,24 @@ final class ConfigurationException extends Exception
         string $generatorClass,
         string $reason
     ): self;
+
+    public static function invalidItems(
+        string $className,
+        string $propertyName,
+        string $itemsClass,
+        string $reason
+    ): self;
+
+    public static function itemsRequiresArrayType(
+        string $className,
+        string $propertyName,
+        string $propertyType
+    ): self;
+
+    public static function itemsWithGenerator(
+        string $className,
+        string $propertyName
+    ): self;
 }
 ```
 
@@ -179,6 +197,42 @@ public string $id;
 // ✅ Correct: implements GeneratorInterface
 #[Field(generator: UuidGenerator::class)]
 public string $id;
+```
+
+#### invalidItems
+
+```php
+// ❌ Wrong: class doesn't exist or doesn't extend Request
+#[Field(items: 'NonExistentClass')]
+public ?array $items = null;
+
+// ✅ Correct: valid Request subclass
+#[Field(items: OrderItemRequest::class)]
+public ?array $items = null;
+```
+
+#### itemsRequiresArrayType
+
+```php
+// ❌ Wrong: items on non-array type
+#[Field(items: OrderItemRequest::class)]
+public string $items;
+
+// ✅ Correct: array type
+#[Field(items: OrderItemRequest::class)]
+public ?array $items = null;
+```
+
+#### itemsWithGenerator
+
+```php
+// ❌ Wrong: items and generator are mutually exclusive
+#[Field(generator: UuidGenerator::class, items: OrderItemRequest::class)]
+public ?array $items = null;
+
+// ✅ Correct: use one or the other
+#[Field(items: OrderItemRequest::class)]
+public ?array $items = null;
 ```
 
 ### Usage Pattern

@@ -238,6 +238,46 @@ final class ReflectionCacheTest extends TestCase
         $this->assertTrue($metadata->properties['excluded']->exclude);
         $this->assertFalse($metadata->properties['normal']->exclude);
     }
+
+    public function testItemsFieldMetadata(): void
+    {
+        $metadata = $this->cache->get(ValidItemsRequest::class);
+
+        $this->assertEquals(ItemRequest::class, $metadata->properties['items']->items);
+        $this->assertNull($metadata->properties['name']->items);
+    }
+
+    public function testInvalidItemsClassThrowsException(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("class does not exist");
+
+        $this->cache->get(NonExistentItemsRequest::class);
+    }
+
+    public function testItemsNotRequestSubclassThrowsException(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("must extend Request");
+
+        $this->cache->get(NotRequestItemsRequest::class);
+    }
+
+    public function testItemsRequiresArrayTypeThrowsException(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("has 'items' but type is 'string'");
+
+        $this->cache->get(ItemsNonArrayTypeRequest::class);
+    }
+
+    public function testItemsWithGeneratorThrowsException(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("has both 'items' and 'generator'");
+
+        $this->cache->get(ItemsWithGeneratorRequest::class);
+    }
 }
 
 final class ValidRequest extends Request
@@ -450,4 +490,53 @@ final class ExcludeFieldRequest extends Request
 
     #[Field(rules: 'required|string')]
     public string $normal;
+}
+
+// Items test helper
+final class ItemRequest extends Request
+{
+    #[Field(rules: 'required|string')]
+    public string $product;
+}
+
+// ✅ VALID: items field
+final class ValidItemsRequest extends Request
+{
+    #[Field(rules: 'required|string')]
+    public string $name;
+
+    /** @var array<int, array<string, mixed>>|null */
+    #[Field(rules: 'nullable|array', items: ItemRequest::class)]
+    public ?array $items = null;
+}
+
+// ❌ INVALID: items class does not exist
+final class NonExistentItemsRequest extends Request
+{
+    /** @var array<mixed>|null */
+    #[Field(items: 'NonExistentItemClass')] // @phpstan-ignore argument.type
+    public ?array $items = null;
+}
+
+// ❌ INVALID: items class does not extend Request
+final class NotRequestItemsRequest extends Request
+{
+    /** @var array<mixed>|null */
+    #[Field(items: NotAGenerator::class)] // @phpstan-ignore argument.type
+    public ?array $items = null;
+}
+
+// ❌ INVALID: items on non-array type
+final class ItemsNonArrayTypeRequest extends Request
+{
+    #[Field(items: ItemRequest::class)]
+    public string $items;
+}
+
+// ❌ INVALID: items + generator
+final class ItemsWithGeneratorRequest extends Request
+{
+    /** @var array<mixed>|null */
+    #[Field(generator: TestGenerator::class, items: ItemRequest::class)]
+    public ?array $items = null;
 }

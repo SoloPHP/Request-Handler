@@ -57,4 +57,41 @@ final class ExceptionsTest extends TestCase
         $this->assertStringContainsString('App\\Request::$id', $exception->getMessage());
         $this->assertStringContainsString('class does not exist', $exception->getMessage());
     }
+
+    public function testConfigurationExceptionInvalidItems(): void
+    {
+        $exception = ConfigurationException::invalidItems(
+            'App\\OrderRequest',
+            'items',
+            'NonExistentClass',
+            'class does not exist'
+        );
+
+        $this->assertStringContainsString("has invalid items class 'NonExistentClass'", $exception->getMessage());
+        $this->assertStringContainsString('App\\OrderRequest::$items', $exception->getMessage());
+        $this->assertStringContainsString('class does not exist', $exception->getMessage());
+    }
+
+    public function testConfigurationExceptionItemsRequiresArrayType(): void
+    {
+        $exception = ConfigurationException::itemsRequiresArrayType(
+            'App\\OrderRequest',
+            'items',
+            'string'
+        );
+
+        $this->assertStringContainsString("has 'items' but type is 'string'", $exception->getMessage());
+        $this->assertStringContainsString('App\\OrderRequest::$items', $exception->getMessage());
+    }
+
+    public function testConfigurationExceptionItemsWithGenerator(): void
+    {
+        $exception = ConfigurationException::itemsWithGenerator(
+            'App\\OrderRequest',
+            'items'
+        );
+
+        $this->assertStringContainsString("has both 'items' and 'generator'", $exception->getMessage());
+        $this->assertStringContainsString('App\\OrderRequest::$items', $exception->getMessage());
+    }
 }

@@ -610,6 +610,190 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame($this->handler, $result);
     }
 
+    public function testHandleWithItems(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn([
+            'name' => 'Order #1',
+            'items' => [
+                ['product' => 'Widget', 'quantity' => '3'],
+                ['product' => 'Gadget', 'quantity' => '1'],
+            ],
+        ]);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(OrderRequest::class, $request);
+
+        $this->assertEquals('Order #1', $dto->name);
+        $this->assertIsArray($dto->items);
+        $this->assertCount(2, $dto->items);
+        $this->assertEquals('Widget', $dto->items[0]['product']);
+        $this->assertSame(3, $dto->items[0]['quantity']);
+        $this->assertEquals('Gadget', $dto->items[1]['product']);
+        $this->assertSame(1, $dto->items[1]['quantity']);
+    }
+
+    public function testHandleWithItemsValidationErrors(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn([
+            'name' => 'Order #1',
+            'items' => [
+                ['product' => '', 'quantity' => '3'],
+                ['product' => 'Gadget', 'quantity' => ''],
+            ],
+        ]);
+        $request->method('getQueryParams')->willReturn([]);
+
+        // First call validates OrderRequest (name) - passes
+        // Second and third calls validate OrderItemRequest items - fail
+        $this->validator->method('validate')
+            ->willReturnCallback(function (array $data, array $rules) {
+                if (isset($rules['product']) && ($data['product'] === '' || $data['product'] === null)) {
+                    return ['product' => ['Product is required']];
+                }
+                if (isset($rules['quantity']) && ($data['quantity'] === '' || $data['quantity'] === null)) {
+                    return ['quantity' => ['Quantity is required']];
+                }
+                return [];
+            });
+
+        try {
+            $this->handler->handle(OrderRequest::class, $request);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $errors = $e->getErrors();
+            $this->assertArrayHasKey('items.0.product', $errors);
+            $this->assertArrayHasKey('items.1.quantity', $errors);
+        }
+    }
+
+    public function testHandleWithItemsNonArrayItem(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn([
+            'name' => 'Order #1',
+            'items' => [
+                'not-an-array',
+                ['product' => 'Widget', 'quantity' => '1'],
+            ],
+        ]);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        try {
+            $this->handler->handle(OrderRequest::class, $request);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $errors = $e->getErrors();
+            $this->assertArrayHasKey('items.0', $errors);
+            $this->assertEquals(['Must be an object'], $errors['items.0']);
+        }
+    }
+
+    public function testHandleWithNullItems(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['name' => 'Order #1']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(OrderRequest::class, $request);
+
+        $this->assertEquals('Order #1', $dto->name);
+        $this->assertNull($dto->items);
+    }
+
+    public function testHandleWithEmptyItems(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn([
+            'name' => 'Order #1',
+            'items' => [],
+        ]);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(OrderRequest::class, $request);
+
+        $this->assertEquals('Order #1', $dto->name);
+        $this->assertIsArray($dto->items);
+        $this->assertEmpty($dto->items);
+    }
+
+    public function testHandleArrayMethod(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleArray(OrderItemRequest::class, [
+            'product' => 'Widget',
+            'quantity' => '5',
+        ]);
+
+        $this->assertEquals('Widget', $dto->product);
+        $this->assertSame(5, $dto->quantity);
+    }
+
+    public function testItemsSkipsCasting(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn([
+            'name' => 'Order #1',
+            'items' => [
+                ['product' => 'Widget', 'quantity' => '2'],
+            ],
+        ]);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        // If casting was applied to the items array, BuiltInCaster would
+        // try to process it. Items should bypass casting entirely and
+        // delegate to processRawData for each item individually.
+        $dto = $this->handler->handle(OrderRequest::class, $request);
+
+        $this->assertNotNull($dto->items);
+        $this->assertCount(1, $dto->items);
+        $this->assertEquals('Widget', $dto->items[0]['product']);
+        $this->assertSame(2, $dto->items[0]['quantity']);
+    }
+
+    public function testItemsWithRouteParams(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn([
+            'name' => 'Order #1',
+            'items' => [
+                ['product' => 'Widget', 'quantity' => '1'],
+            ],
+        ]);
+        $request->method('getQueryParams')->willReturn([]);
+
+        // Verify route params are passed through to nested items
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(
+            OrderRequest::class,
+            $request,
+            ['id' => 42]
+        );
+
+        $this->assertNotNull($dto->items);
+        $this->assertCount(1, $dto->items);
+    }
+
 }
 
 final class TestRequest extends Request
@@ -879,5 +1063,24 @@ final class TestGeneratorWithDependency implements GeneratorInterface
     {
         return $this->prefix . '_generated';
     }
+}
+
+final class OrderItemRequest extends Request
+{
+    #[Field(rules: 'required|string')]
+    public string $product;
+
+    #[Field(rules: 'required|integer')]
+    public int $quantity;
+}
+
+final class OrderRequest extends Request
+{
+    #[Field(rules: 'required|string')]
+    public string $name;
+
+    /** @var array<int, array<string, mixed>>|null */
+    #[Field(rules: 'nullable|array', items: OrderItemRequest::class)]
+    public ?array $items = null;
 }
 

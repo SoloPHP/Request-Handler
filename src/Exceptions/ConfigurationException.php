@@ -95,6 +95,62 @@ final class ConfigurationException extends Exception
     }
 
     /**
+     * Invalid items class
+     *
+     * Example: #[Field(items: 'NonExistentClass')] public ?array $items = null;
+     */
+    public static function invalidItems(
+        string $className,
+        string $propertyName,
+        string $itemsClass,
+        string $reason
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has invalid items class '%s': %s.",
+            $className,
+            $propertyName,
+            $itemsClass,
+            $reason
+        ));
+    }
+
+    /**
+     * Items used on non-array property type
+     *
+     * Example: #[Field(items: OrderItemRequest::class)] public string $items;
+     */
+    public static function itemsRequiresArrayType(
+        string $className,
+        string $propertyName,
+        string $propertyType
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has 'items' but type is '%s'. " .
+            "Properties with 'items' must have type 'array' or '?array'.",
+            $className,
+            $propertyName,
+            $propertyType
+        ));
+    }
+
+    /**
+     * Items combined with generator
+     *
+     * Example: #[Field(generator: IdGenerator::class, items: OrderItemRequest::class)]
+     */
+    public static function itemsWithGenerator(
+        string $className,
+        string $propertyName
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has both 'items' and 'generator'. " .
+            "These options are mutually exclusive.",
+            $className,
+            $propertyName
+        ));
+    }
+
+    /**
      * Invalid generator class
      *
      * Example: #[Field(generator: 'NonExistentClass')] public string $id;

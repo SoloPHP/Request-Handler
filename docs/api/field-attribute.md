@@ -20,6 +20,7 @@ final class Field
         public ?string $generator = null,
         public array $generatorOptions = [],
         public bool $exclude = false,
+        public ?string $items = null,
     ) {}
 }
 ```
@@ -223,6 +224,29 @@ $dto->internalStatus; // Still accessible directly
 
 ---
 
+### items
+
+Request class for validating and processing nested array items. Must extend `Request`.
+
+| Type | Default |
+|------|---------|
+| `?string` | `null` |
+
+```php
+#[Field(rules: 'required|array|min:1', items: OrderItemRequest::class)]
+public ?array $items = null;
+```
+
+**Behavior:**
+- Each array element goes through the referenced Request's full pipeline
+- Auto-casting is **skipped** on the parent field
+- Validation errors use dot-notation: `items.0.field`
+- Cannot be combined with `generator`
+
+See [Nested Items](/features/nested-items) for details.
+
+---
+
 ## Optional Attribute
 
 The `#[Field]` attribute is **optional**. Properties without it are still processed:
@@ -254,8 +278,8 @@ final class CreateOrderRequest extends Request
     )]
     public int $customerId;
 
-    #[Field(rules: 'required|array|min:1')]
-    public array $items;
+    #[Field(rules: 'required|array|min:1', items: OrderItemRequest::class)]
+    public ?array $items = null;
 
     #[Field(
         rules: 'nullable|string|max:500',
@@ -293,3 +317,9 @@ Invalid configurations throw `ConfigurationException` at build time:
 | Incompatible cast | `#[Field(cast: 'string')]` on `int` | Match cast to property type |
 | Invalid processor | Non-existent function/class | Check spelling, implement interface |
 | Invalid generator | Class doesn't implement `GeneratorInterface` | Implement the interface |
+| Invalid items class | Class doesn't exist or doesn't extend `Request` | Check class name, extend `Request` |
+| Items requires array type | `items` on non-array property | Use `array` or `?array` type |
+| Items with generator | Both `items` and `generator` set | Remove one — mutually exclusive |
+| Invalid items class | Class doesn't exist or doesn't extend `Request` | Check class, extend `Request` |
+| Items requires array type | `items` on non-array property | Use `array` or `?array` type |
+| Items with generator | Both `items` and `generator` set | Remove one — mutually exclusive |

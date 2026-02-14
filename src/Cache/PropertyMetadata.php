@@ -28,6 +28,8 @@ final readonly class PropertyMetadata
         public ?string $generator = null,
         public array $generatorOptions = [],
         public bool $exclude = false,
+        /** @var class-string<\Solo\RequestHandler\Request>|null */
+        public ?string $items = null,
     ) {
     }
 }

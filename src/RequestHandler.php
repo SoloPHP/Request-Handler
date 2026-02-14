@@ -60,6 +60,8 @@ final class RequestHandler
     }
 
     /**
+     * Create a Request DTO from an HTTP request
+     *
      * @template T of Request
      * @param class-string<T> $className
      * @param array<string, mixed> $routeParams
@@ -67,14 +69,39 @@ final class RequestHandler
      */
     public function handle(string $className, ServerRequestInterface $request, array $routeParams = []): Request
     {
+        $rawData = $this->extractData($request);
+        return $this->processRawData($className, $rawData, $routeParams);
+    }
+
+    /**
+     * Create a Request DTO from a raw array (useful for nested items processing)
+     *
+     * @template T of Request
+     * @param class-string<T> $className
+     * @param array<string, mixed> $data
+     * @return T
+     */
+    public function handleArray(string $className, array $data): Request
+    {
+        return $this->processRawData($className, $data);
+    }
+
+    /**
+     * Core processing: validate, cast, post-process, and populate a Request DTO
+     *
+     * @template T of Request
+     * @param class-string<T> $className
+     * @param array<string, mixed> $rawData
+     * @param array<string, mixed> $routeParams
+     * @return T
+     */
+    private function processRawData(string $className, array $rawData, array $routeParams = []): Request
+    {
         $metadata = $this->cache->get($className);
 
         // Create instance early to get custom messages
         $reflection = new ReflectionClass($className);
         $instance = $reflection->newInstanceWithoutConstructor();
-
-        // Extract raw data from request
-        $rawData = $this->extractData($request);
 
         // Process fields
         /** @var array<string, mixed> $validationData */
@@ -155,12 +182,12 @@ final class RequestHandler
             $this->validate($validationData, $validationRules, $instance->getMessages());
         }
 
-        // Cast and post-process
+        // Cast, post-process, and process items
         foreach ($presentFields as $name => $value) {
             $property = $metadata->properties[$name];
 
-            // Cast (skip when postProcessor is defined, as it handles transformation)
-            if ($property->postProcessor === null) {
+            // Cast (skip when postProcessor or items handles transformation)
+            if ($property->postProcessor === null && $property->items === null) {
                 $value = $this->castValue($value, $property);
             }
 
@@ -169,11 +196,54 @@ final class RequestHandler
                 $value = $this->runProcessor($property->postProcessor, $value, $className);
             }
 
+            // Process array items through referenced Request class
+            if ($property->items !== null && is_array($value)) {
+                $value = $this->processItems($property->items, $value, $name, $routeParams);
+            }
+
             $presentFields[$name] = $value;
         }
 
         // Set property values on instance
         return $this->populateInstance($instance, $reflection, $presentFields);
+    }
+
+    /**
+     * Process array items through a Request class
+     *
+     * @param class-string<Request> $itemsClass
+     * @param array<int|string, mixed> $items
+     * @param string $fieldName Parent field name for error prefixing
+     * @param array<string, mixed> $routeParams
+     * @return array<int, array<string, mixed>> Processed items as arrays
+     * @throws ValidationException
+     */
+    private function processItems(string $itemsClass, array $items, string $fieldName, array $routeParams = []): array
+    {
+        $allErrors = [];
+        $processedItems = [];
+
+        foreach ($items as $index => $itemData) {
+            if (!is_array($itemData)) {
+                $allErrors["{$fieldName}.{$index}"] = ['Must be an object'];
+                continue;
+            }
+
+            try {
+                $instance = $this->processRawData($itemsClass, $itemData, $routeParams);
+                $processedItems[] = $instance->toArray();
+            } catch (ValidationException $e) {
+                foreach ($e->getErrors() as $field => $messages) {
+                    $allErrors["{$fieldName}.{$index}.{$field}"] = $messages;
+                }
+            }
+        }
+
+        if (!empty($allErrors)) {
+            throw new ValidationException($allErrors);
+        }
+
+        return $processedItems;
     }
 
     /**

@@ -28,6 +28,9 @@ use Attribute;
  *
  * #[Field(generator: IntIdGenerator::class, generatorOptions: ['table' => 'users'])]
  * public int $id;
+ *
+ * #[Field(rules: 'nullable|array', items: OrderItemRequest::class)]
+ * public ?array $items = null;
  * ```
  */
 #[Attribute(Attribute::TARGET_PROPERTY)]
@@ -44,6 +47,8 @@ final class Field
         /** @var array<string, mixed> */
         public array $generatorOptions = [],
         public bool $exclude = false,
+        /** @var class-string<\Solo\RequestHandler\Request>|null */
+        public ?string $items = null,
     ) {
     }
 }
