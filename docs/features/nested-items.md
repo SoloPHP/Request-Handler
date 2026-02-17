@@ -73,8 +73,8 @@ try {
 } catch (ValidationException $e) {
     $e->getErrors();
     // [
-    //     'items.0.product' => ['Product is required'],
-    //     'items.1.quantity' => ['Quantity must be at least 1'],
+    //     'items.0.product' => [['rule' => 'required']],
+    //     'items.1.quantity' => [['rule' => 'min', 'params' => ['1']]],
     // ]
 }
 ```
@@ -88,7 +88,7 @@ Non-array elements produce a dedicated error:
 
 $e->getErrors();
 // [
-//     'items.0' => ['Must be an object'],
+//     'items.0' => [['rule' => 'array']],
 // ]
 ```
 
@@ -122,14 +122,6 @@ final class OrderItemRequest extends Request
     #[Field(group: 'pricing')]
     public ?float $discount = null;
 
-    // Custom messages
-    protected function messages(): array
-    {
-        return [
-            'product.required' => 'Each item must have a product name',
-            'quantity.min' => 'Quantity must be positive',
-        ];
-    }
 }
 ```
 

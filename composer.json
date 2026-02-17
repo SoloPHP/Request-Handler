@@ -23,7 +23,7 @@
   "require": {
     "php": "^8.2",
     "psr/http-message": "^2.0",
-    "solophp/contracts": "^1.0"
+    "solophp/contracts": "^2.0"
   },
   "suggest": {
     "solophp/validator": "^2.2"

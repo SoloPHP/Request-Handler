@@ -99,7 +99,7 @@ final class RequestHandler
     {
         $metadata = $this->cache->get($className);
 
-        // Create instance early to get custom messages
+        // Create instance early
         $reflection = new ReflectionClass($className);
         $instance = $reflection->newInstanceWithoutConstructor();
 
@@ -179,7 +179,7 @@ final class RequestHandler
         // Validate
         if (!empty($validationRules)) {
             $validationRules = $this->replaceRulePlaceholders($validationRules, $routeParams);
-            $this->validate($validationData, $validationRules, $instance->getMessages());
+            $this->validate($validationData, $validationRules);
         }
 
         // Cast, post-process, and process items
@@ -225,7 +225,7 @@ final class RequestHandler
 
         foreach ($items as $index => $itemData) {
             if (!is_array($itemData)) {
-                $allErrors["{$fieldName}.{$index}"] = ['Must be an object'];
+                $allErrors["{$fieldName}.{$index}"] = [['rule' => 'array']];
                 continue;
             }
 
@@ -362,12 +362,11 @@ final class RequestHandler
     /**
      * @param array<string, mixed> $data
      * @param array<string, string> $rules
-     * @param array<string, string> $messages
      * @throws ValidationException
      */
-    private function validate(array $data, array $rules, array $messages = []): void
+    private function validate(array $data, array $rules): void
     {
-        $errors = $this->validator->validate($data, $rules, $messages);
+        $errors = $this->validator->validate($data, $rules);
 
         if (!empty($errors)) {
             throw new ValidationException($errors);

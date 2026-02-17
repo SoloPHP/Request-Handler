@@ -9,7 +9,7 @@ use Exception;
 final class ValidationException extends Exception
 {
     /**
-     * @param array<string, array<string>> $errors
+     * @param array<string, list<array{rule: string, params?: string[]}>> $errors
      */
     public function __construct(
         private readonly array $errors = [],
@@ -24,7 +24,7 @@ final class ValidationException extends Exception
     }
 
     /**
-     * @return array<string, array<string>>
+     * @return array<string, list<array{rule: string, params?: string[]}>>
      */
     public function getErrors(): array
     {

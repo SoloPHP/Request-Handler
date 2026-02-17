@@ -96,40 +96,6 @@ public string $email;
 
 ---
 
-## Custom Error Messages
-
-Override validation messages by implementing the `messages()` method:
-
-```php
-final class RegisterRequest extends Request
-{
-    #[Field(rules: 'required|string|min:3')]
-    public string $username;
-
-    #[Field(rules: 'required|email')]
-    public string $email;
-
-    #[Field(rules: 'required|string|min:8')]
-    public string $password;
-
-    protected function messages(): array
-    {
-        return [
-            'username.required' => 'Please choose a username',
-            'username.min' => 'Username must be at least 3 characters',
-            'email.required' => 'We need your email address',
-            'email.email' => 'Please enter a valid email',
-            'password.required' => 'Password is required',
-            'password.min' => 'Password must be at least 8 characters',
-        ];
-    }
-}
-```
-
-Message format: `{field}.{rule}`
-
----
-
 ## Handling Validation Errors
 
 Catch `ValidationException` to handle errors:
@@ -138,14 +104,14 @@ Catch `ValidationException` to handle errors:
 use Solo\RequestHandler\Exceptions\ValidationException;
 
 try {
-    $dto = $handler->handle(RegisterRequest::class, $request);
+    $dto = $handler->handle(CreateUserRequest::class, $request);
 } catch (ValidationException $e) {
     $errors = $e->getErrors();
     // [
-    //     'email' => ['Please enter a valid email'],
-    //     'password' => ['Password must be at least 8 characters'],
+    //     'email' => [['rule' => 'email']],
+    //     'password' => [['rule' => 'min', 'params' => ['8']]],
     // ]
-    
+
     return $this->json(['errors' => $errors], 422);
 }
 ```
@@ -178,13 +144,11 @@ interface ValidatorInterface
     /**
      * @param array<string, mixed> $data
      * @param array<string, string> $rules
-     * @param array<string, string> $messages
-     * @return array<string, array<string>>
+     * @return array<string, list<array{rule: string, params?: string[]}>>
      */
     public function validate(
         array $data,
-        array $rules,
-        array $messages = []
+        array $rules
     ): array;
 }
 ```
@@ -215,12 +179,6 @@ final class RegisterRequest extends Request
     #[Field(rules: 'required|accepted')]
     public bool $termsAccepted;
 
-    protected function messages(): array
-    {
-        return [
-            'termsAccepted.accepted' => 'You must accept the terms of service',
-        ];
-    }
 }
 ```
 

@@ -30,7 +30,7 @@ final class ValidationException extends Exception
 Returns validation errors grouped by field.
 
 ```php
-public function getErrors(): array<string, array<string>>
+public function getErrors(): array<string, list<array{rule: string, params?: string[]}>>
 ```
 
 **Example:**
@@ -43,8 +43,8 @@ try {
 } catch (ValidationException $e) {
     $errors = $e->getErrors();
     // [
-    //     'email' => ['The email field is required', 'Invalid email format'],
-    //     'age' => ['Must be at least 18'],
+    //     'email' => [['rule' => 'required'], ['rule' => 'email']],
+    //     'age' => [['rule' => 'min', 'params' => ['18']]],
     // ]
 
     return $this->json(['errors' => $errors], 422);

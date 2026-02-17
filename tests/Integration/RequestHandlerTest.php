@@ -339,29 +339,6 @@ final class RequestHandlerTest extends TestCase
         $this->assertEquals('test', $dto->value);
     }
 
-    public function testCustomMessagesArePassedToValidator(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
-        $request->method('getParsedBody')->willReturn(['name' => 'Test', 'email' => 'invalid']);
-        $request->method('getQueryParams')->willReturn([]);
-
-        // Verify that custom messages are passed to validator
-        $this->validator->expects($this->once())
-            ->method('validate')
-            ->with(
-                ['name' => 'Test', 'email' => 'invalid'],
-                ['name' => 'required|string', 'email' => 'required|email'],
-                [
-                    'name.required' => 'Please enter your name',
-                    'email.email' => 'Please enter a valid email',
-                ]
-            )
-            ->willReturn([]);
-
-        $this->handler->handle(CustomMessagesTestRequest::class, $request);
-    }
-
     public function testNonCasterClassInCastIsIgnored(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
@@ -693,7 +670,7 @@ final class RequestHandlerTest extends TestCase
         } catch (ValidationException $e) {
             $errors = $e->getErrors();
             $this->assertArrayHasKey('items.0', $errors);
-            $this->assertEquals(['Must be an object'], $errors['items.0']);
+            $this->assertEquals([['rule' => 'array']], $errors['items.0']);
         }
     }
 
@@ -956,23 +933,6 @@ final class AutoTrimArrayRequest extends Request
     public string $name;
     /** @var array<string> */
     public array $tags = [];
-}
-
-final class CustomMessagesTestRequest extends Request
-{
-    #[Field(rules: 'required|string')]
-    public string $name;
-
-    #[Field(rules: 'required|email')]
-    public string $email;
-
-    protected function messages(): array
-    {
-        return [
-            'name.required' => 'Please enter your name',
-            'email.email' => 'Please enter a valid email',
-        ];
-    }
 }
 
 final class GeneratorRequest extends Request

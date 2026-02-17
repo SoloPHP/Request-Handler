@@ -162,4 +162,3 @@ The base class provides:
 - `has(string $name)` — Check if property is initialized
 - `get(string $name, mixed $default)` — Get value with default
 - `group(string $name)` — Get fields by group name
-- `getMessages()` — Get custom validation messages

@@ -149,39 +149,6 @@ See [Field Grouping](/features/grouping) for details.
 
 ---
 
-### getMessages()
-
-Get custom validation error messages defined in the request class.
-
-```php
-public function getMessages(): array
-```
-
-**Returns:** Associative array of message overrides.
-
-**Example:**
-
-```php
-final class RegisterRequest extends Request
-{
-    #[Field(rules: 'required|email')]
-    public string $email;
-
-    protected function messages(): array
-    {
-        return [
-            'email.required' => 'Please enter your email',
-            'email.email' => 'Invalid email format',
-        ];
-    }
-}
-
-$dto->getMessages();
-// ['email.required' => 'Please enter your email', ...]
-```
-
----
-
 ### clearGroupCache()
 
 Clear the static group cache. Useful for long-running processes.
@@ -204,33 +171,6 @@ Request::clearGroupCache();
 
 // Clear specific class
 Request::clearGroupCache(SearchRequest::class);
-```
-
----
-
-## Protected Methods
-
-### messages()
-
-Override this method to provide custom validation error messages.
-
-```php
-protected function messages(): array
-```
-
-**Returns:** Array mapping `field.rule` to custom message.
-
-**Example:**
-
-```php
-protected function messages(): array
-{
-    return [
-        'name.required' => 'Name cannot be empty',
-        'email.email' => 'Please provide a valid email address',
-        'age.min' => 'You must be at least 18 years old',
-    ];
-}
 ```
 
 ---

@@ -26,8 +26,8 @@ final class ExceptionsTest extends TestCase
     public function testValidationExceptionWithErrors(): void
     {
         $errors = [
-            'email' => ['Email is required', 'Invalid email format'],
-            'title' => ['Title is too long']
+            'email' => [['rule' => 'required'], ['rule' => 'email']],
+            'title' => [['rule' => 'max', 'params' => ['255']]]
         ];
 
         $exception = new ValidationException($errors);
