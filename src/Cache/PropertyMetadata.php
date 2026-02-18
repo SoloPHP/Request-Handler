@@ -23,6 +23,8 @@ final readonly class PropertyMetadata
         public ?string $castType,
         public ?string $preProcessor,
         public ?string $postProcessor,
+        /** @var array<string, mixed> */
+        public array $postProcessConfig,
         public ?string $group,
         public bool $isRequired,
         public ?string $generator = null,

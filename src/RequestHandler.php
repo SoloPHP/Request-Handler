@@ -193,7 +193,12 @@ final class RequestHandler
 
             // Post-process
             if ($property->postProcessor !== null) {
-                $value = $this->runProcessor($property->postProcessor, $value, $className);
+                $value = $this->runProcessor(
+                    $property->postProcessor,
+                    $value,
+                    $className,
+                    $property->postProcessConfig
+                );
             }
 
             // Process array items through referenced Request class
@@ -284,8 +289,9 @@ final class RequestHandler
 
     /**
      * @param class-string $className
+     * @param array<string, mixed> $config
      */
-    private function runProcessor(string $handler, mixed $value, string $className): mixed
+    private function runProcessor(string $handler, mixed $value, string $className, array $config = []): mixed
     {
         // Check if it's a global function
         if (function_exists($handler)) {
@@ -297,7 +303,9 @@ final class RequestHandler
             $processor = $this->getOrCreateProcessor($handler);
 
             if ($processor instanceof ProcessorInterface) {
-                return $processor->process($value);
+                return !empty($config)
+                    ? $processor->process($value, $config) // @phpstan-ignore arguments.count
+                    : $processor->process($value);
             }
             if ($processor instanceof CasterInterface) {
                 return $processor->cast($value);

@@ -42,6 +42,8 @@ final class Field
         public ?string $mapFrom = null,
         public ?string $preProcess = null,
         public ?string $postProcess = null,
+        /** @var array<string, mixed> */
+        public array $postProcessConfig = [],
         public ?string $group = null,
         public ?string $generator = null,
         /** @var array<string, mixed> */

@@ -20,7 +20,8 @@ composer require solophp/request-handler
 {
     "require": {
         "php": ">=8.2",
-        "psr/http-message": "^1.0 || ^2.0"
+        "psr/http-message": "^2.0",
+        "solophp/contracts": "^1.3"
     }
 }
 ```

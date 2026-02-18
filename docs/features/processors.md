@@ -106,6 +106,37 @@ final class ContactRequest extends Request
 
 ---
 
+## postProcessConfig
+
+Pass configuration to a post-processor via `postProcessConfig`. The config array is passed as the second argument to `process()`:
+
+```php
+#[Field(
+    rules: 'required|string',
+    postProcess: CurrencyFormatter::class,
+    postProcessConfig: ['currency' => 'USD', 'decimals' => 2]
+)]
+public string $price;
+```
+
+```php
+final class CurrencyFormatter implements ProcessorInterface
+{
+    public function process(mixed $value, array $config = []): string
+    {
+        $decimals = $config['decimals'] ?? 2;
+        $currency = $config['currency'] ?? 'USD';
+        return number_format((float) $value, $decimals) . ' ' . $currency;
+    }
+}
+```
+
+::: info
+`postProcessConfig` only works with `postProcess`. Pre-processors always receive just the value.
+:::
+
+---
+
 ## Processors with Dependencies
 
 Register processor instances for dependency injection:

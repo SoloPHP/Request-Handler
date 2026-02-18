@@ -11,6 +11,7 @@ The `#[Field]` attribute configures how each property is processed from HTTP req
     mapFrom: ?string = null,
     preProcess: ?string = null,
     postProcess: ?string = null,
+    postProcessConfig: array = [],
     group: ?string = null,
     generator: ?string = null,
     generatorOptions: array = [],
@@ -26,6 +27,7 @@ The `#[Field]` attribute configures how each property is processed from HTTP req
 | `mapFrom` | `?string` | Dot-notation path to source data |
 | `preProcess` | `?string` | Function/class to run before validation |
 | `postProcess` | `?string` | Function/class to run after validation |
+| `postProcessConfig` | `array` | Options passed to post-processor |
 | `group` | `?string` | Group name for bulk extraction |
 | `generator` | `?string` | Class to generate field value |
 | `generatorOptions` | `array` | Options passed to generator |

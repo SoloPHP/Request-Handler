@@ -8,13 +8,13 @@ Type-safe Request DTOs for PHP 8.2+ with automatic validation, type casting, and
 
 ## Features
 
-- 🎯 **Attribute-based DTOs** — Define request structures using `#[Field]` attributes
-- 🔄 **Automatic Type Casting** — Built-in support for int, float, bool, string, array, DateTime
-- ✅ **Validation Rules** — Expressive rules with route parameter placeholders
-- ⚡ **Generators** — Auto-generate UUIDs, sequences, and custom values
-- 🔧 **Pre/Post Processing** — Transform data before validation or after casting
-- 🪆 **Nested Items** — Validate arrays of nested objects through referenced Request classes
-- 📦 **Field Grouping** — Organize fields into logical groups
+- **Attribute-based DTOs** — Define request structures using `#[Field]` attributes
+- **Automatic Type Casting** — Built-in support for int, float, bool, string, array, DateTime
+- **Validation Rules** — Expressive rules with route parameter placeholders
+- **Generators** — Auto-generate UUIDs, sequences, and custom values
+- **Pre/Post Processing** — Transform data before validation or after casting
+- **Nested Items** — Validate arrays of nested objects through referenced Request classes
+- **Field Grouping** — Organize fields into logical groups
 
 ## Installation
 
@@ -53,7 +53,7 @@ $dto->id;     // string - auto-generated UUID
 
 ## Documentation
 
-📖 **[Full Documentation](https://solophp.github.io/Request-Handler/)**
+**[Full Documentation](https://solophp.github.io/Request-Handler/)**
 
 - [Installation](https://solophp.github.io/Request-Handler/guide/installation)
 - [Quick Start](https://solophp.github.io/Request-Handler/guide/quick-start)

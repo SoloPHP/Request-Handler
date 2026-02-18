@@ -35,9 +35,6 @@ features:
   - icon: 🪆
     title: Nested Items
     details: Validate arrays of nested objects through referenced Request classes with dot-notation errors.
-  - icon: 🪆
-    title: Nested Items
-    details: Validate arrays of nested objects through referenced Request classes with dot-notation errors.
   - icon: 📦
     title: Field Grouping
     details: Organize fields into logical groups and extract them via group() method.

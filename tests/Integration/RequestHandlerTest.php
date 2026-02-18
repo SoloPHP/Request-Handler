@@ -587,6 +587,34 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame($this->handler, $result);
     }
 
+    public function testPostProcessorReceivesConfig(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['amount' => '99.99']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(PostProcessConfigRequest::class, $request);
+
+        $this->assertEquals('$99.99', $dto->amount);
+    }
+
+    public function testPostProcessorWorksWithoutConfig(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('POST');
+        $request->method('getParsedBody')->willReturn(['amount' => '99.99']);
+        $request->method('getQueryParams')->willReturn([]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(PostProcessNoConfigRequest::class, $request);
+
+        $this->assertEquals('99.99', $dto->amount);
+    }
+
     public function testHandleWithItems(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
@@ -1023,6 +1051,32 @@ final class TestGeneratorWithDependency implements GeneratorInterface
     {
         return $this->prefix . '_generated';
     }
+}
+
+final class TestConfigProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
+{
+    /** @param array<string, mixed> $config */
+    public function process(mixed $value, array $config = []): string
+    {
+        $prefix = $config['prefix'] ?? '';
+        return $prefix . $value;
+    }
+}
+
+final class PostProcessConfigRequest extends Request
+{
+    #[Field(
+        rules: 'required|string',
+        postProcess: TestConfigProcessor::class,
+        postProcessConfig: ['prefix' => '$']
+    )]
+    public string $amount;
+}
+
+final class PostProcessNoConfigRequest extends Request
+{
+    #[Field(rules: 'required|string', postProcess: TestConfigProcessor::class)]
+    public string $amount;
 }
 
 final class OrderItemRequest extends Request

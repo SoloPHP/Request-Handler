@@ -137,6 +137,7 @@ final class ReflectionCache
             castType: $field?->cast,
             preProcessor: $field?->preProcess,
             postProcessor: $field?->postProcess,
+            postProcessConfig: $field->postProcessConfig ?? [],
             group: $field?->group,
             isRequired: $isRequired,
             generator: $field?->generator,
