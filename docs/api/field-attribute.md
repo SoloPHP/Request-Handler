@@ -14,6 +14,7 @@ final class Field
         public ?string $rules = null,
         public ?string $cast = null,
         public ?string $mapFrom = null,
+        public ?string $mapTo = null,
         public ?string $preProcess = null,
         public ?string $postProcess = null,
         public ?string $group = null,
@@ -90,6 +91,27 @@ Dot-notation path to extract value from nested input data.
 #[Field(mapFrom: 'user.profile.age')]
 public int $userAge; // 30
 ```
+
+---
+
+### mapTo
+
+Output key name used in `group()` instead of the property name. Useful for mapping PHP property names to database column names or API field names.
+
+| Type | Default |
+|------|---------|
+| `?string` | `null` (uses property name) |
+
+```php
+#[Field(mapTo: 'positions.id', group: 'criteria')]
+public int $position_id; // In group(): key will be 'positions.id'
+```
+
+::: info
+`mapTo` only affects the output key in `group()`. It does **not** affect `toArray()`, which always uses the property name.
+:::
+
+See [Field Grouping](/features/grouping) for details.
 
 ---
 

@@ -36,7 +36,7 @@ $pagination = $dto->group('pagination');
 The `group()` method returns a flat array:
 
 - **Array properties**: Contents are merged into result
-- **Scalar properties**: Added by property name
+- **Scalar properties**: Added by property name (or by `mapTo` if specified)
 
 ```php
 final class FilterRequest extends Request
@@ -64,6 +64,36 @@ $criteria = $dto->group('criteria');
 //     'limit' => 20                   // scalar by property name
 // ]
 ```
+
+---
+
+## Key Remapping with mapTo
+
+Use `mapTo` to change the output key in `group()` for scalar properties. This is useful when the PHP property name differs from the desired output key (e.g., database column names):
+
+```php
+final class FilterRequest extends Request
+{
+    #[Field(mapTo: 'positions.id', group: 'criteria')]
+    public int $position_id;
+
+    #[Field(mapTo: 'departments.name', group: 'criteria')]
+    public ?string $department = null;
+}
+
+$dto->position_id = 5;
+$dto->department = 'Engineering';
+
+$criteria = $dto->group('criteria');
+// [
+//     'positions.id' => 5,          // mapped from $position_id
+//     'departments.name' => 'Engineering'  // mapped from $department
+// ]
+```
+
+::: info
+`mapTo` only affects scalar properties in `group()`. Array properties are always merged by their own keys. `toArray()` is not affected by `mapTo`.
+:::
 
 ---
 

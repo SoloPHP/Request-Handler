@@ -17,6 +17,9 @@ use Attribute;
  * #[Field(rules: 'integer', cast: 'int', mapFrom: 'user.id')]
  * public int $userId;
  *
+ * #[Field(rules: 'integer', mapTo: 'positions.id', group: 'criteria')]
+ * public int $position_id;
+ *
  * #[Field(rules: 'nullable|string', group: 'criteria')]
  * public ?string $search = null;
  *
@@ -40,6 +43,7 @@ final class Field
         public ?string $rules = null,
         public ?string $cast = null,
         public ?string $mapFrom = null,
+        public ?string $mapTo = null,
         public ?string $preProcess = null,
         public ?string $postProcess = null,
         /** @var array<string, mixed> */

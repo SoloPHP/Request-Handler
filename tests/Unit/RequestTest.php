@@ -275,6 +275,19 @@ final class RequestTest extends TestCase
         $this->assertEquals(['name' => 'John'], $result);
         $this->assertArrayNotHasKey('internal', $result);
     }
+
+    public function testGroupUsesMapToAsOutputKey(): void
+    {
+        $dto = new MapToGroupRequest();
+        $dto->position_id = 5;
+        $dto->search = 'test';
+
+        $result = $dto->group('criteria');
+
+        $this->assertEquals(['positions.id' => 5, 'search' => 'test'], $result);
+        $this->assertArrayNotHasKey('position_id', $result);
+    }
+
 }
 
 final class TestRequest extends Request
@@ -358,3 +371,13 @@ final class ExcludedFieldToArrayRequest extends Request
     #[Field(exclude: true)]
     public string $internal = 'secret';
 }
+
+final class MapToGroupRequest extends Request
+{
+    #[Field(mapTo: 'positions.id', group: 'criteria')]
+    public int $position_id;
+
+    #[Field(group: 'criteria')]
+    public ?string $search = null;
+}
+

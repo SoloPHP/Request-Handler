@@ -774,6 +774,26 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(2, $dto->items[0]['quantity']);
     }
 
+    public function testGroupUsesMapToForOutputKey(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getMethod')->willReturn('GET');
+        $request->method('getQueryParams')->willReturn([
+            'position_id' => '5',
+            'search' => 'test',
+            'page' => '2',
+        ]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handle(MapToGroupedRequest::class, $request);
+
+        $criteria = $dto->group('criteria');
+        $this->assertEquals(['positions.id' => 5, 'search' => 'test'], $criteria);
+        $this->assertArrayNotHasKey('position_id', $criteria);
+        $this->assertArrayNotHasKey('page', $criteria);
+    }
+
     public function testItemsWithRouteParams(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
@@ -1077,6 +1097,18 @@ final class PostProcessNoConfigRequest extends Request
 {
     #[Field(rules: 'required|string', postProcess: TestConfigProcessor::class)]
     public string $amount;
+}
+
+final class MapToGroupedRequest extends Request
+{
+    #[Field(rules: 'integer', mapTo: 'positions.id', group: 'criteria')]
+    public int $position_id;
+
+    #[Field(group: 'criteria')]
+    public ?string $search = null;
+
+    #[Field(rules: 'min:1')]
+    public int $page = 1;
 }
 
 final class OrderItemRequest extends Request

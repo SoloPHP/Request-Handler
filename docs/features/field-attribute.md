@@ -9,6 +9,7 @@ The `#[Field]` attribute configures how each property is processed from HTTP req
     rules: ?string = null,
     cast: ?string = null,
     mapFrom: ?string = null,
+    mapTo: ?string = null,
     preProcess: ?string = null,
     postProcess: ?string = null,
     postProcessConfig: array = [],
@@ -25,6 +26,7 @@ The `#[Field]` attribute configures how each property is processed from HTTP req
 | `rules` | `?string` | Validation rules string |
 | `cast` | `?string` | Explicit type casting |
 | `mapFrom` | `?string` | Dot-notation path to source data |
+| `mapTo` | `?string` | Output key name in `group()` |
 | `preProcess` | `?string` | Function/class to run before validation |
 | `postProcess` | `?string` | Function/class to run after validation |
 | `postProcessConfig` | `array` | Options passed to post-processor |
@@ -84,6 +86,24 @@ Map from nested input data using dot notation:
 #[Field(mapFrom: 'user.profile.age')]
 public int $userAge; // 30
 ```
+
+---
+
+## mapTo
+
+Remap the output key in `group()`:
+
+```php
+#[Field(mapTo: 'positions.id', group: 'criteria')]
+public int $position_id;
+
+$dto->group('criteria');
+// ['positions.id' => 5]  — key is 'positions.id', not 'position_id'
+```
+
+Only affects `group()` output. `toArray()` always uses the property name.
+
+See [Field Grouping](/features/grouping) for details.
 
 ---
 

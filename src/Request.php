@@ -30,7 +30,7 @@ abstract class Request
 
     /**
      * Cache for group properties (static, shared across instances)
-     * @var array<string, array<string, array<ReflectionProperty>>>
+     * @var array<string, array<string, array<array{property: ReflectionProperty, mapTo: ?string}>>>
      */
     private static array $groupCache = [];
 
@@ -100,7 +100,7 @@ abstract class Request
      * Get all properties belonging to a specific group as a flat array
      *
      * If property value is an array, its contents are merged into the result.
-     * Scalar values are added by property name.
+     * Scalar values are added by property name, or by mapTo if specified.
      *
      * @throws \LogicException When duplicate keys are detected
      * @return array<string, mixed>
@@ -114,7 +114,7 @@ abstract class Request
         }
 
         $result = [];
-        foreach (self::$groupCache[$class][$groupName] as $property) {
+        foreach (self::$groupCache[$class][$groupName] as ['property' => $property, 'mapTo' => $mapTo]) {
             if (!$property->isInitialized($this)) {
                 continue;
             }
@@ -131,7 +131,7 @@ abstract class Request
                     $result[$key] = $v;
                 }
             } else {
-                $key = $property->getName();
+                $key = $mapTo ?? $property->getName();
                 if (array_key_exists($key, $result)) {
                     throw new \LogicException(
                         "Duplicate key '$key' in group '$groupName' from property '{$property->getName()}'"
@@ -160,7 +160,7 @@ abstract class Request
 
             $field = $attributes[0]->newInstance();
             if ($field->group === $groupName) {
-                $properties[] = $property;
+                $properties[] = ['property' => $property, 'mapTo' => $field->mapTo];
             }
         }
 

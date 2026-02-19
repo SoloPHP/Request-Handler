@@ -120,7 +120,7 @@ public function group(string $groupName): array
 
 **Behavior:**
 - Array properties: contents are merged into result
-- Scalar properties: added by property name
+- Scalar properties: added by property name, or by `mapTo` if specified
 - Throws `LogicException` on duplicate keys
 
 **Example:**
