@@ -99,8 +99,9 @@ abstract class Request
     /**
      * Get all properties belonging to a specific group as a flat array
      *
-     * If property value is an array, its contents are merged into the result.
-     * Scalar values are added by property name, or by mapTo if specified.
+     * Associative arrays are merged by their keys into the result.
+     * Scalars and sequential arrays are stored under property name (or mapTo if specified).
+     * Empty arrays are skipped.
      *
      * @throws \LogicException When duplicate keys are detected
      * @return array<string, mixed>
@@ -121,7 +122,15 @@ abstract class Request
 
             $value = $property->getValue($this);
 
-            if (is_array($value)) {
+            // Skip empty arrays — they carry no criteria info
+            // (e.g. SearchProcessor returns [] when all search values are empty)
+            if ($value === []) {
+                continue;
+            }
+
+            if (is_array($value) && !array_is_list($value)) {
+                // Associative array — merge key-value pairs into result
+                // (e.g. SearchProcessor returns ['name' => ['LIKE' => '%test%']])
                 foreach ($value as $key => $v) {
                     if (array_key_exists($key, $result)) {
                         throw new \LogicException(
@@ -131,6 +140,8 @@ abstract class Request
                     $result[$key] = $v;
                 }
             } else {
+                // Scalar or sequential array — store under property/mapTo name
+                // (e.g. InFilterProcessor returns ['pending', 'partially_paid'] for IN criteria)
                 $key = $mapTo ?? $property->getName();
                 if (array_key_exists($key, $result)) {
                     throw new \LogicException(

@@ -20,7 +20,7 @@ use ReflectionClass;
  *
  * Example usage:
  * ```php
- * $data = $requestHandler->handle(ProductRequest::class, $request);
+ * $data = $requestHandler->handleBody(ProductRequest::class, $request);
  * // $data is now a ProductRequest instance with only present fields
  * ```
  */
@@ -60,17 +60,30 @@ final class RequestHandler
     }
 
     /**
-     * Create a Request DTO from an HTTP request
+     * Create a Request DTO from query parameters (GET requests)
      *
      * @template T of Request
      * @param class-string<T> $className
      * @param array<string, mixed> $routeParams
      * @return T
      */
-    public function handle(string $className, ServerRequestInterface $request, array $routeParams = []): Request
+    public function handleQuery(string $className, ServerRequestInterface $request, array $routeParams = []): Request
     {
-        $rawData = $this->extractData($request);
-        return $this->processRawData($className, $rawData, $routeParams);
+        return $this->processRawData($className, $request->getQueryParams(), $routeParams);
+    }
+
+    /**
+     * Create a Request DTO from request body (POST/PUT/PATCH requests)
+     *
+     * @template T of Request
+     * @param class-string<T> $className
+     * @param array<string, mixed> $routeParams
+     * @return T
+     */
+    public function handleBody(string $className, ServerRequestInterface $request, array $routeParams = []): Request
+    {
+        $body = $request->getParsedBody();
+        return $this->processRawData($className, is_array($body) ? $body : [], $routeParams);
     }
 
     /**
@@ -249,22 +262,6 @@ final class RequestHandler
         }
 
         return $processedItems;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function extractData(ServerRequestInterface $request): array
-    {
-        $method = $request->getMethod();
-
-        if (in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
-            $body = $request->getParsedBody();
-            $query = $request->getQueryParams();
-            return array_merge($query, is_array($body) ? $body : []);
-        }
-
-        return $request->getQueryParams();
     }
 
     /**

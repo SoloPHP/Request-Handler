@@ -50,7 +50,7 @@ class ProductController
     {
         try {
             // Validate, cast, and create DTO
-            $dto = $this->requestHandler->handle(
+            $dto = $this->requestHandler->handleBody(
                 CreateProductRequest::class,
                 $request
             );
@@ -75,7 +75,7 @@ class ProductController
 ## Accessing Properties
 
 ```php
-$dto = $handler->handle(ProductRequest::class, $request);
+$dto = $handler->handleBody(ProductRequest::class, $request);
 
 // Direct access (recommended)
 echo $dto->name;

@@ -39,7 +39,7 @@ public function getErrors(): array<string, list<array{rule: string, params?: str
 use Solo\RequestHandler\Exceptions\ValidationException;
 
 try {
-    $dto = $handler->handle(UserRequest::class, $request);
+    $dto = $handler->handleBody(UserRequest::class, $request);
 } catch (ValidationException $e) {
     $errors = $e->getErrors();
     // [
@@ -59,7 +59,7 @@ class UserController
     public function store(ServerRequestInterface $request): ResponseInterface
     {
         try {
-            $dto = $this->handler->handle(CreateUserRequest::class, $request);
+            $dto = $this->handler->handleBody(CreateUserRequest::class, $request);
             $this->userService->create($dto);
             return $this->json(['status' => 'created'], 201);
 
@@ -239,7 +239,7 @@ public ?array $items = null;
 
 ```php
 try {
-    $dto = $handler->handle(BrokenRequest::class, $request);
+    $dto = $handler->handleBody(BrokenRequest::class, $request);
 } catch (ConfigurationException $e) {
     // Developer error - fix the Request class
     error_log('Configuration error: ' . $e->getMessage());
@@ -287,7 +287,7 @@ final class DeleteUserRequest extends Request
 
 // In controller
 try {
-    $dto = $handler->handle(DeleteUserRequest::class, $request);
+    $dto = $handler->handleBody(DeleteUserRequest::class, $request);
     $dto->authorize($currentUser);
     // ...
 } catch (AuthorizationException $e) {
@@ -314,7 +314,7 @@ Exception
 
 ```php
 try {
-    $dto = $handler->handle(MyRequest::class, $request);
+    $dto = $handler->handleBody(MyRequest::class, $request);
     $this->service->process($dto);
     return $this->json(['status' => 'ok']);
 
@@ -337,11 +337,11 @@ Configuration errors should be caught during development/testing:
 
 ```php
 // In development - let it bubble up
-$dto = $handler->handle(MyRequest::class, $request);
+$dto = $handler->handleBody(MyRequest::class, $request);
 
 // In production - only catch ValidationException
 try {
-    $dto = $handler->handle(MyRequest::class, $request);
+    $dto = $handler->handleBody(MyRequest::class, $request);
 } catch (ValidationException $e) {
     return $this->json(['errors' => $e->getErrors()], 422);
 }

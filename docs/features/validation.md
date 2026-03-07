@@ -76,7 +76,7 @@ class UpdateUserRequest extends Request
 }
 
 // Handle with route params
-$dto = $handler->handle(
+$dto = $handler->handleBody(
     UpdateUserRequest::class,
     $request,
     ['id' => 123]
@@ -104,7 +104,7 @@ Catch `ValidationException` to handle errors:
 use Solo\RequestHandler\Exceptions\ValidationException;
 
 try {
-    $dto = $handler->handle(CreateUserRequest::class, $request);
+    $dto = $handler->handleBody(CreateUserRequest::class, $request);
 } catch (ValidationException $e) {
     $errors = $e->getErrors();
     // [

@@ -29,12 +29,10 @@ final class RequestHandlerTest extends TestCase
         return new RequestHandler($this->validator, $autoTrim);
     }
 
-    public function testHandleExtractsAndValidatesData(): void
+    public function testHandleBodyExtractsAndValidatesData(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['name' => 'Test Item', 'price' => '10.50']);
-        $request->method('getQueryParams')->willReturn([]);
 
         // name and price are required (no ? and no default), so 'required' is auto-added
         $this->validator->expects($this->once())
@@ -45,7 +43,7 @@ final class RequestHandlerTest extends TestCase
             )
             ->willReturn([]);
 
-        $dto = $this->handler->handle(TestRequest::class, $request);
+        $dto = $this->handler->handleBody(TestRequest::class, $request);
 
         $this->assertEquals('Test Item', $dto->name);
         $this->assertEquals(10.5, $dto->price);
@@ -53,202 +51,176 @@ final class RequestHandlerTest extends TestCase
         $this->assertTrue(isset($dto->price));
     }
 
-    public function testHandleThrowsValidationException(): void
+    public function testHandleBodyThrowsValidationException(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['name' => '']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->expects($this->once())
             ->method('validate')
             ->willReturn(['name' => ['Required']]);
 
         $this->expectException(ValidationException::class);
-        $this->handler->handle(TestRequest::class, $request);
+        $this->handler->handleBody(TestRequest::class, $request);
     }
 
-    public function testHandleWithMissingOptionalField(): void
+    public function testHandleBodyWithMissingOptionalField(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['name' => 'Test']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(TestRequest::class, $request);
+        $dto = $this->handler->handleBody(TestRequest::class, $request);
 
         $this->assertEquals('Test', $dto->name);
         $this->assertFalse(isset($dto->description));
     }
 
-    public function testHandleWithDefaultValue(): void
+    public function testHandleBodyWithDefaultValue(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['name' => 'Test']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(TestRequest::class, $request);
+        $dto = $this->handler->handleBody(TestRequest::class, $request);
 
         $this->assertEquals(1, $dto->page);
     }
 
-    public function testHandleWithNestedMapping(): void
+    public function testHandleBodyWithNestedMapping(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn([
             'user' => ['id' => 123],
             'name' => 'Test'
         ]);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(TestRequest::class, $request);
+        $dto = $this->handler->handleBody(TestRequest::class, $request);
 
         $this->assertEquals(123, $dto->userId);
     }
 
-    public function testHandleWithPreAndPostProcessing(): void
+    public function testHandleBodyWithPreAndPostProcessing(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn([
             'name' => '  Test  ',
             'slug' => 'Test Title'
         ]);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(ProcessingRequest::class, $request);
+        $dto = $this->handler->handleBody(ProcessingRequest::class, $request);
 
         $this->assertEquals('Test', $dto->name); // Trimmed
         $this->assertEquals('test-title', $dto->slug); // Slugified
     }
 
-    public function testHandleWithGetRequest(): void
+    public function testHandleQueryExtractsFromQueryParams(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('GET');
         $request->method('getQueryParams')->willReturn(['name' => 'Test', 'price' => '20']);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(TestRequest::class, $request);
+        $dto = $this->handler->handleQuery(TestRequest::class, $request);
 
         $this->assertEquals('Test', $dto->name);
         $this->assertEquals(20.0, $dto->price);
     }
 
-    public function testHandleWithCustomCaster(): void
+    public function testHandleBodyWithCustomCaster(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['id' => '5']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(CustomCasterRequest::class, $request);
+        $dto = $this->handler->handleBody(CustomCasterRequest::class, $request);
 
         $this->assertEquals(10, $dto->id); // 5 * 2 = 10
     }
 
-    public function testHandleWithPreProcessorInterface(): void
+    public function testHandleBodyWithPreProcessorInterface(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['value' => 'test']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(PreProcessorRequest::class, $request);
+        $dto = $this->handler->handleBody(PreProcessorRequest::class, $request);
 
         $this->assertEquals('pre_test', $dto->value);
     }
 
-    public function testHandleWithPostProcessorInterface(): void
+    public function testHandleBodyWithPostProcessorInterface(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['value' => 'test']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(PostProcessorRequest::class, $request);
+        $dto = $this->handler->handleBody(PostProcessorRequest::class, $request);
 
         $this->assertEquals('test_post', $dto->value);
     }
 
-    public function testHandleWithEmptyFieldHavingDefault(): void
+    public function testHandleBodyWithEmptyFieldHavingDefault(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['name' => 'Test', 'page' => '']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(TestRequest::class, $request);
+        $dto = $this->handler->handleBody(TestRequest::class, $request);
 
         $this->assertEquals('Test', $dto->name);
         $this->assertEquals(1, $dto->page); // Default value
     }
 
-    public function testHandleWithEmptyFieldWithoutDefault(): void
+    public function testHandleBodyWithEmptyFieldWithoutDefault(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['name' => 'Test', 'description' => '']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(TestRequest::class, $request);
+        $dto = $this->handler->handleBody(TestRequest::class, $request);
 
         $this->assertNull($dto->description);
     }
 
-    public function testHandleWithCasterAsProcessor(): void
+    public function testHandleBodyWithCasterAsProcessor(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['value' => 'test']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(CasterAsProcessorRequest::class, $request);
+        $dto = $this->handler->handleBody(CasterAsProcessorRequest::class, $request);
 
         $this->assertEquals('casted_test', $dto->value);
     }
 
-    public function testHandleWithUnknownProcessor(): void
+    public function testHandleBodyWithUnknownProcessor(): void
     {
         // Unknown processor now throws ConfigurationException at metadata building time
         $this->expectException(\Solo\RequestHandler\Exceptions\ConfigurationException::class);
         $this->expectExceptionMessage("has invalid preProcess 'nonExistentHandler'");
 
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['value' => 'test']);
-        $request->method('getQueryParams')->willReturn([]);
 
-        $this->handler->handle(UnknownProcessorRequest::class, $request);
+        $this->handler->handleBody(UnknownProcessorRequest::class, $request);
     }
 
     public function testGroupReturnsFieldsWithSameGroup(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('GET');
         $request->method('getQueryParams')->willReturn([
             'search' => 'test',
             'deleted' => 'only',
@@ -258,7 +230,7 @@ final class RequestHandlerTest extends TestCase
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(GroupedRequest::class, $request);
+        $dto = $this->handler->handleQuery(GroupedRequest::class, $request);
 
         $criteria = $dto->group('criteria');
         $this->assertEquals(['search' => 'test', 'deleted' => 'only'], $criteria);
@@ -269,12 +241,11 @@ final class RequestHandlerTest extends TestCase
     public function testGroupReturnsEmptyArrayWhenNoFieldsMatch(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('GET');
         $request->method('getQueryParams')->willReturn(['page' => '1']);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(GroupedRequest::class, $request);
+        $dto = $this->handler->handleQuery(GroupedRequest::class, $request);
 
         // After refactoring: properties with default null are now always initialized
         // This is correct behavior - fixes the "must not be accessed before initialization" bug
@@ -284,9 +255,7 @@ final class RequestHandlerTest extends TestCase
     public function testFieldAttributeIsOptional(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['name' => 'John', 'email' => 'john@example.com']);
-        $request->method('getQueryParams')->willReturn([]);
 
         // Only properties with validation rules will be validated
         $this->validator->expects($this->once())
@@ -297,7 +266,7 @@ final class RequestHandlerTest extends TestCase
             )
             ->willReturn([]);
 
-        $dto = $this->handler->handle(NoAttributeRequest::class, $request);
+        $dto = $this->handler->handleBody(NoAttributeRequest::class, $request);
 
         $this->assertEquals('John', $dto->name);
         $this->assertEquals('john@example.com', $dto->email);
@@ -307,9 +276,7 @@ final class RequestHandlerTest extends TestCase
     public function testRequiredFieldMissing(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn([]); // Missing required field
-        $request->method('getQueryParams')->willReturn([]);
 
         // name is required (has 'required' in rules) but missing
         $this->validator->expects($this->once())
@@ -321,20 +288,18 @@ final class RequestHandlerTest extends TestCase
             ->willReturn(['name' => ['The name field is required']]);
 
         $this->expectException(ValidationException::class);
-        $this->handler->handle(NoAttributeRequest::class, $request);
+        $this->handler->handleBody(NoAttributeRequest::class, $request);
     }
 
     public function testOptionalFieldWithoutRulesHasNoValidation(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['value' => 'test']);
-        $request->method('getQueryParams')->willReturn([]);
 
         // Optional field with no rules - no validation called
         $this->validator->expects($this->never())->method('validate');
 
-        $dto = $this->handler->handle(OptionalNoRulesRequest::class, $request);
+        $dto = $this->handler->handleBody(OptionalNoRulesRequest::class, $request);
 
         $this->assertEquals('test', $dto->value);
     }
@@ -342,13 +307,11 @@ final class RequestHandlerTest extends TestCase
     public function testNonCasterClassInCastIsIgnored(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['value' => 'test']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(InvalidCasterRequest::class, $request);
+        $dto = $this->handler->handleBody(InvalidCasterRequest::class, $request);
 
         // Value unchanged because class doesn't implement CasterInterface
         $this->assertEquals('test', $dto->value);
@@ -357,13 +320,11 @@ final class RequestHandlerTest extends TestCase
     public function testExplicitBuiltInCast(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['value' => '42']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(ExplicitBuiltInCastRequest::class, $request);
+        $dto = $this->handler->handleBody(ExplicitBuiltInCastRequest::class, $request);
 
         $this->assertSame(42, $dto->value);
     }
@@ -371,13 +332,11 @@ final class RequestHandlerTest extends TestCase
     public function testNonBuiltInTypeWithoutCast(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['data' => ['key' => 'value']]);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(NonBuiltInTypeRequest::class, $request);
+        $dto = $this->handler->handleBody(NonBuiltInTypeRequest::class, $request);
 
         // Array returned as-is (stdClass is not a built-in type for casting)
         $this->assertEquals(['key' => 'value'], $dto->data);
@@ -424,9 +383,7 @@ final class RequestHandlerTest extends TestCase
     public function testAutoTrimEnabledByDefault(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['name' => '  Test  ', 'price' => '10.50']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->expects($this->once())
             ->method('validate')
@@ -436,7 +393,7 @@ final class RequestHandlerTest extends TestCase
             )
             ->willReturn([]);
 
-        $dto = $this->handler->handle(TestRequest::class, $request);
+        $dto = $this->handler->handleBody(TestRequest::class, $request);
 
         $this->assertEquals('Test', $dto->name);
     }
@@ -446,9 +403,7 @@ final class RequestHandlerTest extends TestCase
         $handler = $this->createHandler(autoTrim: false);
 
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['name' => '  Test  ', 'price' => '10.50']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->expects($this->once())
             ->method('validate')
@@ -458,7 +413,7 @@ final class RequestHandlerTest extends TestCase
             )
             ->willReturn([]);
 
-        $dto = $handler->handle(TestRequest::class, $request);
+        $dto = $handler->handleBody(TestRequest::class, $request);
 
         $this->assertEquals('  Test  ', $dto->name);
     }
@@ -466,16 +421,14 @@ final class RequestHandlerTest extends TestCase
     public function testAutoTrimOnlyAffectsStrings(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn([
             'name' => '  Test  ',
             'tags' => ['  tag1  ', '  tag2  ']
         ]);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(AutoTrimArrayRequest::class, $request);
+        $dto = $this->handler->handleBody(AutoTrimArrayRequest::class, $request);
 
         // String is trimmed
         $this->assertEquals('Test', $dto->name);
@@ -486,13 +439,11 @@ final class RequestHandlerTest extends TestCase
     public function testGeneratorFieldIsAutoGenerated(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['name' => 'Test Product']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(GeneratorRequest::class, $request);
+        $dto = $this->handler->handleBody(GeneratorRequest::class, $request);
 
         $this->assertEquals('Test Product', $dto->name);
         $this->assertTrue(isset($dto->id));
@@ -506,13 +457,11 @@ final class RequestHandlerTest extends TestCase
     public function testGeneratorWithOptions(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['name' => 'Test']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(GeneratorWithOptionsRequest::class, $request);
+        $dto = $this->handler->handleBody(GeneratorWithOptionsRequest::class, $request);
 
         $this->assertEquals('Test', $dto->name);
         $this->assertEquals('users_123', $dto->id);
@@ -521,9 +470,7 @@ final class RequestHandlerTest extends TestCase
     public function testRouteParamsPlaceholderReplacement(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('PUT');
         $request->method('getParsedBody')->willReturn(['name' => 'Updated Name']);
-        $request->method('getQueryParams')->willReturn([]);
 
         // Verify that {id} placeholder is replaced with actual route param value
         $this->validator->expects($this->once())
@@ -534,7 +481,7 @@ final class RequestHandlerTest extends TestCase
             )
             ->willReturn([]);
 
-        $dto = $this->handler->handle(
+        $dto = $this->handler->handleBody(
             RouteParamsRequest::class,
             $request,
             ['id' => 123]
@@ -546,14 +493,12 @@ final class RequestHandlerTest extends TestCase
     public function testPostProcessorSkipsAutoCast(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         // Send JSON string - without the fix, auto-cast would convert it to ['["a","b"]'] (single value wrapped)
         $request->method('getParsedBody')->willReturn(['tags' => '["a","b"]']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(PostProcessorSkipsCastRequest::class, $request);
+        $dto = $this->handler->handleBody(PostProcessorSkipsCastRequest::class, $request);
 
         // PostProcessor receives raw string and decodes it properly
         $this->assertEquals(['a', 'b'], $dto->tags);
@@ -562,9 +507,7 @@ final class RequestHandlerTest extends TestCase
     public function testRegisterAllowsDependencyInjection(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['name' => 'Test']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
@@ -572,7 +515,7 @@ final class RequestHandlerTest extends TestCase
         $generatorWithDep = new TestGeneratorWithDependency('injected_prefix');
         $this->handler->register(TestGeneratorWithDependency::class, $generatorWithDep);
 
-        $dto = $this->handler->handle(RegisteredGeneratorRequest::class, $request);
+        $dto = $this->handler->handleBody(RegisteredGeneratorRequest::class, $request);
 
         $this->assertEquals('Test', $dto->name);
         $this->assertEquals('injected_prefix_generated', $dto->id);
@@ -590,13 +533,11 @@ final class RequestHandlerTest extends TestCase
     public function testPostProcessorReceivesConfig(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['amount' => '99.99']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(PostProcessConfigRequest::class, $request);
+        $dto = $this->handler->handleBody(PostProcessConfigRequest::class, $request);
 
         $this->assertEquals('$99.99', $dto->amount);
     }
@@ -604,21 +545,18 @@ final class RequestHandlerTest extends TestCase
     public function testPostProcessorWorksWithoutConfig(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['amount' => '99.99']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(PostProcessNoConfigRequest::class, $request);
+        $dto = $this->handler->handleBody(PostProcessNoConfigRequest::class, $request);
 
         $this->assertEquals('99.99', $dto->amount);
     }
 
-    public function testHandleWithItems(): void
+    public function testHandleBodyWithItems(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn([
             'name' => 'Order #1',
             'items' => [
@@ -626,11 +564,10 @@ final class RequestHandlerTest extends TestCase
                 ['product' => 'Gadget', 'quantity' => '1'],
             ],
         ]);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(OrderRequest::class, $request);
+        $dto = $this->handler->handleBody(OrderRequest::class, $request);
 
         $this->assertEquals('Order #1', $dto->name);
         $this->assertIsArray($dto->items);
@@ -641,10 +578,9 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(1, $dto->items[1]['quantity']);
     }
 
-    public function testHandleWithItemsValidationErrors(): void
+    public function testHandleBodyWithItemsValidationErrors(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn([
             'name' => 'Order #1',
             'items' => [
@@ -652,7 +588,6 @@ final class RequestHandlerTest extends TestCase
                 ['product' => 'Gadget', 'quantity' => ''],
             ],
         ]);
-        $request->method('getQueryParams')->willReturn([]);
 
         // First call validates OrderRequest (name) - passes
         // Second and third calls validate OrderItemRequest items - fail
@@ -668,7 +603,7 @@ final class RequestHandlerTest extends TestCase
             });
 
         try {
-            $this->handler->handle(OrderRequest::class, $request);
+            $this->handler->handleBody(OrderRequest::class, $request);
             $this->fail('Expected ValidationException');
         } catch (ValidationException $e) {
             $errors = $e->getErrors();
@@ -677,10 +612,9 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
-    public function testHandleWithItemsNonArrayItem(): void
+    public function testHandleBodyWithItemsNonArrayItem(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn([
             'name' => 'Order #1',
             'items' => [
@@ -688,12 +622,11 @@ final class RequestHandlerTest extends TestCase
                 ['product' => 'Widget', 'quantity' => '1'],
             ],
         ]);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
         try {
-            $this->handler->handle(OrderRequest::class, $request);
+            $this->handler->handleBody(OrderRequest::class, $request);
             $this->fail('Expected ValidationException');
         } catch (ValidationException $e) {
             $errors = $e->getErrors();
@@ -702,34 +635,30 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
-    public function testHandleWithNullItems(): void
+    public function testHandleBodyWithNullItems(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn(['name' => 'Order #1']);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(OrderRequest::class, $request);
+        $dto = $this->handler->handleBody(OrderRequest::class, $request);
 
         $this->assertEquals('Order #1', $dto->name);
         $this->assertNull($dto->items);
     }
 
-    public function testHandleWithEmptyItems(): void
+    public function testHandleBodyWithEmptyItems(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn([
             'name' => 'Order #1',
             'items' => [],
         ]);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(OrderRequest::class, $request);
+        $dto = $this->handler->handleBody(OrderRequest::class, $request);
 
         $this->assertEquals('Order #1', $dto->name);
         $this->assertIsArray($dto->items);
@@ -752,21 +681,19 @@ final class RequestHandlerTest extends TestCase
     public function testItemsSkipsCasting(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn([
             'name' => 'Order #1',
             'items' => [
                 ['product' => 'Widget', 'quantity' => '2'],
             ],
         ]);
-        $request->method('getQueryParams')->willReturn([]);
 
         $this->validator->method('validate')->willReturn([]);
 
         // If casting was applied to the items array, BuiltInCaster would
         // try to process it. Items should bypass casting entirely and
         // delegate to processRawData for each item individually.
-        $dto = $this->handler->handle(OrderRequest::class, $request);
+        $dto = $this->handler->handleBody(OrderRequest::class, $request);
 
         $this->assertNotNull($dto->items);
         $this->assertCount(1, $dto->items);
@@ -777,7 +704,6 @@ final class RequestHandlerTest extends TestCase
     public function testGroupUsesMapToForOutputKey(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('GET');
         $request->method('getQueryParams')->willReturn([
             'position_id' => '5',
             'search' => 'test',
@@ -786,7 +712,7 @@ final class RequestHandlerTest extends TestCase
 
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(MapToGroupedRequest::class, $request);
+        $dto = $this->handler->handleQuery(MapToGroupedRequest::class, $request);
 
         $criteria = $dto->group('criteria');
         $this->assertEquals(['positions.id' => 5, 'search' => 'test'], $criteria);
@@ -797,19 +723,17 @@ final class RequestHandlerTest extends TestCase
     public function testItemsWithRouteParams(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getMethod')->willReturn('POST');
         $request->method('getParsedBody')->willReturn([
             'name' => 'Order #1',
             'items' => [
                 ['product' => 'Widget', 'quantity' => '1'],
             ],
         ]);
-        $request->method('getQueryParams')->willReturn([]);
 
         // Verify route params are passed through to nested items
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handle(
+        $dto = $this->handler->handleBody(
             OrderRequest::class,
             $request,
             ['id' => 42]
@@ -1129,4 +1053,3 @@ final class OrderRequest extends Request
     #[Field(rules: 'nullable|array', items: OrderItemRequest::class)]
     public ?array $items = null;
 }
-

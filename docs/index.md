@@ -75,8 +75,11 @@ final class CreateProductRequest extends Request
     public string $id;
 }
 
-// Usage in controller
-$dto = $requestHandler->handle(CreateProductRequest::class, $request);
+// POST/PUT/PATCH — from request body
+$dto = $requestHandler->handleBody(CreateProductRequest::class, $request);
+
+// GET — from query parameters
+// $dto = $requestHandler->handleQuery(SearchRequest::class, $request);
 
 echo $dto->name;   // string - full IDE support
 echo $dto->price;  // float - auto-casted

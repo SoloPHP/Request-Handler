@@ -71,6 +71,34 @@ $handler
     ->register(SlugProcessor::class, new SlugProcessor($transliterator));
 ```
 
+## handleQuery()
+
+Create a Request DTO from query parameters (GET requests):
+
+```php
+public function handleQuery(string $className, ServerRequestInterface $request, array $routeParams = []): Request
+```
+
+Reads data from `$request->getQueryParams()`.
+
+```php
+$dto = $handler->handleQuery(SearchRequest::class, $request);
+```
+
+## handleBody()
+
+Create a Request DTO from request body (POST/PUT/PATCH requests):
+
+```php
+public function handleBody(string $className, ServerRequestInterface $request, array $routeParams = []): Request
+```
+
+Reads data from `$request->getParsedBody()`.
+
+```php
+$dto = $handler->handleBody(CreateProductRequest::class, $request);
+```
+
 ## handleArray()
 
 Process raw data arrays without a PSR-7 request:
@@ -94,7 +122,7 @@ $dto->price;    // 9.99 (float - auto-casted)
 ```
 
 ::: info
-`handleArray()` runs the same pipeline as `handle()` — validation, casting, pre/post-processing — but takes a plain array instead of `ServerRequestInterface`.
+`handleArray()` runs the same pipeline as `handleBody()`/`handleQuery()` — validation, casting, pre/post-processing — but takes a plain array instead of `ServerRequestInterface`.
 :::
 
 ## Route Parameters
@@ -109,7 +137,7 @@ class UpdateProductRequest extends Request
 }
 
 // Usage
-$dto = $handler->handle(
+$dto = $handler->handleBody(
     UpdateProductRequest::class,
     $request,
     ['id' => 123]  // Route params

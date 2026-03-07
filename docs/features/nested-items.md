@@ -52,7 +52,7 @@ The input data should contain an array of objects:
 After processing:
 
 ```php
-$dto = $handler->handle(CreateOrderRequest::class, $request);
+$dto = $handler->handleBody(CreateOrderRequest::class, $request);
 
 $dto->items;
 // [
@@ -69,7 +69,7 @@ Validation errors from nested items use dot-notation with the item index:
 
 ```php
 try {
-    $dto = $handler->handle(CreateOrderRequest::class, $request);
+    $dto = $handler->handleBody(CreateOrderRequest::class, $request);
 } catch (ValidationException $e) {
     $e->getErrors();
     // [
@@ -137,7 +137,7 @@ final class LineItemRequest extends Request
 }
 
 // Route params are passed through to nested items
-$dto = $handler->handle(
+$dto = $handler->handleBody(
     OrderRequest::class,
     $request,
     ['tenantId' => 42]

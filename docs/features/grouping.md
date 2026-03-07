@@ -20,7 +20,7 @@ final class SearchRequest extends Request
     public int $perPage = 20;
 }
 
-$dto = $handler->handle(SearchRequest::class, $request);
+$dto = $handler->handleQuery(SearchRequest::class, $request);
 
 $criteria = $dto->group('criteria');
 // ['search' => '...', 'status' => '...']
@@ -35,8 +35,9 @@ $pagination = $dto->group('pagination');
 
 The `group()` method returns a flat array:
 
-- **Array properties**: Contents are merged into result
-- **Scalar properties**: Added by property name (or by `mapTo` if specified)
+- **Associative array properties**: Contents are merged into result
+- **Scalar properties and sequential arrays**: Added by property name (or by `mapTo` if specified)
+- **Empty arrays**: Skipped entirely
 
 ```php
 final class FilterRequest extends Request
@@ -49,20 +50,27 @@ final class FilterRequest extends Request
 
     #[Field(group: 'criteria')]
     public int $limit = 10;
+
+    /** @var array<string> */
+    #[Field(group: 'criteria')]
+    public array $statuses = [];
 }
 
 // Given:
 $dto->search = ['name' => ['LIKE', '%test%']];
 $dto->filters = ['status' => 'active'];
 $dto->limit = 20;
+$dto->statuses = ['pending', 'paid'];
 
 $criteria = $dto->group('criteria');
 // Result:
 // [
-//     'name' => ['LIKE', '%test%'],  // merged from $search
-//     'status' => 'active',           // merged from $filters
-//     'limit' => 20                   // scalar by property name
+//     'name' => ['LIKE', '%test%'],            // associative array — merged by keys
+//     'status' => 'active',                     // associative array — merged by keys
+//     'limit' => 20,                            // scalar — by property name
+//     'statuses' => ['pending', 'paid'],        // sequential array — by property name
 // ]
+// Note: empty arrays (e.g. $search = []) are skipped entirely
 ```
 
 ---
@@ -92,7 +100,7 @@ $criteria = $dto->group('criteria');
 ```
 
 ::: info
-`mapTo` only affects scalar properties in `group()`. Array properties are always merged by their own keys. `toArray()` is not affected by `mapTo`.
+`mapTo` only affects scalar properties and sequential arrays in `group()`. Associative array properties are always merged by their own keys. `toArray()` is not affected by `mapTo`.
 :::
 
 ---

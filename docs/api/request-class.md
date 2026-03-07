@@ -119,8 +119,9 @@ public function group(string $groupName): array
 **Returns:** Flat array of grouped field values.
 
 **Behavior:**
-- Array properties: contents are merged into result
-- Scalar properties: added by property name, or by `mapTo` if specified
+- Associative array properties: contents are merged into result
+- Scalar properties and sequential arrays: added by property name, or by `mapTo` if specified
+- Empty arrays are skipped
 - Throws `LogicException` on duplicate keys
 
 **Example:**
@@ -180,7 +181,7 @@ Request::clearGroupCache(SearchRequest::class);
 Properties can be accessed directly when initialized:
 
 ```php
-$dto = $handler->handle(UserRequest::class, $request);
+$dto = $handler->handleBody(UserRequest::class, $request);
 
 echo $dto->name;   // Works if 'name' was in request
 echo $dto->email;  // Works if 'email' was in request

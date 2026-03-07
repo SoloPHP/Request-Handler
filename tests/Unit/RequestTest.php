@@ -288,6 +288,47 @@ final class RequestTest extends TestCase
         $this->assertArrayNotHasKey('position_id', $result);
     }
 
+    public function testGroupSkipsEmptyArrays(): void
+    {
+        $dto = new ArrayGroupRequest();
+        $dto->search = [];
+        $dto->deleted = ['deleted_at' => ['!=', null]];
+
+        $result = $dto->group('criteria');
+
+        $expected = [
+            'deleted_at' => ['!=', null],
+        ];
+
+        $this->assertEquals($expected, $result);
+    }
+
+    public function testGroupStoresSequentialArrayUnderPropertyName(): void
+    {
+        $dto = new SequentialArrayGroupRequest();
+        $dto->statuses = ['pending', 'partially_paid'];
+        $dto->search = ['name' => ['LIKE', '%test%']];
+
+        $result = $dto->group('criteria');
+
+        $expected = [
+            'statuses' => ['pending', 'partially_paid'],
+            'name' => ['LIKE', '%test%'],
+        ];
+
+        $this->assertEquals($expected, $result);
+    }
+
+    public function testGroupStoresSequentialArrayWithMapTo(): void
+    {
+        $dto = new SequentialArrayMapToRequest();
+        $dto->statuses = ['pending', 'active'];
+
+        $result = $dto->group('criteria');
+
+        $this->assertEquals(['order_status' => ['pending', 'active']], $result);
+    }
+
 }
 
 final class TestRequest extends Request
@@ -379,5 +420,23 @@ final class MapToGroupRequest extends Request
 
     #[Field(group: 'criteria')]
     public ?string $search = null;
+}
+
+final class SequentialArrayGroupRequest extends Request
+{
+    /** @var array<string> */
+    #[Field(group: 'criteria')]
+    public array $statuses;
+
+    /** @var array<string, mixed> */
+    #[Field(group: 'criteria')]
+    public array $search;
+}
+
+final class SequentialArrayMapToRequest extends Request
+{
+    /** @var array<string> */
+    #[Field(mapTo: 'order_status', group: 'criteria')]
+    public array $statuses;
 }
 
