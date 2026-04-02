@@ -144,30 +144,32 @@ final class RequestHandler
                 $value = trim($value);
             }
 
-            $isEmpty = $value === null || $value === '';
-
-            // If field is empty and not in request
-            if ($isEmpty && !$hasValueInRequest) {
-                // Use default if available
+            // If field is not in request at all
+            if (!$hasValueInRequest) {
                 if ($property->hasDefault) {
-                    // Property already has default value from class definition
                     continue;
                 } elseif ($property->isRequired && $property->validationRules !== null) {
-                    // Required field missing - add to validation to trigger error
                     $validationData[$property->name] = null;
                     $validationRules[$property->name] = $property->validationRules;
                 }
                 continue;
             }
 
-            // If field is empty but was in request (user wants to clear)
-            if ($isEmpty) {
-                if ($property->hasDefault && $property->defaultValue !== null) {
-                    $presentFields[$property->name] = $property->defaultValue;
-                } else {
-                    $presentFields[$property->name] = null;
+            // Field was in request but is null
+            if ($value === null) {
+                $presentFields[$property->name] = $property->isNullable
+                    ? null
+                    : ($property->hasDefault ? $property->defaultValue : null);
+                if ($property->isRequired && $property->validationRules !== null) {
+                    $validationData[$property->name] = $value;
+                    $validationRules[$property->name] = $property->validationRules;
                 }
-                // Validate required fields
+                continue;
+            }
+
+            // Field was in request as empty string — preserve it as ""
+            if ($value === '') {
+                $presentFields[$property->name] = '';
                 if ($property->isRequired && $property->validationRules !== null) {
                     $validationData[$property->name] = $value;
                     $validationRules[$property->name] = $property->validationRules;

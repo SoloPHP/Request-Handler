@@ -122,6 +122,10 @@ public ?string $bio = null;
 public int $page = 1;
 ```
 
+::: tip Null vs Empty String
+The handler distinguishes absent fields, explicit `null`, and empty string `""`. See [Validation — Absent vs Null vs Empty String](/features/validation#absent-vs-null-vs-empty-string) for details.
+:::
+
 ## Next Steps
 
 - [Field Attribute](/features/field-attribute) — All attribute parameters

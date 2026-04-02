@@ -169,18 +169,25 @@ The complete processing order:
 
 1. **Extract** — Get value from request
 2. **Auto-trim** — Trim strings (if enabled)
-3. **preProcess** — Run pre-processor
-4. **Validate** — Apply validation rules
-5. **Cast** — Convert type (skipped if postProcess defined)
-6. **postProcess** — Run post-processor
-7. **Assign** — Set property value
+3. **Empty check** — `null` and `""` exit early (skip steps 4-7)
+4. **preProcess** — Run pre-processor
+5. **Validate** — Apply validation rules
+6. **Cast** — Convert type (skipped if postProcess defined)
+7. **postProcess** — Run post-processor
+8. **Assign** — Set property value
+
+::: info Early exit for null and empty string
+When a field is present in the request but its value is `null` or `""`, it bypasses pre-processing, casting, and post-processing. The value is stored directly:
+- `null` — set `null` for nullable types, or default value for non-nullable types with a default
+- `""` — preserved as empty string, then cast per type (e.g. `""` stays `""` for `string`, becomes `null` for `int`)
+:::
 
 ```php
 #[Field(
-    preProcess: 'trim',           // Step 3
-    rules: 'required|string',     // Step 4
-    cast: 'string',               // Step 5 (skipped if postProcess)
-    postProcess: 'strtolower'     // Step 6
+    preProcess: 'trim',           // Step 4
+    rules: 'required|string',     // Step 5
+    cast: 'string',               // Step 6 (skipped if postProcess)
+    postProcess: 'strtolower'     // Step 7
 )]
 public string $email;
 ```

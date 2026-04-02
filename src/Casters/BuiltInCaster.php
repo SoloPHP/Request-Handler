@@ -32,17 +32,17 @@ final class BuiltInCaster
 
     public function cast(string $type, mixed $value): mixed
     {
-        if ($value === null || $value === '') {
+        if ($value === null) {
             return null;
         }
 
         if (str_starts_with($type, 'datetime')) {
-            return $this->handleDateTime($type, $value);
+            return $value === '' ? null : $this->handleDateTime($type, $value);
         }
 
         return match (strtolower($type)) {
-            'int', 'integer' => $this->toInt($value),
-            'float', 'double' => $this->toFloat($value),
+            'int', 'integer' => $value === '' ? null : $this->toInt($value),
+            'float', 'double' => $value === '' ? null : $this->toFloat($value),
             'bool', 'boolean' => $this->toBool($value),
             'string' => $this->toString($value),
             'array' => $this->toArray($value),

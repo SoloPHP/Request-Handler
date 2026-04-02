@@ -197,14 +197,31 @@ final class JsonDecoder implements ProcessorInterface
 
 ---
 
-## Null Handling
+## Null and Empty String Handling
 
-Null and empty string values return `null` for all built-in casters:
+`null` returns `null` for all built-in casters:
 
 ```php
 $this->caster->cast('int', null);     // null
-$this->caster->cast('int', '');       // null
 $this->caster->cast('string', null);  // null
+$this->caster->cast('array', null);   // null
+```
+
+Empty string `""` is handled per type:
+
+| Type | `""` Result | Reason |
+|------|-------------|--------|
+| `int`, `float` | `null` | Not a valid number |
+| `datetime` | `null` | Not a valid date |
+| `string` | `""` | Preserved as-is |
+| `bool` | `false` | Treated as falsy |
+| `array` | `[]` | Empty collection |
+
+```php
+$this->caster->cast('int', '');       // null
+$this->caster->cast('string', '');    // ""
+$this->caster->cast('bool', '');      // false
+$this->caster->cast('array', '');     // []
 ```
 
 ---

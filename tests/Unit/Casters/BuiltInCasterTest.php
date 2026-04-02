@@ -97,12 +97,21 @@ final class BuiltInCasterTest extends TestCase
         $this->assertEquals('2023-01-01', $casted->format('Y-m-d'));
     }
 
-    public function testCastNullOrEmpty(): void
+    public function testCastNull(): void
     {
         $this->assertNull($this->caster->cast('int', null));
-        $this->assertNull($this->caster->cast('int', ''));
         $this->assertNull($this->caster->cast('string', null));
-        $this->assertNull($this->caster->cast('array', ''));
+        $this->assertNull($this->caster->cast('array', null));
+    }
+
+    public function testCastEmptyString(): void
+    {
+        $this->assertNull($this->caster->cast('int', ''));
+        $this->assertNull($this->caster->cast('float', ''));
+        $this->assertNull($this->caster->cast('datetime', ''));
+        $this->assertSame('', $this->caster->cast('string', ''));
+        $this->assertFalse($this->caster->cast('bool', ''));
+        $this->assertSame([], $this->caster->cast('array', ''));
     }
 
     public function testCastFloatNonNumeric(): void

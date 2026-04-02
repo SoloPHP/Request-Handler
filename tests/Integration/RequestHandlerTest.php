@@ -191,7 +191,7 @@ final class RequestHandlerTest extends TestCase
 
         $dto = $this->handler->handleBody(TestRequest::class, $request);
 
-        $this->assertNull($dto->description);
+        $this->assertSame('', $dto->description);
     }
 
     public function testHandleBodyWithCasterAsProcessor(): void
@@ -718,6 +718,49 @@ final class RequestHandlerTest extends TestCase
         $this->assertEquals(['positions.id' => 5, 'search' => 'test'], $criteria);
         $this->assertArrayNotHasKey('position_id', $criteria);
         $this->assertArrayNotHasKey('page', $criteria);
+    }
+
+    public function testExplicitNullForNullableField(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getParsedBody')->willReturn(['name' => 'Test', 'description' => null]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(TestRequest::class, $request);
+
+        $this->assertEquals('Test', $dto->name);
+        $this->assertNull($dto->description);
+    }
+
+    public function testExplicitNullForNonNullableFieldWithDefault(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getParsedBody')->willReturn(['name' => 'Test', 'page' => null]);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(TestRequest::class, $request);
+
+        $this->assertEquals('Test', $dto->name);
+        $this->assertEquals(1, $dto->page);
+    }
+
+    public function testExplicitNullForRequiredField(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getParsedBody')->willReturn(['name' => null]);
+
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(
+                ['name' => null, 'price' => null],
+                ['name' => 'required|string', 'price' => 'required|numeric']
+            )
+            ->willReturn(['name' => ['The name field is required']]);
+
+        $this->expectException(ValidationException::class);
+        $this->handler->handleBody(TestRequest::class, $request);
     }
 
     public function testItemsWithRouteParams(): void

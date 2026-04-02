@@ -35,6 +35,19 @@ public ?string $reason;
 public int $page = 1;
 ```
 
+## Absent vs Null vs Empty String
+
+The handler distinguishes three states for each field:
+
+| What frontend sends | Meaning | Behavior |
+|---------------------|---------|----------|
+| Field absent | Don't touch | Use default value or trigger required validation |
+| `"name": null` | Clear (null) | Set `null` for nullable types, default for non-nullable |
+| `"name": ""` | Clear (empty string) | Preserve `""`, then cast per type |
+| `"name": "hello"` | Set value | Normal processing pipeline |
+
+This distinction is important for PATCH-style updates where absent fields should not be modified, `null` explicitly clears a nullable field, and `""` sets an empty string.
+
 ---
 
 ## Common Rules
