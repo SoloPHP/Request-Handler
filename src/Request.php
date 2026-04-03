@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler;
 
-use ReflectionObject;
+use ReflectionClass;
 use ReflectionProperty;
 
 /**
@@ -23,10 +23,11 @@ use ReflectionProperty;
  */
 abstract class Request
 {
-    /**
-     * Cached reflection object for this instance
-     */
-    private ?ReflectionObject $reflection = null;
+    /** @var array<string, ReflectionClass<object>> */
+    private static array $reflectionCache = [];
+
+    /** @var array<string, array<string, true>> */
+    private static array $excludedCache = [];
 
     /**
      * Cache for group properties (static, shared across instances)
@@ -35,11 +36,35 @@ abstract class Request
     private static array $groupCache = [];
 
     /**
-     * Get cached reflection object for this instance
+     * @param class-string $class
+     * @return ReflectionClass<object>
      */
-    private function getReflection(): ReflectionObject
+    private static function getReflection(string $class): ReflectionClass
     {
-        return $this->reflection ??= new ReflectionObject($this);
+        return self::$reflectionCache[$class] ??= new ReflectionClass($class);
+    }
+
+    /**
+     * @param class-string $class
+     * @return array<string, true>
+     */
+    private static function getExcluded(string $class): array
+    {
+        if (!isset(self::$excludedCache[$class])) {
+            $excluded = [];
+            foreach (self::getReflection($class)->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+                if ($property->isStatic()) {
+                    continue;
+                }
+                $attributes = $property->getAttributes(Attributes\Field::class);
+                if (!empty($attributes) && $attributes[0]->newInstance()->exclude) {
+                    $excluded[$property->getName()] = true;
+                }
+            }
+            self::$excludedCache[$class] = $excluded;
+        }
+
+        return self::$excludedCache[$class];
     }
 
     /**
@@ -50,18 +75,30 @@ abstract class Request
     public function toArray(): array
     {
         $result = [];
+        $class = static::class;
+        $excluded = self::getExcluded($class);
 
-        foreach ($this->getReflection()->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+        foreach (self::getReflection($class)->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
             if ($property->isStatic() || !$property->isInitialized($this)) {
                 continue;
             }
 
-            $attributes = $property->getAttributes(Attributes\Field::class);
-            if (!empty($attributes) && $attributes[0]->newInstance()->exclude) {
+            if (isset($excluded[$property->getName()])) {
                 continue;
             }
 
-            $result[$property->getName()] = $property->getValue($this);
+            $value = $property->getValue($this);
+
+            if ($value instanceof self) {
+                $value = $value->toArray();
+            } elseif (is_array($value)) {
+                $value = array_map(
+                    static fn($item) => $item instanceof self ? $item->toArray() : $item,
+                    $value
+                );
+            }
+
+            $result[$property->getName()] = $value;
         }
 
         return $result;
@@ -73,7 +110,7 @@ abstract class Request
     public function has(string $name): bool
     {
         try {
-            $property = $this->getReflection()->getProperty($name);
+            $property = self::getReflection(static::class)->getProperty($name);
             return $property->isInitialized($this);
         } catch (\ReflectionException) {
             return false;
@@ -86,7 +123,7 @@ abstract class Request
     public function get(string $name, mixed $default = null): mixed
     {
         try {
-            $property = $this->getReflection()->getProperty($name);
+            $property = self::getReflection(static::class)->getProperty($name);
 
             return $property->isInitialized($this)
                 ? $property->getValue($this)
@@ -155,11 +192,14 @@ abstract class Request
         return $result;
     }
 
+    /**
+     * @param class-string $class
+     */
     private function buildGroupCache(string $class, string $groupName): void
     {
         $properties = [];
 
-        foreach ($this->getReflection()->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+        foreach (self::getReflection($class)->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
             if ($property->isStatic()) {
                 continue;
             }
@@ -179,19 +219,25 @@ abstract class Request
     }
 
     /**
-     * Clear the static group cache
+     * Clear all static caches (reflection, excluded, group)
      *
      * Useful for long-running processes (Swoole, RoadRunner, Laravel Octane)
      * to prevent memory leaks.
      *
      * @param string|null $className Clear cache for specific class only, or all if null
      */
-    public static function clearGroupCache(?string $className = null): void
+    public static function clearCache(?string $className = null): void
     {
         if ($className === null) {
+            self::$reflectionCache = [];
+            self::$excludedCache = [];
             self::$groupCache = [];
         } else {
-            unset(self::$groupCache[$className]);
+            unset(
+                self::$reflectionCache[$className],
+                self::$excludedCache[$className],
+                self::$groupCache[$className]
+            );
         }
     }
 }

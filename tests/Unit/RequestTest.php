@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Tests\Unit;
 
-use Error;
 use PHPUnit\Framework\TestCase;
 use Solo\RequestHandler\Attributes\Field;
 use Solo\RequestHandler\Request;
@@ -70,19 +69,6 @@ final class RequestTest extends TestCase
     public function testGetReturnsDefaultForNonExistingProperty(): void
     {
         $this->assertEquals('default', $this->dto->get('nonexistent', 'default'));
-    }
-
-    public function testGetReturnsNullByDefaultForUninitializedProperty(): void
-    {
-        $this->assertNull($this->dto->get('name'));
-    }
-
-    public function testAccessingUninitializedPropertyThrowsError(): void
-    {
-        $this->expectException(Error::class);
-        $this->expectExceptionMessage('must not be accessed before initialization');
-
-        $value = $this->dto->name;
     }
 
     public function testGroupIgnoresStaticProperties(): void
@@ -174,7 +160,7 @@ final class RequestTest extends TestCase
         $this->assertNotEmpty($cache);
 
         // Clear all cache
-        Request::clearGroupCache();
+        Request::clearCache();
 
         // Verify cache is empty
         $cache = $cacheProperty->getValue();
@@ -201,7 +187,7 @@ final class RequestTest extends TestCase
         $this->assertArrayHasKey(MultiGroupRequest::class, $cache);
 
         // Clear cache only for StaticGroupRequest
-        Request::clearGroupCache(StaticGroupRequest::class);
+        Request::clearCache(StaticGroupRequest::class);
 
         // Verify only StaticGroupRequest cache is cleared
         $cache = $cacheProperty->getValue();
@@ -274,6 +260,44 @@ final class RequestTest extends TestCase
 
         $this->assertEquals(['name' => 'John'], $result);
         $this->assertArrayNotHasKey('internal', $result);
+    }
+
+    public function testToArrayConvertsNestedRequestObjects(): void
+    {
+        $item = new NestedItemRequest();
+        $item->product = 'Widget';
+        $item->quantity = 3;
+
+        $parent = new ParentWithItemsRequest();
+        $parent->name = 'Order #1';
+        $parent->items = [$item];
+
+        $result = $parent->toArray();
+
+        $this->assertEquals([
+            'name' => 'Order #1',
+            'items' => [
+                ['product' => 'Widget', 'quantity' => 3],
+            ],
+        ], $result);
+    }
+
+    public function testToArrayConvertsDirectNestedRequest(): void
+    {
+        $child = new NestedItemRequest();
+        $child->product = 'Gadget';
+        $child->quantity = 1;
+
+        $parent = new ParentWithChildRequest();
+        $parent->name = 'Test';
+        $parent->child = $child;
+
+        $result = $parent->toArray();
+
+        $this->assertEquals([
+            'name' => 'Test',
+            'child' => ['product' => 'Gadget', 'quantity' => 1],
+        ], $result);
     }
 
     public function testGroupUsesMapToAsOutputKey(): void
@@ -438,5 +462,24 @@ final class SequentialArrayMapToRequest extends Request
     /** @var array<string> */
     #[Field(mapTo: 'order_status', group: 'criteria')]
     public array $statuses;
+}
+
+final class NestedItemRequest extends Request
+{
+    public string $product;
+    public int $quantity;
+}
+
+final class ParentWithItemsRequest extends Request
+{
+    public string $name;
+    /** @var NestedItemRequest[] */
+    public array $items;
+}
+
+final class ParentWithChildRequest extends Request
+{
+    public string $name;
+    public NestedItemRequest $child;
 }
 

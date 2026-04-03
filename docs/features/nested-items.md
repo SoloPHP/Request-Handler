@@ -27,7 +27,7 @@ final class CreateOrderRequest extends Request
     #[Field(rules: 'required|string')]
     public string $customer;
 
-    /** @var array<int, array<string, mixed>>|null */
+    /** @var OrderItemRequest[]|null */
     #[Field(rules: 'required|array|min:1', items: OrderItemRequest::class)]
     public ?array $items = null;
 }
@@ -54,14 +54,20 @@ After processing:
 ```php
 $dto = $handler->handleBody(CreateOrderRequest::class, $request);
 
-$dto->items;
-// [
+$dto->items[0]->product;  // 'Widget'
+$dto->items[0]->quantity; // 3
+$dto->items[0]->price;    // 9.99
+$dto->items[1]->product;  // 'Gadget'
+
+// Convert to arrays when needed
+$dto->toArray();
+// ['customer' => 'John Doe', 'items' => [
 //     ['product' => 'Widget', 'quantity' => 3, 'price' => 9.99],
 //     ['product' => 'Gadget', 'quantity' => 1, 'price' => 24.50],
-// ]
+// ]]
 ```
 
-Each item is returned as an associative array (result of `toArray()` on the child Request).
+Each item is returned as a Request object with full access to `has()`, `get()`, `group()`, and `toArray()`. The parent's `toArray()` recursively converts nested Request objects back to arrays.
 
 ## Validation Errors
 
@@ -172,7 +178,7 @@ For fields with `items`, the processing order is:
    - Validate
    - Cast types
    - Post-process
-4. Each processed item is converted to an array via `toArray()`
+4. Each processed item is returned as a Request object
 
 ::: warning
 Auto-casting is intentionally skipped for `items` fields. The `BuiltInCaster` won't process the array before items are handled. This prevents data corruption when the array contains structured objects.

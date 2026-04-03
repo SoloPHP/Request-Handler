@@ -175,10 +175,10 @@ For long-running processes (Swoole, RoadRunner, Octane):
 
 ```php
 // Clear all cache
-Request::clearGroupCache();
+Request::clearCache();
 
 // Clear specific class
-Request::clearGroupCache(SearchRequest::class);
+Request::clearCache(SearchRequest::class);
 ```
 
 ---

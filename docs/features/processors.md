@@ -52,7 +52,7 @@ use Solo\RequestHandler\Contracts\ProcessorInterface;
 
 final class SlugProcessor implements ProcessorInterface
 {
-    public function process(mixed $value): string
+    public function process(mixed $value, array $config = []): string
     {
         $slug = strtolower(trim($value));
         $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
@@ -148,7 +148,7 @@ final class TransliteratorProcessor implements ProcessorInterface
         private readonly Transliterator $transliterator
     ) {}
 
-    public function process(mixed $value): string
+    public function process(mixed $value, array $config = []): string
     {
         return $this->transliterator->transliterate($value);
     }
@@ -201,7 +201,7 @@ public string $email;
 ```php
 final class SlugProcessor implements ProcessorInterface
 {
-    public function process(mixed $value): string
+    public function process(mixed $value, array $config = []): string
     {
         $slug = strtolower(trim($value));
         $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
@@ -220,7 +220,7 @@ public string $slug;
 ```php
 final class PhoneProcessor implements ProcessorInterface
 {
-    public function process(mixed $value): string
+    public function process(mixed $value, array $config = []): string
     {
         $digits = preg_replace('/[^0-9]/', '', $value);
         
@@ -243,7 +243,7 @@ public string $phone;
 ```php
 final class HtmlSanitizer implements ProcessorInterface
 {
-    public function process(mixed $value): string
+    public function process(mixed $value, array $config = []): string
     {
         return strip_tags($value, '<p><br><strong><em>');
     }
@@ -258,7 +258,7 @@ public string $content;
 ```php
 final class JsonDecoder implements ProcessorInterface
 {
-    public function process(mixed $value): array
+    public function process(mixed $value, array $config = []): array
     {
         if (is_array($value)) {
             return $value;

@@ -22,5 +22,8 @@ namespace Solo\RequestHandler\Contracts;
  */
 interface ProcessorInterface
 {
-    public function process(mixed $value): mixed;
+    /**
+     * @param array<string, mixed> $config
+     */
+    public function process(mixed $value, array $config = []): mixed;
 }

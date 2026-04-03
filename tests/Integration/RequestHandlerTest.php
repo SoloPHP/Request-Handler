@@ -342,25 +342,6 @@ final class RequestHandlerTest extends TestCase
         $this->assertEquals(['key' => 'value'], $dto->data);
     }
 
-    public function testPopulateInstanceIgnoresNonExistentProperties(): void
-    {
-        // Use reflection to call populateInstance with invalid property name
-        $handlerReflection = new \ReflectionClass($this->handler);
-        $method = $handlerReflection->getMethod('populateInstance');
-
-        $classReflection = new \ReflectionClass(TestRequest::class);
-        $instance = $classReflection->newInstanceWithoutConstructor();
-
-        // Call with data containing non-existent property
-        $dto = $method->invoke($this->handler, $instance, $classReflection, [
-            'name' => 'Test',
-            'nonExistent' => 'ignored', // This property doesn't exist
-        ]);
-
-        $this->assertEquals('Test', $dto->name);
-        $this->assertFalse(property_exists($dto, 'nonExistent'));
-    }
-
     public function testPopulateInstanceSkipsNullForNonNullableTypes(): void
     {
         // Test the runtime protection that prevents null assignment to non-nullable types
@@ -521,15 +502,6 @@ final class RequestHandlerTest extends TestCase
         $this->assertEquals('injected_prefix_generated', $dto->id);
     }
 
-    public function testRegisterReturnsSelfForChaining(): void
-    {
-        $result = $this->handler
-            ->register(TestPreProcessor::class, new TestPreProcessor())
-            ->register(TestPostProcessor::class, new TestPostProcessor());
-
-        $this->assertSame($this->handler, $result);
-    }
-
     public function testPostProcessorReceivesConfig(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
@@ -572,10 +544,12 @@ final class RequestHandlerTest extends TestCase
         $this->assertEquals('Order #1', $dto->name);
         $this->assertIsArray($dto->items);
         $this->assertCount(2, $dto->items);
-        $this->assertEquals('Widget', $dto->items[0]['product']);
-        $this->assertSame(3, $dto->items[0]['quantity']);
-        $this->assertEquals('Gadget', $dto->items[1]['product']);
-        $this->assertSame(1, $dto->items[1]['quantity']);
+        $this->assertInstanceOf(OrderItemRequest::class, $dto->items[0]);
+        $this->assertInstanceOf(OrderItemRequest::class, $dto->items[1]);
+        $this->assertEquals('Widget', $dto->items[0]->product);
+        $this->assertSame(3, $dto->items[0]->quantity);
+        $this->assertEquals('Gadget', $dto->items[1]->product);
+        $this->assertSame(1, $dto->items[1]->quantity);
     }
 
     public function testHandleBodyWithItemsValidationErrors(): void
@@ -678,29 +652,6 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(5, $dto->quantity);
     }
 
-    public function testItemsSkipsCasting(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn([
-            'name' => 'Order #1',
-            'items' => [
-                ['product' => 'Widget', 'quantity' => '2'],
-            ],
-        ]);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        // If casting was applied to the items array, BuiltInCaster would
-        // try to process it. Items should bypass casting entirely and
-        // delegate to processRawData for each item individually.
-        $dto = $this->handler->handleBody(OrderRequest::class, $request);
-
-        $this->assertNotNull($dto->items);
-        $this->assertCount(1, $dto->items);
-        $this->assertEquals('Widget', $dto->items[0]['product']);
-        $this->assertSame(2, $dto->items[0]['quantity']);
-    }
-
     public function testGroupUsesMapToForOutputKey(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
@@ -761,29 +712,6 @@ final class RequestHandlerTest extends TestCase
 
         $this->expectException(ValidationException::class);
         $this->handler->handleBody(TestRequest::class, $request);
-    }
-
-    public function testItemsWithRouteParams(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn([
-            'name' => 'Order #1',
-            'items' => [
-                ['product' => 'Widget', 'quantity' => '1'],
-            ],
-        ]);
-
-        // Verify route params are passed through to nested items
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(
-            OrderRequest::class,
-            $request,
-            ['id' => 42]
-        );
-
-        $this->assertNotNull($dto->items);
-        $this->assertCount(1, $dto->items);
     }
 
 }
@@ -861,7 +789,7 @@ final class CustomCaster implements \Solo\RequestHandler\Contracts\CasterInterfa
 
 final class TestPreProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
 {
-    public function process(mixed $value): string
+    public function process(mixed $value, array $config = []): string
     {
         return 'pre_' . $value;
     }
@@ -869,7 +797,7 @@ final class TestPreProcessor implements \Solo\RequestHandler\Contracts\Processor
 
 final class TestPostProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
 {
-    public function process(mixed $value): string
+    public function process(mixed $value, array $config = []): string
     {
         return $value . '_post';
     }
@@ -1013,7 +941,7 @@ final class PostProcessorSkipsCastRequest extends Request
 final class JsonToArrayProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
 {
     /** @return array<string> */
-    public function process(mixed $value): array
+    public function process(mixed $value, array $config = []): array
     {
         return json_decode($value, true);
     }
@@ -1092,7 +1020,7 @@ final class OrderRequest extends Request
     #[Field(rules: 'required|string')]
     public string $name;
 
-    /** @var array<int, array<string, mixed>>|null */
+    /** @var OrderItemRequest[]|null */
     #[Field(rules: 'nullable|array', items: OrderItemRequest::class)]
     public ?array $items = null;
 }

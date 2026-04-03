@@ -150,12 +150,12 @@ See [Field Grouping](/features/grouping) for details.
 
 ---
 
-### clearGroupCache()
+### clearCache()
 
-Clear the static group cache. Useful for long-running processes.
+Clear all static caches (reflection, excluded, group). Useful for long-running processes.
 
 ```php
-public static function clearGroupCache(?string $className = null): void
+public static function clearCache(?string $className = null): void
 ```
 
 **Parameters:**
@@ -168,10 +168,10 @@ public static function clearGroupCache(?string $className = null): void
 
 ```php
 // Clear all cache
-Request::clearGroupCache();
+Request::clearCache();
 
 // Clear specific class
-Request::clearGroupCache(SearchRequest::class);
+Request::clearCache(SearchRequest::class);
 ```
 
 ---

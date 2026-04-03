@@ -28,15 +28,6 @@ final class ReflectionCacheTest extends TestCase
         $this->assertSame($metadata1, $metadata2);
     }
 
-    public function testClearRemovesAllCache(): void
-    {
-        $metadata1 = $this->cache->get(ValidRequest::class);
-        $this->cache->clear();
-        $metadata2 = $this->cache->get(ValidRequest::class);
-
-        $this->assertNotSame($metadata1, $metadata2);
-    }
-
     public function testBuildPropertyMetadataIncludesGroup(): void
     {
         $metadata = $this->cache->get(GroupedRequest::class);

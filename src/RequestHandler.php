@@ -111,8 +111,6 @@ final class RequestHandler
     private function processRawData(string $className, array $rawData, array $routeParams = []): Request
     {
         $metadata = $this->cache->get($className);
-
-        // Create instance early
         $reflection = new ReflectionClass($className);
         $instance = $reflection->newInstanceWithoutConstructor();
 
@@ -235,7 +233,7 @@ final class RequestHandler
      * @param array<int|string, mixed> $items
      * @param string $fieldName Parent field name for error prefixing
      * @param array<string, mixed> $routeParams
-     * @return array<int, array<string, mixed>> Processed items as arrays
+     * @return array<int, Request> Processed items as Request objects
      * @throws ValidationException
      */
     private function processItems(string $itemsClass, array $items, string $fieldName, array $routeParams = []): array
@@ -251,7 +249,7 @@ final class RequestHandler
 
             try {
                 $instance = $this->processRawData($itemsClass, $itemData, $routeParams);
-                $processedItems[] = $instance->toArray();
+                $processedItems[] = $instance;
             } catch (ValidationException $e) {
                 foreach ($e->getErrors() as $field => $messages) {
                     $allErrors["{$fieldName}.{$index}.{$field}"] = $messages;
@@ -302,9 +300,7 @@ final class RequestHandler
             $processor = $this->getOrCreateProcessor($handler);
 
             if ($processor instanceof ProcessorInterface) {
-                return !empty($config)
-                    ? $processor->process($value, $config) // @phpstan-ignore arguments.count
-                    : $processor->process($value);
+                return $processor->process($value, $config);
             }
             if ($processor instanceof CasterInterface) {
                 return $processor->cast($value);
@@ -415,22 +411,17 @@ final class RequestHandler
     private function populateInstance(Request $instance, ReflectionClass $reflection, array $data): Request
     {
         foreach ($data as $name => $value) {
-            try {
-                $property = $reflection->getProperty($name);
-                if ($property->isPublic() && !$property->isStatic()) {
-                    // Runtime protection: prevent null assignment to non-nullable types
-                    if ($value === null) {
-                        $type = $property->getType();
-                        if ($type && !$type->allowsNull()) {
-                            continue;
-                        }
-                    }
+            $property = $reflection->getProperty($name);
 
-                    $property->setValue($instance, $value);
+            // Runtime protection: prevent null assignment to non-nullable types
+            if ($value === null) {
+                $type = $property->getType();
+                if ($type && !$type->allowsNull()) {
+                    continue;
                 }
-            } catch (\ReflectionException) {
-                // Property doesn't exist - ignore
             }
+
+            $property->setValue($instance, $value);
         }
 
         return $instance;

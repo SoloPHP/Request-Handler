@@ -47,7 +47,7 @@ final class ReflectionCache
 
             // #[Field] is optional - use it if present, otherwise use defaults
             $fieldAttributes = $property->getAttributes(Field::class);
-            $field = !empty($fieldAttributes) ? $fieldAttributes[0]->newInstance() : null;
+            $field = !empty($fieldAttributes) ? $fieldAttributes[0]->newInstance() : new Field();
 
             $metadata = $this->buildPropertyMetadata($property, $field);
             $properties[$metadata->name] = $metadata;
@@ -56,7 +56,7 @@ final class ReflectionCache
         return new RequestMetadata($className, $properties);
     }
 
-    private function buildPropertyMetadata(ReflectionProperty $property, ?Field $field): PropertyMetadata
+    private function buildPropertyMetadata(ReflectionProperty $property, Field $field): PropertyMetadata
     {
         $name = $property->getName();
         $className = $property->getDeclaringClass()->getName();
@@ -85,10 +85,10 @@ final class ReflectionCache
         }
 
         // === Configuration Validation ===
-        $isRequired = $this->hasRule($field?->rules, 'required');
+        $isRequired = $this->hasRule($field->rules, 'required');
 
         // Check 1: nullable in rules vs non-nullable type
-        if ($this->hasRule($field?->rules, 'nullable') && !$isNullable && $phpType !== null) {
+        if ($this->hasRule($field->rules, 'nullable') && !$isNullable && $phpType !== null) {
             throw ConfigurationException::nullableRuleWithNonNullableType($className, $name, $phpType);
         }
 
@@ -98,21 +98,21 @@ final class ReflectionCache
         }
 
         // Check 3: cast type vs property type
-        if ($field?->cast !== null && $phpType !== null && !$this->isCastCompatible($field->cast, $phpType)) {
+        if ($field->cast !== null && $phpType !== null && !$this->isCastCompatible($field->cast, $phpType)) {
             throw ConfigurationException::castTypeMismatch($className, $name, $field->cast, $phpType);
         }
 
         // Check 4: processors must be callable
-        $this->validateProcessor($field?->preProcess, $className, $name, 'preProcess');
-        $this->validateProcessor($field?->postProcess, $className, $name, 'postProcess');
+        $this->validateProcessor($field->preProcess, $className, $name, 'preProcess');
+        $this->validateProcessor($field->postProcess, $className, $name, 'postProcess');
 
         // Check 5: generator must implement GeneratorInterface
-        if ($field?->generator !== null) {
+        if ($field->generator !== null) {
             $this->validateGenerator($field->generator, $className, $name);
         }
 
         // Check 6: items must be a Request subclass
-        if ($field?->items !== null) {
+        if ($field->items !== null) {
             $this->validateItems($field->items, $className, $name);
 
             // Check 7: items requires array type
@@ -133,23 +133,18 @@ final class ReflectionCache
             isNullable: $isNullable,
             hasDefault: $hasDefault,
             defaultValue: $defaultValue,
-            validationRules: $field?->rules,
-            castType: $field?->cast,
-            preProcessor: $field?->preProcess,
-            postProcessor: $field?->postProcess,
-            postProcessConfig: $field->postProcessConfig ?? [],
-            group: $field?->group,
+            validationRules: $field->rules,
+            castType: $field->cast,
+            preProcessor: $field->preProcess,
+            postProcessor: $field->postProcess,
+            postProcessConfig: $field->postProcessConfig,
+            group: $field->group,
             isRequired: $isRequired,
-            generator: $field?->generator,
-            generatorOptions: $field->generatorOptions ?? [],
-            exclude: $field->exclude ?? false,
-            items: $field?->items,
+            generator: $field->generator,
+            generatorOptions: $field->generatorOptions,
+            exclude: $field->exclude,
+            items: $field->items,
         );
-    }
-
-    public function clear(): void
-    {
-        $this->cache = [];
     }
 
     /**
