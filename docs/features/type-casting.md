@@ -188,7 +188,7 @@ public array $tags;
 
 final class JsonDecoder implements ProcessorInterface
 {
-    public function process(mixed $value, array $config = []): array
+    public function process(mixed $value, ProcessContext $context): array
     {
         return json_decode($value, true) ?? [];
     }

@@ -10,6 +10,7 @@ use Solo\RequestHandler\Request;
 use Solo\RequestHandler\Exceptions\ValidationException;
 use Solo\RequestHandler\RequestHandler;
 use Solo\RequestHandler\Contracts\GeneratorInterface;
+use Solo\RequestHandler\ProcessContext;
 use Solo\Contracts\Validator\ValidatorInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -697,6 +698,22 @@ final class RequestHandlerTest extends TestCase
         $this->assertEquals(1, $dto->page);
     }
 
+    public function testProcessorReceivesRouteParams(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $request->method('getParsedBody')->willReturn(['slug' => 'test-slug']);
+
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(
+            RouteParamsProcessorRequest::class,
+            $request,
+            ['id' => 42]
+        );
+
+        $this->assertEquals('test-slug-42', $dto->slug);
+    }
+
     public function testExplicitNullForRequiredField(): void
     {
         $request = $this->createMock(ServerRequestInterface::class);
@@ -789,7 +806,7 @@ final class CustomCaster implements \Solo\RequestHandler\Contracts\CasterInterfa
 
 final class TestPreProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
 {
-    public function process(mixed $value, array $config = []): string
+    public function process(mixed $value, ProcessContext $context): string
     {
         return 'pre_' . $value;
     }
@@ -797,7 +814,7 @@ final class TestPreProcessor implements \Solo\RequestHandler\Contracts\Processor
 
 final class TestPostProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
 {
-    public function process(mixed $value, array $config = []): string
+    public function process(mixed $value, ProcessContext $context): string
     {
         return $value . '_post';
     }
@@ -941,7 +958,7 @@ final class PostProcessorSkipsCastRequest extends Request
 final class JsonToArrayProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
 {
     /** @return array<string> */
-    public function process(mixed $value, array $config = []): array
+    public function process(mixed $value, ProcessContext $context): array
     {
         return json_decode($value, true);
     }
@@ -970,10 +987,9 @@ final class TestGeneratorWithDependency implements GeneratorInterface
 
 final class TestConfigProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
 {
-    /** @param array<string, mixed> $config */
-    public function process(mixed $value, array $config = []): string
+    public function process(mixed $value, ProcessContext $context): string
     {
-        $prefix = $config['prefix'] ?? '';
+        $prefix = $context->config['prefix'] ?? '';
         return $prefix . $value;
     }
 }
@@ -1004,6 +1020,21 @@ final class MapToGroupedRequest extends Request
 
     #[Field(rules: 'min:1')]
     public int $page = 1;
+}
+
+final class RouteParamsProcessorRequest extends Request
+{
+    #[Field(rules: 'required|string', postProcess: RouteParamsAwareProcessor::class)]
+    public string $slug;
+}
+
+final class RouteParamsAwareProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
+{
+    public function process(mixed $value, ProcessContext $context): string
+    {
+        $id = $context->routeParams['id'] ?? '';
+        return $value . '-' . $id;
+    }
 }
 
 final class OrderItemRequest extends Request

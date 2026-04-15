@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Contracts;
 
+use Solo\RequestHandler\ProcessContext;
+
 /**
  * Interface for custom processors (preProcess and postProcess)
  *
@@ -13,7 +15,7 @@ namespace Solo\RequestHandler\Contracts;
  * ```php
  * final class SlugNormalizer implements ProcessorInterface
  * {
- *     public function process(mixed $value): string
+ *     public function process(mixed $value, ProcessContext $context): string
  *     {
  *         return strtolower(preg_replace('/[^a-z0-9]+/i', '-', (string) $value));
  *     }
@@ -22,8 +24,5 @@ namespace Solo\RequestHandler\Contracts;
  */
 interface ProcessorInterface
 {
-    /**
-     * @param array<string, mixed> $config
-     */
-    public function process(mixed $value, array $config = []): mixed;
+    public function process(mixed $value, ProcessContext $context): mixed;
 }

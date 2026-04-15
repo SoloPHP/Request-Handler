@@ -49,10 +49,11 @@ public array $data;
 
 ```php
 use Solo\RequestHandler\Contracts\ProcessorInterface;
+use Solo\RequestHandler\ProcessContext;
 
 final class SlugProcessor implements ProcessorInterface
 {
-    public function process(mixed $value, array $config = []): string
+    public function process(mixed $value, ProcessContext $context): string
     {
         $slug = strtolower(trim($value));
         $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
@@ -108,7 +109,7 @@ final class ContactRequest extends Request
 
 ## postProcessConfig
 
-Pass configuration to a post-processor via `postProcessConfig`. The config array is passed as the second argument to `process()`:
+Pass configuration to a post-processor via `postProcessConfig`. The config is available through `$context->config`:
 
 ```php
 #[Field(
@@ -122,18 +123,14 @@ public string $price;
 ```php
 final class CurrencyFormatter implements ProcessorInterface
 {
-    public function process(mixed $value, array $config = []): string
+    public function process(mixed $value, ProcessContext $context): string
     {
-        $decimals = $config['decimals'] ?? 2;
-        $currency = $config['currency'] ?? 'USD';
+        $decimals = $context->config['decimals'] ?? 2;
+        $currency = $context->config['currency'] ?? 'USD';
         return number_format((float) $value, $decimals) . ' ' . $currency;
     }
 }
 ```
-
-::: info
-`postProcessConfig` only works with `postProcess`. Pre-processors always receive just the value.
-:::
 
 ---
 
@@ -148,7 +145,7 @@ final class TransliteratorProcessor implements ProcessorInterface
         private readonly Transliterator $transliterator
     ) {}
 
-    public function process(mixed $value, array $config = []): string
+    public function process(mixed $value, ProcessContext $context): string
     {
         return $this->transliterator->transliterate($value);
     }
@@ -201,7 +198,7 @@ public string $email;
 ```php
 final class SlugProcessor implements ProcessorInterface
 {
-    public function process(mixed $value, array $config = []): string
+    public function process(mixed $value, ProcessContext $context): string
     {
         $slug = strtolower(trim($value));
         $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
@@ -220,7 +217,7 @@ public string $slug;
 ```php
 final class PhoneProcessor implements ProcessorInterface
 {
-    public function process(mixed $value, array $config = []): string
+    public function process(mixed $value, ProcessContext $context): string
     {
         $digits = preg_replace('/[^0-9]/', '', $value);
         
@@ -243,7 +240,7 @@ public string $phone;
 ```php
 final class HtmlSanitizer implements ProcessorInterface
 {
-    public function process(mixed $value, array $config = []): string
+    public function process(mixed $value, ProcessContext $context): string
     {
         return strip_tags($value, '<p><br><strong><em>');
     }
@@ -258,7 +255,7 @@ public string $content;
 ```php
 final class JsonDecoder implements ProcessorInterface
 {
-    public function process(mixed $value, array $config = []): array
+    public function process(mixed $value, ProcessContext $context): array
     {
         if (is_array($value)) {
             return $value;

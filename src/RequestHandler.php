@@ -11,6 +11,7 @@ use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Casters\BuiltInCaster;
 use Solo\RequestHandler\Contracts\CasterInterface;
 use Solo\RequestHandler\Contracts\ProcessorInterface;
+use Solo\RequestHandler\ProcessContext;
 use Solo\RequestHandler\Contracts\GeneratorInterface;
 use Solo\RequestHandler\Exceptions\ValidationException;
 use ReflectionClass;
@@ -177,7 +178,7 @@ final class RequestHandler
 
             // Pre-process
             if ($property->preProcessor !== null) {
-                $value = $this->runProcessor($property->preProcessor, $value, $className);
+                $value = $this->runProcessor($property->preProcessor, $value, $className, routeParams: $routeParams);
             }
 
             // Store for validation (only if there are rules)
@@ -210,7 +211,8 @@ final class RequestHandler
                     $property->postProcessor,
                     $value,
                     $className,
-                    $property->postProcessConfig
+                    $property->postProcessConfig,
+                    $routeParams
                 );
             }
 
@@ -287,9 +289,15 @@ final class RequestHandler
     /**
      * @param class-string $className
      * @param array<string, mixed> $config
+     * @param array<string, mixed> $routeParams
      */
-    private function runProcessor(string $handler, mixed $value, string $className, array $config = []): mixed
-    {
+    private function runProcessor(
+        string $handler,
+        mixed $value,
+        string $className,
+        array $config = [],
+        array $routeParams = []
+    ): mixed {
         // Check if it's a global function
         if (function_exists($handler)) {
             return $handler($value);
@@ -300,7 +308,7 @@ final class RequestHandler
             $processor = $this->getOrCreateProcessor($handler);
 
             if ($processor instanceof ProcessorInterface) {
-                return $processor->process($value, $config);
+                return $processor->process($value, new ProcessContext($config, $routeParams));
             }
             if ($processor instanceof CasterInterface) {
                 return $processor->cast($value);
