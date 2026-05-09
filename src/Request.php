@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler;
 
-use ReflectionClass;
 use ReflectionProperty;
 
 /**
@@ -20,51 +19,59 @@ use ReflectionProperty;
  * #[Field(rules: 'nullable|string')]
  * public ?string $description = null;
  * ```
+ *
+ * @phpstan-type PropertyEntry array{
+ *     property: ReflectionProperty,
+ *     exclude: bool,
+ *     group: ?string,
+ *     mapTo: ?string,
+ * }
  */
 abstract class Request
 {
-    /** @var array<string, ReflectionClass<object>> */
-    private static array $reflectionCache = [];
-
-    /** @var array<string, array<string, true>> */
-    private static array $excludedCache = [];
+    /**
+     * Per-class property metadata used by toArray/has/get/group.
+     *
+     * @var array<string, array<string, PropertyEntry>>
+     */
+    private static array $propertyCache = [];
 
     /**
-     * Cache for group properties (static, shared across instances)
-     * @var array<string, array<string, array<array{property: ReflectionProperty, mapTo: ?string}>>>
+     * Per-class group lookup, derived from $propertyCache.
+     *
+     * @var array<string, array<string, list<PropertyEntry>>>
      */
     private static array $groupCache = [];
 
     /**
      * @param class-string $class
-     * @return ReflectionClass<object>
+     * @return array<string, PropertyEntry>
      */
-    private static function getReflection(string $class): ReflectionClass
+    private static function getProperties(string $class): array
     {
-        return self::$reflectionCache[$class] ??= new ReflectionClass($class);
-    }
-
-    /**
-     * @param class-string $class
-     * @return array<string, true>
-     */
-    private static function getExcluded(string $class): array
-    {
-        if (!isset(self::$excludedCache[$class])) {
-            $excluded = [];
-            foreach (self::getReflection($class)->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
-                if ($property->isStatic()) {
-                    continue;
-                }
-                $attributes = $property->getAttributes(Attributes\Field::class);
-                if (!empty($attributes) && $attributes[0]->newInstance()->exclude) {
-                    $excluded[$property->getName()] = true;
-                }
-            }
-            self::$excludedCache[$class] = $excluded;
+        if (isset(self::$propertyCache[$class])) {
+            return self::$propertyCache[$class];
         }
 
-        return self::$excludedCache[$class];
+        $cache = [];
+        $reflection = new \ReflectionClass($class);
+        foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->isStatic()) {
+                continue;
+            }
+
+            $attributes = $property->getAttributes(Attributes\Field::class);
+            $field = !empty($attributes) ? $attributes[0]->newInstance() : null;
+
+            $cache[$property->getName()] = [
+                'property' => $property,
+                'exclude'  => $field !== null && $field->exclude,
+                'group'    => $field?->group,
+                'mapTo'    => $field?->mapTo,
+            ];
+        }
+
+        return self::$propertyCache[$class] = $cache;
     }
 
     /**
@@ -75,19 +82,13 @@ abstract class Request
     public function toArray(): array
     {
         $result = [];
-        $class = static::class;
-        $excluded = self::getExcluded($class);
 
-        foreach (self::getReflection($class)->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
-            if ($property->isStatic() || !$property->isInitialized($this)) {
+        foreach (self::getProperties(static::class) as $name => $meta) {
+            if ($meta['exclude'] || !$meta['property']->isInitialized($this)) {
                 continue;
             }
 
-            if (isset($excluded[$property->getName()])) {
-                continue;
-            }
-
-            $value = $property->getValue($this);
+            $value = $meta['property']->getValue($this);
 
             if ($value instanceof self) {
                 $value = $value->toArray();
@@ -98,7 +99,7 @@ abstract class Request
                 );
             }
 
-            $result[$property->getName()] = $value;
+            $result[$name] = $value;
         }
 
         return $result;
@@ -109,12 +110,8 @@ abstract class Request
      */
     public function has(string $name): bool
     {
-        try {
-            $property = self::getReflection(static::class)->getProperty($name);
-            return $property->isInitialized($this);
-        } catch (\ReflectionException) {
-            return false;
-        }
+        $properties = self::getProperties(static::class);
+        return isset($properties[$name]) && $properties[$name]['property']->isInitialized($this);
     }
 
     /**
@@ -122,15 +119,11 @@ abstract class Request
      */
     public function get(string $name, mixed $default = null): mixed
     {
-        try {
-            $property = self::getReflection(static::class)->getProperty($name);
-
-            return $property->isInitialized($this)
-                ? $property->getValue($this)
-                : $default;
-        } catch (\ReflectionException) {
+        $properties = self::getProperties(static::class);
+        if (!isset($properties[$name]) || !$properties[$name]['property']->isInitialized($this)) {
             return $default;
         }
+        return $properties[$name]['property']->getValue($this);
     }
 
     /**
@@ -148,11 +141,18 @@ abstract class Request
         $class = static::class;
 
         if (!isset(self::$groupCache[$class][$groupName])) {
-            $this->buildGroupCache($class, $groupName);
+            $members = [];
+            foreach (self::getProperties($class) as $meta) {
+                if ($meta['group'] === $groupName) {
+                    $members[] = $meta;
+                }
+            }
+            self::$groupCache[$class][$groupName] = $members;
         }
 
         $result = [];
-        foreach (self::$groupCache[$class][$groupName] as ['property' => $property, 'mapTo' => $mapTo]) {
+        foreach (self::$groupCache[$class][$groupName] as $meta) {
+            $property = $meta['property'];
             if (!$property->isInitialized($this)) {
                 continue;
             }
@@ -160,32 +160,21 @@ abstract class Request
             $value = $property->getValue($this);
 
             // Skip empty arrays — they carry no criteria info
-            // (e.g. SearchProcessor returns [] when all search values are empty)
             if ($value === []) {
                 continue;
             }
 
-            if (is_array($value) && !array_is_list($value)) {
-                // Associative array — merge key-value pairs into result
-                // (e.g. SearchProcessor returns ['name' => ['LIKE' => '%test%']])
-                foreach ($value as $key => $v) {
-                    if (array_key_exists($key, $result)) {
-                        throw new \LogicException(
-                            "Duplicate key '$key' in group '$groupName' from property '{$property->getName()}'"
-                        );
-                    }
-                    $result[$key] = $v;
-                }
-            } else {
-                // Scalar or sequential array — store under property/mapTo name
-                // (e.g. InFilterProcessor returns ['pending', 'partially_paid'] for IN criteria)
-                $key = $mapTo ?? $property->getName();
+            $entries = (is_array($value) && !array_is_list($value))
+                ? $value
+                : [($meta['mapTo'] ?? $property->getName()) => $value];
+
+            foreach ($entries as $key => $v) {
                 if (array_key_exists($key, $result)) {
                     throw new \LogicException(
                         "Duplicate key '$key' in group '$groupName' from property '{$property->getName()}'"
                     );
                 }
-                $result[$key] = $value;
+                $result[$key] = $v;
             }
         }
 
@@ -193,51 +182,18 @@ abstract class Request
     }
 
     /**
-     * @param class-string $class
-     */
-    private function buildGroupCache(string $class, string $groupName): void
-    {
-        $properties = [];
-
-        foreach (self::getReflection($class)->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
-            if ($property->isStatic()) {
-                continue;
-            }
-
-            $attributes = $property->getAttributes(\Solo\RequestHandler\Attributes\Field::class);
-            if (empty($attributes)) {
-                continue;
-            }
-
-            $field = $attributes[0]->newInstance();
-            if ($field->group === $groupName) {
-                $properties[] = ['property' => $property, 'mapTo' => $field->mapTo];
-            }
-        }
-
-        self::$groupCache[$class][$groupName] = $properties;
-    }
-
-    /**
-     * Clear all static caches (reflection, excluded, group)
-     *
-     * Useful for long-running processes (Swoole, RoadRunner, Laravel Octane)
-     * to prevent memory leaks.
+     * Clear cached metadata. Useful for long-running runtimes (Swoole, RoadRunner, Octane).
      *
      * @param string|null $className Clear cache for specific class only, or all if null
      */
     public static function clearCache(?string $className = null): void
     {
         if ($className === null) {
-            self::$reflectionCache = [];
-            self::$excludedCache = [];
+            self::$propertyCache = [];
             self::$groupCache = [];
-        } else {
-            unset(
-                self::$reflectionCache[$className],
-                self::$excludedCache[$className],
-                self::$groupCache[$className]
-            );
+            return;
         }
+
+        unset(self::$propertyCache[$className], self::$groupCache[$className]);
     }
 }

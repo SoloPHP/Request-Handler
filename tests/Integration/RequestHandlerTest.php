@@ -349,11 +349,14 @@ final class RequestHandlerTest extends TestCase
         $handlerReflection = new \ReflectionClass($this->handler);
         $method = $handlerReflection->getMethod('populateInstance');
 
-        $classReflection = new \ReflectionClass(NonNullableRequest::class);
-        $instance = $classReflection->newInstanceWithoutConstructor();
+        $cacheProperty = $handlerReflection->getProperty('cache');
+        /** @var \Solo\RequestHandler\Cache\ReflectionCache $cache */
+        $cache = $cacheProperty->getValue($this->handler);
+        $metadata = $cache->get(NonNullableRequest::class);
+        $instance = $metadata->reflection->newInstanceWithoutConstructor();
 
         // Attempt to set null to a non-nullable string property
-        $dto = $method->invoke($this->handler, $instance, $classReflection, [
+        $dto = $method->invoke($this->handler, $instance, $metadata, [
             'id' => null,  // This should be skipped (id is non-nullable int)
             'name' => 'Test',
         ]);

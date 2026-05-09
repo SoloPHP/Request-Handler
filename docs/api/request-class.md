@@ -152,7 +152,7 @@ See [Field Grouping](/features/grouping) for details.
 
 ### clearCache()
 
-Clear all static caches (reflection, excluded, group). Useful for long-running processes.
+Clear all static metadata caches. Useful for long-running processes (Swoole, RoadRunner, Octane).
 
 ```php
 public static function clearCache(?string $className = null): void

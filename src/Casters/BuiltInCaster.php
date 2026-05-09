@@ -24,7 +24,14 @@ final class BuiltInCaster
         'array' => true
     ];
 
-    public function isBuiltIn(string $type): bool
+    /**
+     * Memoised parse of `datetime[:immutable][:format]` strings.
+     *
+     * @var array<string, array{class: class-string<DateTime|DateTimeImmutable>, format: ?string}>
+     */
+    private array $datetimeSpecCache = [];
+
+    public static function isBuiltIn(string $type): bool
     {
         return isset(self::BUILT_IN_TYPES[strtolower($type)])
             || str_starts_with($type, 'datetime');
@@ -99,7 +106,6 @@ final class BuiltInCaster
             if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
                 return $decoded;
             }
-            // Comma-separated string
             if (str_contains($value, ',')) {
                 return array_map('trim', explode(',', $value));
             }
@@ -118,23 +124,15 @@ final class BuiltInCaster
             return null;
         }
 
-        // Check for immutable variant
-        $useImmutable = str_contains($type, 'immutable');
-        $class = $useImmutable ? DateTimeImmutable::class : DateTime::class;
-
-        // Extract format (everything after 'datetime:' except 'immutable')
-        $format = null;
-        if (($colonPos = strpos($type, ':')) !== false) {
-            $format = preg_replace('/\bimmutable\b:?|:?\bimmutable\b/', '', substr($type, $colonPos + 1));
-            $format = $format !== '' ? $format : null;
-        }
+        $spec = $this->datetimeSpecCache[$type] ??= $this->parseDatetimeType($type);
+        $class = $spec['class'];
 
         if (is_int($value)) {
             return (new $class())->setTimestamp($value);
         }
 
-        if ($format !== null) {
-            $parsed = $class::createFromFormat($format, $value);
+        if ($spec['format'] !== null) {
+            $parsed = $class::createFromFormat($spec['format'], $value);
             return $parsed !== false ? $parsed : null;
         }
 
@@ -143,5 +141,30 @@ final class BuiltInCaster
         } catch (\Exception) {
             return null;
         }
+    }
+
+    /**
+     * Parse a `datetime[:immutable][:format]` type string.
+     *
+     * @return array{class: class-string<DateTime|DateTimeImmutable>, format: ?string}
+     */
+    private function parseDatetimeType(string $type): array
+    {
+        $tokens = array_slice(explode(':', $type), 1);
+        $immutable = false;
+        $format = null;
+
+        foreach ($tokens as $token) {
+            if ($token === 'immutable') {
+                $immutable = true;
+            } elseif ($token !== '') {
+                $format = $token;
+            }
+        }
+
+        return [
+            'class' => $immutable ? DateTimeImmutable::class : DateTime::class,
+            'format' => $format,
+        ];
     }
 }
