@@ -1,22 +1,24 @@
 # Field Grouping
 
-Group related fields together and extract them as a single array using the `group()` method.
+Group related fields with `#[Group]` and extract them as a single array using the `group()` method.
 
 ## Basic Usage
 
 ```php
+use Solo\RequestHandler\Attributes\Group;
+
 final class SearchRequest extends Request
 {
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public ?string $search = null;
 
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public ?string $status = null;
 
-    #[Field(group: 'pagination')]
+    #[Group('pagination')]
     public int $page = 1;
 
-    #[Field(group: 'pagination')]
+    #[Group('pagination')]
     public int $perPage = 20;
 }
 
@@ -42,17 +44,17 @@ The `group()` method returns a flat array:
 ```php
 final class FilterRequest extends Request
 {
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public array $search = [];
 
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public array $filters = [];
 
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public int $limit = 10;
 
     /** @var array<string> */
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public array $statuses = [];
 }
 
@@ -75,17 +77,17 @@ $criteria = $dto->group('criteria');
 
 ---
 
-## Key Remapping with mapTo
+## Key Remapping with `mapTo`
 
-Use `mapTo` to change the output key in `group()` for scalar properties. This is useful when the PHP property name differs from the desired output key (e.g., database column names):
+Use the `mapTo:` named argument on `#[Group]` to change the output key for scalar properties. Useful when the PHP property name differs from the desired output key (e.g., database column names):
 
 ```php
 final class FilterRequest extends Request
 {
-    #[Field(mapTo: 'positions.id', group: 'criteria')]
+    #[Group('criteria', mapTo: 'positions.id')]
     public int $position_id;
 
-    #[Field(mapTo: 'departments.name', group: 'criteria')]
+    #[Group('criteria', mapTo: 'departments.name')]
     public ?string $department = null;
 }
 
@@ -94,8 +96,8 @@ $dto->department = 'Engineering';
 
 $criteria = $dto->group('criteria');
 // [
-//     'positions.id' => 5,          // mapped from $position_id
-//     'departments.name' => 'Engineering'  // mapped from $department
+//     'positions.id' => 5,
+//     'departments.name' => 'Engineering'
 // ]
 ```
 
@@ -112,12 +114,15 @@ A `LogicException` is thrown if duplicate keys are detected:
 ```php
 final class ConflictRequest extends Request
 {
-    #[Field(group: 'data')]
-    public array $first = [];   // ['name' => 'Alice']
+    #[Group('data')]
+    public array $first = [];
 
-    #[Field(group: 'data')]
-    public array $second = [];  // ['name' => 'Bob']
+    #[Group('data')]
+    public array $second = [];
 }
+
+$dto->first = ['name' => 'Alice'];
+$dto->second = ['name' => 'Bob'];
 
 $dto->group('data');
 // LogicException: Duplicate key 'name' in group 'data' from property 'second'
@@ -132,11 +137,11 @@ Only initialized properties are included in group results:
 ```php
 final class PartialRequest extends Request
 {
-    #[Field(group: 'filters')]
+    #[Group('filters')]
     public ?string $search = null;
 
-    #[Field(group: 'filters')]
-    public ?string $category; // No default, might be uninitialized
+    #[Group('filters')]
+    public ?string $category;
 }
 
 // If only 'search' was in request:
@@ -162,22 +167,16 @@ $dto->group('nonexistent');
 Group metadata is cached per class. Multiple calls to `group()` reuse cached property lists:
 
 ```php
-// First call builds cache
 $filters = $dto->group('criteria');
-
-// Subsequent calls use cache
-$filters = $dto->group('criteria');
+$filters = $dto->group('criteria'); // reuses cache
 ```
 
 ### Clearing Cache
 
-For long-running processes (Swoole, RoadRunner, Octane):
+`Request::clearCache()` is provided as a test helper for isolating cases within a single PHP process. Under PHP-FPM you don't need to call it — the cache dies with the request.
 
 ```php
-// Clear all cache
 Request::clearCache();
-
-// Clear specific class
 Request::clearCache(SearchRequest::class);
 ```
 
@@ -190,32 +189,31 @@ Request::clearCache(SearchRequest::class);
 ```php
 final class ProductSearchRequest extends Request
 {
-    #[Field(group: 'filters')]
+    #[Group('filters')]
     public ?string $query = null;
 
-    #[Field(group: 'filters')]
+    #[Group('filters')]
     public ?string $category = null;
 
-    #[Field(group: 'filters')]
+    #[Group('filters')]
     public ?float $minPrice = null;
 
-    #[Field(group: 'filters')]
+    #[Group('filters')]
     public ?float $maxPrice = null;
 
-    #[Field(group: 'sorting')]
+    #[Group('sorting')]
     public string $sortBy = 'created_at';
 
-    #[Field(group: 'sorting')]
+    #[Group('sorting')]
     public string $sortDir = 'DESC';
 
-    #[Field(group: 'pagination')]
+    #[Group('pagination')]
     public int $page = 1;
 
-    #[Field(group: 'pagination')]
+    #[Group('pagination')]
     public int $limit = 20;
 }
 
-// Usage
 $filters = $dto->group('filters');
 $sorting = $dto->group('sorting');
 $pagination = $dto->group('pagination');
@@ -228,16 +226,16 @@ $products = $repository->search($filters, $sorting, $pagination);
 ```php
 final class ApiRequest extends Request
 {
-    #[Field(rules: 'required|integer')]
+    #[Validate('required|integer')]
     public int $resourceId;
 
-    #[Field(group: 'options')]
+    #[Group('options')]
     public bool $includeRelations = false;
 
-    #[Field(group: 'options')]
+    #[Group('options')]
     public bool $includeMeta = false;
 
-    #[Field(group: 'options')]
+    #[Group('options')]
     public ?string $fields = null;
 }
 
@@ -250,20 +248,19 @@ $options = $dto->group('options');
 ```php
 final class UserListRequest extends Request
 {
-    #[Field(group: 'where')]
+    #[Group('where')]
     public array $filters = [];
 
-    #[Field(group: 'where')]
+    #[Group('where')]
     public array $search = [];
 
-    #[Field(group: 'order')]
+    #[Group('order')]
     public string $orderBy = 'id';
 
-    #[Field(group: 'order')]
+    #[Group('order')]
     public string $orderDir = 'ASC';
 }
 
-// Build query
 $query = $userRepository->query();
 
 foreach ($dto->group('where') as $column => $value) {
@@ -276,32 +273,28 @@ $query->orderBy($order['orderBy'], $order['orderDir']);
 
 ---
 
-## Combining with Other Features
+## Combining with Other Attributes
 
-Groups work with all other field features:
+Groups compose with the rest of the attribute family:
 
 ```php
+use Solo\RequestHandler\Attributes\{Validate, PreProcess, PostProcess, Generator, Group, Exclude};
+
 final class ComplexRequest extends Request
 {
-    #[Field(
-        rules: 'nullable|string',
-        preProcess: 'trim',
-        group: 'search'
-    )]
+    #[Validate('nullable|string')]
+    #[PreProcess('trim')]
+    #[Group('search')]
     public ?string $query = null;
 
-    #[Field(
-        rules: 'in:asc,desc',
-        postProcess: 'strtoupper',
-        group: 'sorting'
-    )]
+    #[Validate('in:asc,desc')]
+    #[PostProcess('strtoupper')]
+    #[Group('sorting')]
     public string $direction = 'asc';
 
-    #[Field(
-        generator: TimestampGenerator::class,
-        group: 'meta',
-        exclude: true
-    )]
+    #[Generator(TimestampGenerator::class)]
+    #[Group('meta')]
+    #[Exclude]
     public int $requestedAt;
 }
 ```

@@ -18,26 +18,29 @@ hero:
 
 features:
   - icon: 🎯
-    title: Attribute-based DTOs
-    details: Define request structures using #[Field] attributes on typed properties with full IDE autocomplete.
+    title: Explicit source binding
+    details: Default source comes from the handle method (Body / Query). #[FromRoute] and #[FromContext] override per property. No implicit merging.
+  - icon: 🧩
+    title: Composable attributes
+    details: Each concern is its own focused attribute — #[Validate], #[Cast], #[PostProcess], #[Generator], #[Items], …
   - icon: 🔄
-    title: Automatic Type Casting
-    details: Built-in support for int, float, bool, string, array, DateTime and custom casters.
+    title: Automatic type casting
+    details: Driven by declared type. Built-ins for int, float, bool, string, array, DateTime + custom casters.
   - icon: ✅
-    title: Validation Rules
-    details: Validate input with expressive rules. Support for route parameter placeholders.
+    title: Validation rules
+    details: Rules passed verbatim to your ValidatorInterface. Route and context values land in the validation payload as regular fields.
   - icon: ⚡
     title: Generators
-    details: Auto-generate field values (UUIDs, sequences) via generator parameter with custom options.
+    details: Auto-generate field values (UUIDs, sequences) via #[Generator] with custom options.
   - icon: 🔧
-    title: Pre/Post Processing
-    details: Transform data before validation or after casting with processors.
+    title: Pre/post processing
+    details: Transform values before validation or after casting via #[PreProcess] / #[PostProcess].
   - icon: 🪆
-    title: Nested Items
-    details: Validate arrays of nested objects through referenced Request classes with dot-notation errors.
-  - icon: 📦
-    title: Field Grouping
-    details: Organize fields into logical groups and extract them via group() method.
+    title: Nested items
+    details: Validate arrays of nested DTOs via #[Items] with dot-notation error paths.
+  - icon: 🛡️
+    title: Fail-fast
+    details: Every misconfiguration throws ConfigurationException at metadata-build time, not at first request.
 ---
 
 <style>
@@ -57,33 +60,40 @@ features:
 ## Quick Example
 
 ```php
-use Solo\RequestHandler\Attributes\Field;
+use Solo\RequestHandler\Attributes\{Validate, Generator};
+use Solo\RequestHandler\Attributes\Source\FromRoute;
 use Solo\RequestHandler\Request;
 
-final class CreateProductRequest extends Request
+final class UpdateProductRequest extends Request
 {
-    #[Field(rules: 'required|string|max:255')]
+    // PUT /products/{id}
+    #[FromRoute]
+    #[Validate('required|integer|exists:products,id')]
+    public int $id;
+
+    #[Validate('required|string|max:255')]
     public string $name;
 
-    #[Field(rules: 'required|numeric|min:0')]
+    #[Validate('required|numeric|min:0')]
     public float $price;
 
-    #[Field(rules: 'nullable|integer|min:0')]
+    #[Validate('nullable|integer|min:0')]
     public int $stock = 0;
 
-    #[Field(generator: UuidGenerator::class)]
-    public string $id;
+    #[Generator(UuidGenerator::class)]
+    public string $sku;
 }
 
-// POST/PUT/PATCH — from request body
-$dto = $requestHandler->handleBody(CreateProductRequest::class, $request);
+$dto = $requestHandler->handleBody(
+    UpdateProductRequest::class,
+    $request,
+    route: ['id' => $productId],
+);
 
-// GET — from query parameters
-// $dto = $requestHandler->handleQuery(SearchRequest::class, $request);
-
-echo $dto->name;   // string - full IDE support
-echo $dto->price;  // float - auto-casted
-echo $dto->id;     // string - auto-generated UUID
+echo $dto->id;     // int — from URL path
+echo $dto->name;   // string — from body
+echo $dto->price;  // float — auto-casted
+echo $dto->sku;    // string — auto-generated UUID
 ```
 
 ## Installation

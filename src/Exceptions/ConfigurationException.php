@@ -17,7 +17,7 @@ final class ConfigurationException extends Exception
     /**
      * Nullable rule used with non-nullable property type
      *
-     * Example: #[Field(rules: 'nullable')] public string $name;
+     * Example: #[Validate('nullable')] public string $name;
      */
     public static function nullableRuleWithNonNullableType(
         string $className,
@@ -37,7 +37,7 @@ final class ConfigurationException extends Exception
     /**
      * Cast type incompatible with property type
      *
-     * Example: #[Field(cast: 'string')] public int $id;
+     * Example: #[Cast('string')] public int $id;
      */
     public static function castTypeMismatch(
         string $className,
@@ -58,7 +58,7 @@ final class ConfigurationException extends Exception
     /**
      * Required field with default value
      *
-     * Example: #[Field(rules: 'required')] public string $name = 'default';
+     * Example: #[Validate('required')] public string $name = 'default';
      */
     public static function requiredWithDefault(
         string $className,
@@ -75,7 +75,7 @@ final class ConfigurationException extends Exception
     /**
      * Invalid processor (preProcess or postProcess)
      *
-     * Example: #[Field(preProcess: 'nonExistentFunction')] public string $name;
+     * Example: #[PreProcess('nonExistentFunction')] public string $name;
      */
     public static function invalidProcessor(
         string $className,
@@ -97,7 +97,7 @@ final class ConfigurationException extends Exception
     /**
      * Invalid items class
      *
-     * Example: #[Field(items: 'NonExistentClass')] public ?array $items = null;
+     * Example: #[Items('NonExistentClass')] public ?array $items = null;
      */
     public static function invalidItems(
         string $className,
@@ -117,7 +117,7 @@ final class ConfigurationException extends Exception
     /**
      * Items used on non-array property type
      *
-     * Example: #[Field(items: OrderItemRequest::class)] public string $items;
+     * Example: #[Items(OrderItemRequest::class)] public string $items;
      */
     public static function itemsRequiresArrayType(
         string $className,
@@ -134,26 +134,9 @@ final class ConfigurationException extends Exception
     }
 
     /**
-     * Items combined with generator
-     *
-     * Example: #[Field(generator: IdGenerator::class, items: OrderItemRequest::class)]
-     */
-    public static function itemsWithGenerator(
-        string $className,
-        string $propertyName
-    ): self {
-        return new self(sprintf(
-            "Property %s::\$%s has both 'items' and 'generator'. " .
-            "These options are mutually exclusive.",
-            $className,
-            $propertyName
-        ));
-    }
-
-    /**
      * Invalid generator class
      *
-     * Example: #[Field(generator: 'NonExistentClass')] public string $id;
+     * Example: #[Generator('NonExistentClass')] public string $id;
      */
     public static function invalidGenerator(
         string $className,
@@ -167,6 +150,212 @@ final class ConfigurationException extends Exception
             $propertyName,
             $generatorClass,
             $reason
+        ));
+    }
+
+    /**
+     * Both #[Cast] and #[Caster] declared on the same property.
+     */
+    public static function castAndCasterConflict(
+        string $className,
+        string $propertyName
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has both #[Cast] and #[Caster]. " .
+            "Use one or the other — they are mutually exclusive.",
+            $className,
+            $propertyName
+        ));
+    }
+
+    /**
+     * Custom caster class is missing or does not implement CasterInterface.
+     */
+    public static function invalidCaster(
+        string $className,
+        string $propertyName,
+        string $casterClass
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has invalid #[Caster(%s)]: " .
+            "class does not exist or does not implement CasterInterface.",
+            $className,
+            $propertyName,
+            $casterClass
+        ));
+    }
+
+    /**
+     * #[Cast] received a string that is neither a recognised built-in type nor a class.
+     */
+    public static function unknownCastType(
+        string $className,
+        string $propertyName,
+        string $castType
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has #[Cast('%s')] which is neither a built-in type " .
+            "(int, float, bool, string, array, datetime[:immutable][:format]) nor a known class.",
+            $className,
+            $propertyName,
+            $castType
+        ));
+    }
+
+    /**
+     * #[Cast] received a class name. Built-in casts only — for custom logic use #[Caster].
+     */
+    public static function castExpectsBuiltInType(
+        string $className,
+        string $propertyName,
+        string $castType
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has #[Cast('%s')] but that is a class name. " .
+            "#[Cast] accepts built-in types only (int, float, bool, string, array, datetime[:immutable][:format]). " .
+            "For custom caster classes use #[Caster(%s::class)].",
+            $className,
+            $propertyName,
+            $castType,
+            $castType
+        ));
+    }
+
+    /**
+     * More than one source attribute (#[FromRoute], #[FromContext], #[FromBody])
+     * on the same property.
+     *
+     * @param list<string> $attributeNames All declared source-attribute names, in declaration order.
+     */
+    public static function multipleSources(
+        string $className,
+        string $propertyName,
+        array $attributeNames
+    ): self {
+        $formatted = implode(', ', array_map(static fn(string $n) => "#[{$n}]", $attributeNames));
+        return new self(sprintf(
+            "Property %s::\$%s has multiple source attributes (%s). " .
+            "A property has exactly one source.",
+            $className,
+            $propertyName,
+            $formatted
+        ));
+    }
+
+    /**
+     * Processor name resolves both as a global function and as a static method
+     * on the Request class — ambiguous dispatch.
+     */
+    public static function ambiguousProcessor(
+        string $className,
+        string $propertyName,
+        string $processorType,
+        string $processorName
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has %s '%s' that is BOTH a global function and a static method on %s. " .
+            "This is ambiguous — rename the method, or pass an explicit class-string " .
+            "(e.g. MyProcessor::class) to disambiguate.",
+            $className,
+            $propertyName,
+            $processorType,
+            $processorName,
+            $className
+        ));
+    }
+
+    /**
+     * #[Items] / #[Generator] class is abstract and cannot be instantiated.
+     */
+    public static function abstractClass(
+        string $className,
+        string $propertyName,
+        string $attributeName,
+        string $targetClass
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s uses #[%s(%s)] but the class is abstract and cannot be instantiated. " .
+            "Pass a concrete subclass instead.",
+            $className,
+            $propertyName,
+            $attributeName,
+            $targetClass
+        ));
+    }
+
+    /**
+     * #[Generator] used together with another attribute that has no effect for generated values.
+     */
+    public static function generatorConflict(
+        string $className,
+        string $propertyName,
+        string $conflictingAttribute
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has both #[Generator] and #[%s]. " .
+            "Generated values bypass the input-read and validation pipeline, so #[%s] would never run.",
+            $className,
+            $propertyName,
+            $conflictingAttribute,
+            $conflictingAttribute
+        ));
+    }
+
+    /**
+     * #[Items] used together with #[Cast] or #[Caster] (casting is skipped for items properties).
+     */
+    public static function itemsCastConflict(
+        string $className,
+        string $propertyName,
+        string $conflictingAttribute
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has both #[Items] and #[%s]. " .
+            "Items properties bypass automatic casting — each element is processed through its own DTO instead.",
+            $className,
+            $propertyName,
+            $conflictingAttribute
+        ));
+    }
+
+    /**
+     * #[Ignore] used together with another RequestHandler attribute.
+     *
+     * Ignored properties skip the input pipeline entirely, so any companion
+     * attribute (validation, casting, source, etc.) would never run.
+     */
+    public static function ignoreConflict(
+        string $className,
+        string $propertyName,
+        string $conflictingAttribute
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has both #[Ignore] and #[%s]. " .
+            "Ignored properties are excluded from the input pipeline, so #[%s] would never run. " .
+            "Remove #[Ignore] or remove the other attribute.",
+            $className,
+            $propertyName,
+            $conflictingAttribute,
+            $conflictingAttribute
+        ));
+    }
+
+    /**
+     * Processor handler refers to a non-static method on the Request class — cannot be called statically.
+     */
+    public static function processorMethodNotStatic(
+        string $className,
+        string $propertyName,
+        string $processorType,
+        string $methodName
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has %s '%s' that exists on the Request class as a NON-static method. " .
+            "Mark it static, or use a class implementing ProcessorInterface/CasterInterface.",
+            $className,
+            $propertyName,
+            $processorType,
+            $methodName
         ));
     }
 }

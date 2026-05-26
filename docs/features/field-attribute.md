@@ -1,263 +1,306 @@
-# Field Attribute
+# Attributes
 
-The `#[Field]` attribute configures how each property is processed from HTTP requests.
+The package uses a family of small, focused attributes. Each one carries a single concern; combine as many as you need on one property.
 
-## Parameters
+There are three groups:
 
-```php
-#[Field(
-    rules: ?string = null,
-    cast: ?string = null,
-    mapFrom: ?string = null,
-    mapTo: ?string = null,
-    preProcess: ?string = null,
-    postProcess: ?string = null,
-    postProcessConfig: array = [],
-    group: ?string = null,
-    generator: ?string = null,
-    generatorOptions: array = [],
-    exclude: bool = false,
-    items: ?string = null,
-)]
-```
+1. **Source attributes** (under `Solo\RequestHandler\Attributes\Source\*`) — declare WHERE the value comes from. Optional; without one the property reads from the default-source bag.
+2. **Pipeline attributes** (under `Solo\RequestHandler\Attributes\*`) — describe what to do with the value (validate, cast, transform, generate, group, exclude).
+3. **No marker required** — every public non-static property is managed; protected/private properties are ignored.
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `rules` | `?string` | Validation rules string |
-| `cast` | `?string` | Explicit type casting |
-| `mapFrom` | `?string` | Dot-notation path to source data |
-| `mapTo` | `?string` | Output key name in `group()` |
-| `preProcess` | `?string` | Function/class to run before validation |
-| `postProcess` | `?string` | Function/class to run after validation |
-| `postProcessConfig` | `array` | Options passed to post-processor |
-| `group` | `?string` | Group name for bulk extraction |
-| `generator` | `?string` | Class to generate field value |
-| `generatorOptions` | `array` | Options passed to generator |
-| `exclude` | `bool` | Exclude from `toArray()` output |
-| `items` | `?string` | Request class for nested array items |
+## Overview
+
+### Source
+
+| Attribute | Source bag | Key default | Notes |
+|---|---|---|---|
+| `#[FromRoute(?string $key = null)]` | `$route` argument | property name | flat key |
+| `#[FromContext(string $key)]` | `$context` argument | required | flat key |
+| `#[FromBody(string $path)]` | body bag | required | dot-path; single-segment values act as a flat key remap |
+
+Without any source attribute, the property uses the default source dictated by the `handle*` method invoked (`handleBody` / `handleArray` → Body, `handleQuery` → Query). Declaring more than one source attribute on the same property throws `ConfigurationException::multipleSources` at metadata build time.
+
+For values that don't fit the four bags (Body, Query, Route, Context) — request headers, cookies, file uploads — extract them in your controller and pass them via `route: [...]` or `context: [...]`.
+
+### Pipeline
+
+| Attribute | Purpose |
+|---|---|
+| `#[Validate('rules')]` | Validation rules passed to your `ValidatorInterface` |
+| `#[Cast('int'\|'datetime:Y-m-d'\|...)]` | Explicit built-in cast (overrides type-driven default) |
+| `#[Caster(MoneyCaster::class)]` | Custom `CasterInterface` implementation |
+| `#[PreProcess(handler)]` | Run handler BEFORE validation |
+| `#[PostProcess(handler, config: [...])]` | Run handler AFTER validation, with optional config |
+| `#[Generator(GenClass::class, options: [...])]` | Value is generated, not read from any source |
+| `#[Items(NestedRequest::class)]` | Property is an array of nested DTOs |
+| `#[Group('name', mapTo: '...')]` | Group membership + remap for `Request::group()` |
+| `#[Exclude]` | `Request::toArray()` skips this property |
+
+A bare `public string $name;` (no attributes) is read from the default-source bag by name and assigned with type-driven cast — no validation, no processors.
 
 ---
 
-## rules
+## Source attributes
 
-Validation rules as a pipe-separated string:
+### `#[FromRoute(?string $key = null)]`
+
+Read from the `$route` argument passed to `handle*()` — typically URL path parameters:
 
 ```php
-#[Field(rules: 'required|string|max:255')]
+// PUT /products/{id}
+#[FromRoute]                                            // key = 'id'
+#[Validate('required|integer|exists:products,id')]
+public int $id;
+
+#[FromRoute('product_id')]                              // explicit key
+public int $productId;
+```
+
+### `#[FromContext(string $key)]`
+
+Read from the `$context` argument — for application-supplied values that aren't part of the HTTP request itself (auth user, tenant, feature flags):
+
+```php
+#[FromContext('authUserId')]
+#[Validate('required|integer')]
+public int $createdBy;
+```
+
+### `#[FromBody(string $path)]`
+
+Read from a nested key inside the body via a dot-path:
+
+```php
+// Body: {"customer": {"id": 42, "name": "Alice"}}
+#[FromBody('customer.id')]
+#[Validate('required|integer')]
+public int $customerId;
+```
+
+A single-segment path acts as a flat key remap:
+
+```php
+// Body: {"display_name": "Alice"}
+#[FromBody('display_name')]
+public string $name;
+```
+
+Malformed paths (leading/trailing dot, empty segment) throw `InvalidArgumentException` at construction. If the path resolves to an array but the property is a scalar, a structured `ValidationException` is raised (`['field' => [['rule' => 'scalar']]]`).
+
+---
+
+## Pipeline attributes
+
+### `#[Validate('rules')]`
+
+Rules are passed verbatim to your `ValidatorInterface::validate()`. The handler does not transform rule strings — cross-field references (e.g. `unique:users,email,{id}`) are the validator's concern, and a typical implementation resolves `{id}` against the validation payload, which contains every DTO field (including those marked `#[FromRoute]` / `#[FromContext]`).
+
+```php
+#[Validate('required|string|max:255')]
 public string $name;
 
-#[Field(rules: 'required|email|unique:users,email')]
-public string $email;
+#[FromRoute]
+#[Validate('required|integer|exists:users,id')]
+public int $id;
 
-#[Field(rules: 'nullable|integer|min:0|max:100')]
-public ?int $quantity = null;
+#[Validate('required|email|unique:users,email,{id}')]
+public string $email;
 ```
 
-See [Validation](/features/validation) for available rules.
+See [Validation](/features/validation).
 
----
+### `#[Cast('type')]` and `#[Caster(class)]`
 
-## cast
+Without either attribute, casting is driven by the property's declared type (`int`, `float`, `bool`, `string`, `array`).
 
-Explicitly cast the value to a type:
+`#[Cast]` is for built-in types only — it accepts `int`, `float`, `bool`, `string`, `array`, or a datetime spec like `datetime`, `datetime:immutable`, `datetime:Y-m-d`, `datetime:immutable:Y-m-d H:i:s`. Passing a class name throws `ConfigurationException::castExpectsBuiltInType` — use `#[Caster]` for custom logic.
 
 ```php
-#[Field(cast: 'int')]
+#[Cast('int')]
 public int $count;
 
-#[Field(cast: 'datetime:Y-m-d')]
-public DateTime $birthDate;
+#[Cast('datetime:immutable:Y-m-d')]
+public DateTimeImmutable $birthday;
 
-#[Field(cast: CustomMoneyCaster::class)]
+#[Caster(MoneyCaster::class)]
 public Money $price;
 ```
 
-See [Type Casting](/features/type-casting) for details.
+`#[Cast]` and `#[Caster]` are mutually exclusive — both on the same property throws `ConfigurationException::castAndCasterConflict`.
 
----
+See [Type Casting](/features/type-casting).
 
-## mapFrom
+### `#[PreProcess(handler)]` and `#[PostProcess(handler, config: [...])]`
 
-Map from nested input data using dot notation:
+Transform values before or after validation. Handler can be:
 
-```php
-// Request: {"user": {"profile": {"age": 30}}}
-
-#[Field(mapFrom: 'user.profile.age')]
-public int $userAge; // 30
-```
-
----
-
-## mapTo
-
-Remap the output key in `group()`:
+- a global function name (`'trim'`, `'strtolower'`)
+- a class implementing `ProcessorInterface` or `CasterInterface`
+- a `public static` method on the Request class (non-static methods throw `ConfigurationException::processorMethodNotStatic` at build time)
 
 ```php
-#[Field(mapTo: 'positions.id', group: 'criteria')]
-public int $position_id;
-
-$dto->group('criteria');
-// ['positions.id' => 5]  — key is 'positions.id', not 'position_id'
-```
-
-Only affects `group()` output. `toArray()` always uses the property name.
-
-See [Field Grouping](/features/grouping) for details.
-
----
-
-## preProcess / postProcess
-
-Transform data before or after validation:
-
-```php
-// Global function
-#[Field(preProcess: 'trim')]
+#[PreProcess('trim')]
 public string $name;
 
-// Processor class
-#[Field(postProcess: SlugProcessor::class)]
+#[PostProcess(SlugProcessor::class)]
 public string $slug;
 
-// Static method on Request class
-#[Field(postProcess: 'normalizePhone')]
-public string $phone;
-
-public static function normalizePhone(string $value): string
-{
-    return preg_replace('/[^0-9+]/', '', $value);
-}
+#[PostProcess(SlugProcessor::class, config: ['separator' => '-'])]
+public string $slug2;
 ```
 
-See [Processors](/features/processors) for details.
+Inside a `ProcessorInterface`, the `config` array arrives via `ProcessContext::$config`. `$route` and `$context` are also exposed there.
 
----
+See [Processors](/features/processors).
 
-## group
+### `#[Generator(class, options: [...])]`
 
-Assign fields to a named group for bulk extraction:
-
-```php
-#[Field(group: 'filters')]
-public ?string $search = null;
-
-#[Field(group: 'filters')]
-public ?string $status = null;
-
-#[Field(group: 'pagination')]
-public int $page = 1;
-
-// Extract all filter fields
-$filters = $dto->group('filters');
-// ['search' => '...', 'status' => '...']
-```
-
-See [Field Grouping](/features/grouping) for details.
-
----
-
-## generator
-
-Auto-generate field values:
+Generate the value instead of reading it from any source:
 
 ```php
-#[Field(generator: UuidGenerator::class)]
+#[Generator(UuidGenerator::class)]
 public string $id;
 
-#[Field(
-    generator: SequenceGenerator::class,
-    generatorOptions: ['table' => 'orders']
-)]
+#[Generator(SequenceGenerator::class, options: ['table' => 'orders'])]
 public int $orderNumber;
 ```
 
-See [Generators](/features/generators) for details.
+`#[Generator]` is exclusive with `#[Validate]`, `#[PreProcess]`, `#[PostProcess]`, `#[Cast]`, `#[Caster]`, `#[Items]`, and any source attribute — they would have nothing to act on and trigger `ConfigurationException::generatorConflict` at build time.
 
----
+See [Generators](/features/generators).
 
-## exclude
+### `#[Items(NestedRequest::class)]`
 
-Exclude field from `toArray()` output:
-
-```php
-#[Field(rules: 'in:pending,processing', exclude: true)]
-public string $internalStatus = 'pending';
-
-// $dto->toArray() will NOT include 'internalStatus'
-// But $dto->internalStatus is still accessible
-```
-
----
-
-## items
-
-Validate and process arrays of nested objects through a referenced Request class:
+Property is an array of nested Request DTOs. Each element is processed through the items class:
 
 ```php
-final class OrderItemRequest extends Request
-{
-    #[Field(rules: 'required|string')]
-    public string $product;
-
-    #[Field(rules: 'required|integer|min:1')]
-    public int $quantity;
-}
-
-final class CreateOrderRequest extends Request
-{
-    #[Field(rules: 'required|array|min:1', items: OrderItemRequest::class)]
-    public ?array $items = null;
-}
+#[Validate('required|array|min:1')]
+#[Items(OrderItemRequest::class)]
+public ?array $items = null;
 ```
 
-Each element is validated and cast individually. Errors use dot-notation: `items.0.product`.
+`#[Items]` is exclusive with `#[Cast]` and `#[Caster]` (item processing replaces casting). A non-array value on an items property produces a structured `ValidationException` (`['field' => [['rule' => 'array']]]`), not a TypeError.
 
-See [Nested Items](/features/nested-items) for details.
+`$route` is **not** propagated into nested items; `$context` IS.
+
+See [Nested Items](/features/nested-items).
+
+### `#[Group('name', mapTo: '...')]`
+
+Assign the property to a named group for `Request::group()` extraction:
+
+```php
+#[Group('filters')]
+public ?string $search = null;
+
+#[Group('criteria', mapTo: 'positions.id')]
+public int $position_id;
+```
+
+Null-valued group members are skipped from the output.
+
+See [Field Grouping](/features/grouping).
+
+### `#[Exclude]`
+
+The property goes through the input pipeline normally (validated, cast, processed) but is **omitted from `Request::toArray()`**. Useful for sensitive fields:
+
+```php
+#[Validate('required|string|min:8')]
+#[Exclude]
+public string $password;
+
+// $dto->password               // "secret123" — accessible in code
+// $dto->toArray()              // ['name' => 'X']  — no password leaks
+```
+
+### `#[Ignore]`
+
+Opposite of `#[Exclude]` — `#[Ignore]` removes the property from the pipeline **entirely**. The handler does NOT read it from any source, NOT validate it, NOT cast it; `toArray()`/`has()`/`get()`/`group()` also skip it. Use for public properties that the controller assigns directly (injected services, computed values that should stay outside the DTO surface).
+
+```php
+#[Ignore]
+public ?User $currentUser = null;  // controller sets this; handler ignores
+
+#[Validate('required|string')]
+public string $action;
+```
+
+Equivalent to changing the visibility to `protected`/`private`. Use `#[Ignore]` when the property needs to stay `public` (e.g. for framework introspection or serialisers that target only public properties). Cannot coexist with any other RequestHandler attribute — combining it throws `ConfigurationException::ignoreConflict`.
 
 ---
 
-## Optional Attribute
+## Properties without any attribute
 
-The `#[Field]` attribute is optional. Properties without it are still processed but with defaults:
+Every public non-static property is managed. Without attributes the property is read from the default-source bag (Body for `handleBody`/`handleArray`, Query for `handleQuery`) by name, with type-driven cast.
 
 ```php
 final class UserRequest extends Request
 {
-    #[Field(rules: 'required|string')]
-    public string $name;           // With validation
+    #[Validate('required|string')]
+    public string $name;           // validated
 
-    public ?string $email = null;  // No validation, just populated
-    public int $age = 18;          // No validation, has default
+    public ?string $email = null;  // read by name, no validation
+    public int $age = 18;          // read by name + type-driven int cast
+}
+```
+
+If you don't want a public property to be touched by the handler, change visibility to `protected`/`private` — the handler only looks at public properties:
+
+```php
+final class AuthenticatedRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $action;
+
+    protected ?User $currentUser = null;  // controller sets this; handler ignores it
 }
 ```
 
 ---
 
-## Complete Example
+## Complete example
 
 ```php
-final class CreateOrderRequest extends Request
-{
-    #[Field(generator: UuidGenerator::class)]
-    public string $id;
+use Solo\RequestHandler\Attributes\{Validate, Cast, PreProcess, PostProcess, Generator, Items, Group, Exclude};
+use Solo\RequestHandler\Attributes\Source\{FromRoute, FromContext};
 
-    #[Field(rules: 'required|integer|exists:users,id', mapFrom: 'customer.id')]
+final class UpdateOrderRequest extends Request
+{
+    #[FromRoute]
+    #[Validate('required|integer|exists:orders,id')]
+    public int $id;
+
+    #[Generator(UuidGenerator::class)]
+    public string $revisionId;
+
+    #[Validate('required|integer|exists:users,id')]
     public int $customerId;
 
-    #[Field(rules: 'required|array|min:1', items: OrderItemRequest::class)]
+    #[Validate('required|array|min:1')]
+    #[Items(OrderItemRequest::class)]
     public ?array $items = null;
 
-    #[Field(rules: 'nullable|string|max:500', preProcess: 'trim')]
+    #[Validate('nullable|string|max:500')]
+    #[PreProcess('trim')]
     public ?string $notes = null;
 
-    #[Field(rules: 'in:pending,confirmed', exclude: true)]
+    #[Validate('in:pending,confirmed')]
+    #[Exclude]
     public string $status = 'pending';
 
-    #[Field(cast: 'datetime:Y-m-d', group: 'meta')]
+    #[Cast('datetime:Y-m-d')]
+    #[Group('meta')]
     public ?DateTime $deliveryDate = null;
 
-    #[Field(group: 'meta')]
-    public ?string $couponCode = null;
+    #[FromContext('tenantId')]
+    #[Validate('required|integer')]
+    public int $tenantId;
+
+    #[FromContext('authUserId')]
+    #[Validate('required|integer')]
+    public int $updatedBy;
+
+    protected ?Connection $db = null; // set by controller; handler ignores
 }
 ```

@@ -84,14 +84,15 @@ final class ExceptionsTest extends TestCase
         $this->assertStringContainsString('App\\OrderRequest::$items', $exception->getMessage());
     }
 
-    public function testConfigurationExceptionItemsWithGenerator(): void
+    public function testConfigurationExceptionGeneratorConflict(): void
     {
-        $exception = ConfigurationException::itemsWithGenerator(
+        $exception = ConfigurationException::generatorConflict(
             'App\\OrderRequest',
-            'items'
+            'items',
+            'Items'
         );
 
-        $this->assertStringContainsString("has both 'items' and 'generator'", $exception->getMessage());
+        $this->assertStringContainsString('has both #[Generator] and #[Items]', $exception->getMessage());
         $this->assertStringContainsString('App\\OrderRequest::$items', $exception->getMessage());
     }
 }

@@ -1,10 +1,10 @@
 # Type Casting
 
-The library automatically casts input values based on property types or explicit `cast` parameter.
+The library automatically casts input values based on property types, with optional `#[Cast]` and `#[Caster]` attributes for explicit control.
 
-## Automatic Casting
+## Automatic Casting (driven by declared type)
 
-When no explicit `cast` is specified, values are cast based on property type:
+When no `#[Cast]` or `#[Caster]` is specified, values are cast based on the property type:
 
 ```php
 public int $count;      // Cast to int
@@ -14,21 +14,23 @@ public string $name;    // Cast to string
 public array $tags;     // Cast to array
 ```
 
-## Explicit Casting
+## Explicit Casting (`#[Cast]`)
 
-Use the `cast` parameter for explicit control:
+Use `#[Cast]` for built-in casts when the property type alone isn't enough (e.g. `DateTime` with a format):
 
 ```php
-#[Field(cast: 'int')]
+use Solo\RequestHandler\Attributes\Cast;
+
+#[Cast('int')]
 public int $quantity;
 
-#[Field(cast: 'float')]
+#[Cast('float')]
 public float $amount;
 
-#[Field(cast: 'bool')]
+#[Cast('bool')]
 public bool $enabled;
 
-#[Field(cast: 'array')]
+#[Cast('array')]
 public array $items;
 ```
 
@@ -39,18 +41,18 @@ public array $items;
 ### Integer
 
 ```php
-$this->caster->cast('int', '123');    // 123
-$this->caster->cast('int', true);     // 1
-$this->caster->cast('int', false);    // 0
-$this->caster->cast('int', 'abc');    // 0
+$caster->cast('int', '123');    // 123
+$caster->cast('int', true);     // 1
+$caster->cast('int', false);    // 0
+$caster->cast('int', 'abc');    // 0
 ```
 
 ### Float
 
 ```php
-$this->caster->cast('float', '12.34'); // 12.34
-$this->caster->cast('float', '100');   // 100.0
-$this->caster->cast('float', true);    // 1.0
+$caster->cast('float', '12.34'); // 12.34
+$caster->cast('float', '100');   // 100.0
+$caster->cast('float', true);    // 1.0
 ```
 
 ### Boolean
@@ -62,17 +64,17 @@ $this->caster->cast('float', true);    // 1.0
 | Any other non-empty string | `true` |
 
 ```php
-$this->caster->cast('bool', 'yes');   // true
-$this->caster->cast('bool', 'no');    // false
-$this->caster->cast('bool', '1');     // true
-$this->caster->cast('bool', '');      // false
+$caster->cast('bool', 'yes');   // true
+$caster->cast('bool', 'no');    // false
+$caster->cast('bool', '1');     // true
+$caster->cast('bool', '');      // false
 ```
 
 ### String
 
 ```php
-$this->caster->cast('string', 123);           // "123"
-$this->caster->cast('string', ['a' => 1]);    // '{"a":1}'
+$caster->cast('string', 123);           // "123"
+$caster->cast('string', ['a' => 1]);    // '{"a":1}'
 ```
 
 ### Array
@@ -85,10 +87,10 @@ Smart conversion logic:
 4. **Empty**: Empty string becomes `[]`
 
 ```php
-$this->caster->cast('array', '["a","b"]');    // ["a", "b"]
-$this->caster->cast('array', 'a, b, c');      // ["a", "b", "c"]
-$this->caster->cast('array', 'single');       // ["single"]
-$this->caster->cast('array', '');             // []
+$caster->cast('array', '["a","b"]');    // ["a", "b"]
+$caster->cast('array', 'a, b, c');      // ["a", "b", "c"]
+$caster->cast('array', 'single');       // ["single"]
+$caster->cast('array', '');             // []
 ```
 
 ---
@@ -98,7 +100,7 @@ $this->caster->cast('array', '');             // []
 ### Basic DateTime
 
 ```php
-#[Field(cast: 'datetime')]
+#[Cast('datetime')]
 public DateTime $createdAt;
 
 // Accepts: ISO strings, timestamps, DateTime objects
@@ -109,37 +111,37 @@ public DateTime $createdAt;
 ### DateTime with Format
 
 ```php
-#[Field(cast: 'datetime:Y-m-d')]
+#[Cast('datetime:Y-m-d')]
 public DateTime $birthDate;
 
-#[Field(cast: 'datetime:Y-m-d H:i:s')]
+#[Cast('datetime:Y-m-d H:i:s')]
 public DateTime $eventTime;
 ```
 
 ### DateTimeImmutable
 
 ```php
-#[Field(cast: 'datetime:immutable')]
+#[Cast('datetime:immutable')]
 public DateTimeImmutable $timestamp;
 
-#[Field(cast: 'datetime:immutable:Y-m-d')]
+#[Cast('datetime:immutable:Y-m-d')]
 public DateTimeImmutable $date;
 ```
 
 ---
 
-## Custom Casters
+## Custom Casters (`#[Caster]`)
 
-Implement `CasterInterface` for complex types:
+Implement `CasterInterface` for complex types and plug them in via `#[Caster]`:
 
 ```php
+use Solo\RequestHandler\Attributes\Caster;
 use Solo\RequestHandler\Contracts\CasterInterface;
 
 final class MoneyCaster implements CasterInterface
 {
     public function cast(mixed $value): Money
     {
-        // Convert cents to Money object
         return new Money((int) round((float) $value * 100));
     }
 }
@@ -148,9 +150,11 @@ final class MoneyCaster implements CasterInterface
 Usage:
 
 ```php
-#[Field(cast: MoneyCaster::class)]
+#[Caster(MoneyCaster::class)]
 public Money $price;
 ```
+
+`#[Cast]` and `#[Caster]` are mutually exclusive — declaring both on the same property throws `ConfigurationException`.
 
 ### Caster with Dependencies
 
@@ -177,13 +181,10 @@ $handler->register(CurrencyCaster::class, new CurrencyCaster($converter));
 
 ## PostProcessor Skips Auto-Cast
 
-When `postProcess` is defined, automatic casting is skipped:
+When `#[PostProcess]` is defined, automatic casting is skipped (the processor is responsible for the final value):
 
 ```php
-// Without postProcess: auto-cast converts JSON to ['["a","b"]']
-// With postProcess: you handle the conversion
-
-#[Field(postProcess: JsonDecoder::class)]
+#[PostProcess(JsonDecoder::class)]
 public array $tags;
 
 final class JsonDecoder implements ProcessorInterface
@@ -202,9 +203,9 @@ final class JsonDecoder implements ProcessorInterface
 `null` returns `null` for all built-in casters:
 
 ```php
-$this->caster->cast('int', null);     // null
-$this->caster->cast('string', null);  // null
-$this->caster->cast('array', null);   // null
+$caster->cast('int', null);     // null
+$caster->cast('string', null);  // null
+$caster->cast('array', null);   // null
 ```
 
 Empty string `""` is handled per type:
@@ -218,10 +219,10 @@ Empty string `""` is handled per type:
 | `array` | `[]` | Empty collection |
 
 ```php
-$this->caster->cast('int', '');       // null
-$this->caster->cast('string', '');    // ""
-$this->caster->cast('bool', '');      // false
-$this->caster->cast('array', '');     // []
+$caster->cast('int', '');       // null
+$caster->cast('string', '');    // ""
+$caster->cast('bool', '');      // false
+$caster->cast('array', '');     // []
 ```
 
 ---
@@ -232,14 +233,14 @@ Configuration is validated at build time:
 
 ```php
 // ❌ Error: cast type incompatible with property type
-#[Field(cast: 'string')]
+#[Cast('string')]
 public int $id;
 
 // ✅ Valid: types match
-#[Field(cast: 'int')]
+#[Cast('int')]
 public int $id;
 
 // ✅ Valid: float is compatible with int|float
-#[Field(cast: 'float')]
+#[Cast('float')]
 public int|float $price;
 ```

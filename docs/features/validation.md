@@ -1,17 +1,19 @@
 # Validation
 
-Validation rules are specified in the `rules` parameter of the `#[Field]` attribute.
+Validation rules are declared via the `#[Validate]` attribute.
 
 ## Basic Rules
 
 ```php
-#[Field(rules: 'required|string|max:255')]
+use Solo\RequestHandler\Attributes\Validate;
+
+#[Validate('required|string|max:255')]
 public string $name;
 
-#[Field(rules: 'required|email')]
+#[Validate('required|email')]
 public string $email;
 
-#[Field(rules: 'required|integer|min:0')]
+#[Validate('required|integer|min:0')]
 public int $quantity;
 ```
 
@@ -19,19 +21,19 @@ public int $quantity;
 
 ```php
 // Required: must be present and not empty
-#[Field(rules: 'required|string')]
+#[Validate('required|string')]
 public string $username;
 
 // Optional: may be missing
-#[Field(rules: 'string')]
+#[Validate('string')]
 public ?string $bio = null;
 
 // Required Nullable: must be present but can be null
-#[Field(rules: 'required|nullable|string')]
+#[Validate('required|nullable|string')]
 public ?string $reason;
 
 // Optional with default
-#[Field(rules: 'integer')]
+#[Validate('integer')]
 public int $page = 1;
 ```
 
@@ -77,35 +79,41 @@ Available rules depend on your `ValidatorInterface` implementation. The examples
 
 ---
 
-## Route Parameter Placeholders
+## Cross-field references
 
-Use `{placeholder}` to inject route parameters into rules:
+The handler passes rule strings to `ValidatorInterface::validate()` verbatim — it does not substitute placeholders or otherwise transform them.
+
+Cross-field references in rules (`unique:users,email,{id}`, `exists:…,scope_col,{field}`, `required_if:type,manual`) are the validator's concern. A typical implementation resolves `{id}` / sibling-field references against the validation payload, which contains every DTO field — including those declared with `#[FromRoute]` and `#[FromContext]`.
+
+So declare the referenced field as a real property:
 
 ```php
+use Solo\RequestHandler\Attributes\Source\{FromRoute, FromContext};
+
 class UpdateUserRequest extends Request
 {
-    #[Field(rules: 'required|email|unique:users,email,{id}')]
+    #[FromRoute]
+    #[Validate('required|integer|exists:users,id')]
+    public int $id;
+
+    #[FromContext('tenantId')]
+    public int $tenantId;
+
+    #[Validate('required|email|unique:users,email,{id},tenant_id,{tenantId}')]
     public string $email;
 }
 
-// Handle with route params
 $dto = $handler->handleBody(
     UpdateUserRequest::class,
     $request,
-    ['id' => 123]
+    route:   ['id' => 123],
+    context: ['tenantId' => 99],
 );
-// Rule becomes: 'required|email|unique:users,email,123'
+// Validator sees data: ['id' => 123, 'tenantId' => 99, 'email' => '...']
+// and resolves {id} / {tenantId} against that payload.
 ```
 
-Multiple placeholders:
-
-```php
-#[Field(rules: 'unique:users,email,{userId},tenant_id,{tenantId}')]
-public string $email;
-
-// With ['userId' => 42, 'tenantId' => 99]
-// Rule becomes: 'unique:users,email,42,tenant_id,99'
-```
+If your validator (or custom rule) needs a different convention, that's a validator-side concern — see your validator's docs. See [Route + context arguments](/guide/configuration#route-context-arguments) for how `$route` / `$context` are passed in.
 
 ---
 
@@ -137,11 +145,11 @@ Invalid configurations are detected at build time:
 
 ```php
 // ❌ ConfigurationException: nullable rule with non-nullable type
-#[Field(rules: 'nullable|email')]
+#[Validate('nullable|email')]
 public string $email;  // Should be ?string
 
 // ❌ ConfigurationException: required with default value
-#[Field(rules: 'required|string')]
+#[Validate('required|string')]
 public string $name = 'default';  // Remove default or 'required'
 ```
 
@@ -177,21 +185,22 @@ We recommend [solophp/validator](https://github.com/SoloPHP/Validator).
 ```php
 final class RegisterRequest extends Request
 {
-    #[Field(rules: 'required|string|min:3|max:50|alpha_num')]
+    #[Validate('required|string|min:3|max:50|alpha_num')]
     public string $username;
 
-    #[Field(rules: 'required|email|unique:users,email')]
+    #[Validate('required|email|unique:users,email')]
     public string $email;
 
-    #[Field(rules: 'required|string|min:8')]
+    #[Validate('required|string|min:8')]
+    #[Exclude]                                       // hide from toArray()
     public string $password;
 
-    #[Field(rules: 'required|same:password')]
+    #[Validate('required|same:password')]
+    #[Exclude]
     public string $passwordConfirmation;
 
-    #[Field(rules: 'required|accepted')]
+    #[Validate('required|accepted')]
     public bool $termsAccepted;
-
 }
 ```
 
@@ -200,25 +209,25 @@ final class RegisterRequest extends Request
 ```php
 final class CreateProductRequest extends Request
 {
-    #[Field(rules: 'required|string|max:255')]
+    #[Validate('required|string|max:255')]
     public string $name;
 
-    #[Field(rules: 'required|numeric|min:0')]
+    #[Validate('required|numeric|min:0')]
     public float $price;
 
-    #[Field(rules: 'nullable|string|max:1000')]
+    #[Validate('nullable|string|max:1000')]
     public ?string $description = null;
 
-    #[Field(rules: 'required|integer|exists:categories,id')]
+    #[Validate('required|integer|exists:categories,id')]
     public int $categoryId;
 
-    #[Field(rules: 'nullable|array')]
+    #[Validate('nullable|array')]
     public array $tags = [];
 
-    #[Field(rules: 'nullable|url')]
+    #[Validate('nullable|url')]
     public ?string $imageUrl = null;
 
-    #[Field(rules: 'required|in:draft,published')]
+    #[Validate('required|in:draft,published')]
     public string $status = 'draft';
 }
 ```
@@ -228,25 +237,25 @@ final class CreateProductRequest extends Request
 ```php
 final class SearchRequest extends Request
 {
-    #[Field(rules: 'nullable|string|max:100')]
+    #[Validate('nullable|string|max:100')]
     public ?string $query = null;
 
-    #[Field(rules: 'nullable|in:name,price,date')]
+    #[Validate('nullable|in:name,price,date')]
     public ?string $sortBy = null;
 
-    #[Field(rules: 'nullable|in:asc,desc')]
+    #[Validate('nullable|in:asc,desc')]
     public ?string $sortDir = null;
 
-    #[Field(rules: 'integer|min:1|max:100')]
+    #[Validate('integer|min:1|max:100')]
     public int $limit = 20;
 
-    #[Field(rules: 'integer|min:1')]
+    #[Validate('integer|min:1')]
     public int $page = 1;
 
-    #[Field(rules: 'nullable|date_format:Y-m-d')]
+    #[Validate('nullable|date_format:Y-m-d')]
     public ?string $dateFrom = null;
 
-    #[Field(rules: 'nullable|date_format:Y-m-d|after:dateFrom')]
+    #[Validate('nullable|date_format:Y-m-d|after:dateFrom')]
     public ?string $dateTo = null;
 }
 ```

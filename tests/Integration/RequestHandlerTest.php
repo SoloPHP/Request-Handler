@@ -4,16 +4,31 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Tests\Integration;
 
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
-use Solo\RequestHandler\Attributes\Field;
-use Solo\RequestHandler\Request;
-use Solo\RequestHandler\Exceptions\ValidationException;
-use Solo\RequestHandler\RequestHandler;
+use Solo\RequestHandler\Attributes\Cast;
+use Solo\RequestHandler\Attributes\Caster;
+use Solo\RequestHandler\Attributes\Exclude;
+use Solo\RequestHandler\Attributes\Generator;
+use Solo\RequestHandler\Attributes\Group;
+use Solo\RequestHandler\Attributes\Ignore;
+use Solo\RequestHandler\Attributes\Items;
+use Solo\RequestHandler\Attributes\PostProcess;
+use Solo\RequestHandler\Attributes\PreProcess;
+use Solo\RequestHandler\Attributes\Source\FromBody;
+use Solo\RequestHandler\Attributes\Source\FromContext;
+use Solo\RequestHandler\Attributes\Source\FromRoute;
+use Solo\RequestHandler\Attributes\Validate;
 use Solo\RequestHandler\Contracts\GeneratorInterface;
+use Solo\RequestHandler\Exceptions\ConfigurationException;
+use Solo\RequestHandler\Exceptions\ValidationException;
 use Solo\RequestHandler\ProcessContext;
+use Solo\RequestHandler\Request;
+use Solo\RequestHandler\RequestHandler;
 use Solo\Contracts\Validator\ValidatorInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
+#[AllowMockObjectsWithoutExpectations]
 final class RequestHandlerTest extends TestCase
 {
     private RequestHandler $handler;
@@ -30,12 +45,26 @@ final class RequestHandlerTest extends TestCase
         return new RequestHandler($this->validator, $autoTrim);
     }
 
-    public function testHandleBodyExtractsAndValidatesData(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => 'Test Item', 'price' => '10.50']);
+    /**
+     * @param array<string, mixed>|null $body
+     * @param array<string, mixed>      $query
+     */
+    private function makeRequest(
+        ?array $body = null,
+        array $query = [],
+    ): ServerRequestInterface {
+        $request = $this->createStub(ServerRequestInterface::class);
+        $request->method('getParsedBody')->willReturn($body);
+        $request->method('getQueryParams')->willReturn($query);
+        return $request;
+    }
 
-        // name and price are required (no ? and no default), so 'required' is auto-added
+    // ===== basic body / query / array =====
+
+    public function testHandleBodyExtractsAndValidates(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'Test Item', 'price' => '10.50']);
+
         $this->validator->expects($this->once())
             ->method('validate')
             ->with(
@@ -44,603 +73,52 @@ final class RequestHandlerTest extends TestCase
             )
             ->willReturn([]);
 
-        $dto = $this->handler->handleBody(TestRequest::class, $request);
+        $dto = $this->handler->handleBody(BasicRequest::class, $request);
 
-        $this->assertEquals('Test Item', $dto->name);
-        $this->assertEquals(10.5, $dto->price);
-        $this->assertTrue(isset($dto->name));
-        $this->assertTrue(isset($dto->price));
+        $this->assertSame('Test Item', $dto->name);
+        $this->assertSame(10.5, $dto->price);
     }
 
     public function testHandleBodyThrowsValidationException(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => '']);
+        $request = $this->makeRequest(body: ['name' => '']);
 
-        $this->validator->expects($this->once())
-            ->method('validate')
-            ->willReturn(['name' => ['Required']]);
+        $this->validator->expects($this->once())->method('validate')->willReturn(['name' => ['Required']]);
 
         $this->expectException(ValidationException::class);
-        $this->handler->handleBody(TestRequest::class, $request);
+        $this->handler->handleBody(BasicRequest::class, $request);
     }
 
     public function testHandleBodyWithMissingOptionalField(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => 'Test']);
-
+        $request = $this->makeRequest(body: ['name' => 'Test']);
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handleBody(TestRequest::class, $request);
+        $dto = $this->handler->handleBody(BasicRequest::class, $request);
 
-        $this->assertEquals('Test', $dto->name);
+        $this->assertSame('Test', $dto->name);
         $this->assertFalse(isset($dto->description));
     }
 
     public function testHandleBodyWithDefaultValue(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => 'Test']);
-
+        $request = $this->makeRequest(body: ['name' => 'Test']);
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handleBody(TestRequest::class, $request);
+        $dto = $this->handler->handleBody(BasicRequest::class, $request);
 
-        $this->assertEquals(1, $dto->page);
+        $this->assertSame(1, $dto->page);
     }
 
-    public function testHandleBodyWithNestedMapping(): void
+    public function testHandleQueryUsesQueryBag(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn([
-            'user' => ['id' => 123],
-            'name' => 'Test'
-        ]);
-
+        $request = $this->makeRequest(query: ['name' => 'Test', 'price' => '20']);
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handleBody(TestRequest::class, $request);
+        $dto = $this->handler->handleQuery(BasicRequest::class, $request);
 
-        $this->assertEquals(123, $dto->userId);
-    }
-
-    public function testHandleBodyWithPreAndPostProcessing(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn([
-            'name' => '  Test  ',
-            'slug' => 'Test Title'
-        ]);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(ProcessingRequest::class, $request);
-
-        $this->assertEquals('Test', $dto->name); // Trimmed
-        $this->assertEquals('test-title', $dto->slug); // Slugified
-    }
-
-    public function testHandleQueryExtractsFromQueryParams(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getQueryParams')->willReturn(['name' => 'Test', 'price' => '20']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleQuery(TestRequest::class, $request);
-
-        $this->assertEquals('Test', $dto->name);
-        $this->assertEquals(20.0, $dto->price);
-    }
-
-    public function testHandleBodyWithCustomCaster(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['id' => '5']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(CustomCasterRequest::class, $request);
-
-        $this->assertEquals(10, $dto->id); // 5 * 2 = 10
-    }
-
-    public function testHandleBodyWithPreProcessorInterface(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['value' => 'test']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(PreProcessorRequest::class, $request);
-
-        $this->assertEquals('pre_test', $dto->value);
-    }
-
-    public function testHandleBodyWithPostProcessorInterface(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['value' => 'test']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(PostProcessorRequest::class, $request);
-
-        $this->assertEquals('test_post', $dto->value);
-    }
-
-    public function testHandleBodyWithEmptyFieldHavingDefault(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => 'Test', 'page' => '']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(TestRequest::class, $request);
-
-        $this->assertEquals('Test', $dto->name);
-        $this->assertEquals(1, $dto->page); // Default value
-    }
-
-    public function testHandleBodyWithEmptyFieldWithoutDefault(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => 'Test', 'description' => '']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(TestRequest::class, $request);
-
-        $this->assertSame('', $dto->description);
-    }
-
-    public function testHandleBodyWithCasterAsProcessor(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['value' => 'test']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(CasterAsProcessorRequest::class, $request);
-
-        $this->assertEquals('casted_test', $dto->value);
-    }
-
-    public function testHandleBodyWithUnknownProcessor(): void
-    {
-        // Unknown processor now throws ConfigurationException at metadata building time
-        $this->expectException(\Solo\RequestHandler\Exceptions\ConfigurationException::class);
-        $this->expectExceptionMessage("has invalid preProcess 'nonExistentHandler'");
-
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['value' => 'test']);
-
-        $this->handler->handleBody(UnknownProcessorRequest::class, $request);
-    }
-
-    public function testGroupReturnsFieldsWithSameGroup(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getQueryParams')->willReturn([
-            'search' => 'test',
-            'deleted' => 'only',
-            'page' => '2',
-            'per_page' => '10'
-        ]);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleQuery(GroupedRequest::class, $request);
-
-        $criteria = $dto->group('criteria');
-        $this->assertEquals(['search' => 'test', 'deleted' => 'only'], $criteria);
-        $this->assertArrayNotHasKey('page', $criteria);
-        $this->assertArrayNotHasKey('per_page', $criteria);
-    }
-
-    public function testGroupReturnsEmptyArrayWhenNoFieldsMatch(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getQueryParams')->willReturn(['page' => '1']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleQuery(GroupedRequest::class, $request);
-
-        // After refactoring: properties with default null are now always initialized
-        // This is correct behavior - fixes the "must not be accessed before initialization" bug
-        $this->assertEquals(['search' => null, 'deleted' => null], $dto->group('criteria'));
-    }
-
-    public function testFieldAttributeIsOptional(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => 'John', 'email' => 'john@example.com']);
-
-        // Only properties with validation rules will be validated
-        $this->validator->expects($this->once())
-            ->method('validate')
-            ->with(
-                ['name' => 'John'],
-                ['name' => 'required|string']
-            )
-            ->willReturn([]);
-
-        $dto = $this->handler->handleBody(NoAttributeRequest::class, $request);
-
-        $this->assertEquals('John', $dto->name);
-        $this->assertEquals('john@example.com', $dto->email);
-        $this->assertEquals(18, $dto->age); // Default value
-    }
-
-    public function testRequiredFieldMissing(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn([]); // Missing required field
-
-        // name is required (has 'required' in rules) but missing
-        $this->validator->expects($this->once())
-            ->method('validate')
-            ->with(
-                ['name' => null],
-                ['name' => 'required|string']
-            )
-            ->willReturn(['name' => ['The name field is required']]);
-
-        $this->expectException(ValidationException::class);
-        $this->handler->handleBody(NoAttributeRequest::class, $request);
-    }
-
-    public function testOptionalFieldWithoutRulesHasNoValidation(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['value' => 'test']);
-
-        // Optional field with no rules - no validation called
-        $this->validator->expects($this->never())->method('validate');
-
-        $dto = $this->handler->handleBody(OptionalNoRulesRequest::class, $request);
-
-        $this->assertEquals('test', $dto->value);
-    }
-
-    public function testNonCasterClassInCastIsIgnored(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['value' => 'test']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(InvalidCasterRequest::class, $request);
-
-        // Value unchanged because class doesn't implement CasterInterface
-        $this->assertEquals('test', $dto->value);
-    }
-
-    public function testExplicitBuiltInCast(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['value' => '42']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(ExplicitBuiltInCastRequest::class, $request);
-
-        $this->assertSame(42, $dto->value);
-    }
-
-    public function testNonBuiltInTypeWithoutCast(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['data' => ['key' => 'value']]);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(NonBuiltInTypeRequest::class, $request);
-
-        // Array returned as-is (stdClass is not a built-in type for casting)
-        $this->assertEquals(['key' => 'value'], $dto->data);
-    }
-
-    public function testPopulateInstanceSkipsNullForNonNullableTypes(): void
-    {
-        // Test the runtime protection that prevents null assignment to non-nullable types
-        $handlerReflection = new \ReflectionClass($this->handler);
-        $method = $handlerReflection->getMethod('populateInstance');
-
-        $cacheProperty = $handlerReflection->getProperty('cache');
-        /** @var \Solo\RequestHandler\Cache\ReflectionCache $cache */
-        $cache = $cacheProperty->getValue($this->handler);
-        $metadata = $cache->get(NonNullableRequest::class);
-        $instance = $metadata->reflection->newInstanceWithoutConstructor();
-
-        // Attempt to set null to a non-nullable string property
-        $dto = $method->invoke($this->handler, $instance, $metadata, [
-            'id' => null,  // This should be skipped (id is non-nullable int)
-            'name' => 'Test',
-        ]);
-
-        $this->assertEquals('Test', $dto->name);
-        $this->assertFalse(isset($dto->id)); // Should remain uninitialized
-    }
-
-    public function testAutoTrimEnabledByDefault(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => '  Test  ', 'price' => '10.50']);
-
-        $this->validator->expects($this->once())
-            ->method('validate')
-            ->with(
-                ['name' => 'Test', 'price' => '10.50'],
-                ['name' => 'required|string', 'price' => 'required|numeric']
-            )
-            ->willReturn([]);
-
-        $dto = $this->handler->handleBody(TestRequest::class, $request);
-
-        $this->assertEquals('Test', $dto->name);
-    }
-
-    public function testAutoTrimCanBeDisabled(): void
-    {
-        $handler = $this->createHandler(autoTrim: false);
-
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => '  Test  ', 'price' => '10.50']);
-
-        $this->validator->expects($this->once())
-            ->method('validate')
-            ->with(
-                ['name' => '  Test  ', 'price' => '10.50'],
-                ['name' => 'required|string', 'price' => 'required|numeric']
-            )
-            ->willReturn([]);
-
-        $dto = $handler->handleBody(TestRequest::class, $request);
-
-        $this->assertEquals('  Test  ', $dto->name);
-    }
-
-    public function testAutoTrimOnlyAffectsStrings(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn([
-            'name' => '  Test  ',
-            'tags' => ['  tag1  ', '  tag2  ']
-        ]);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(AutoTrimArrayRequest::class, $request);
-
-        // String is trimmed
-        $this->assertEquals('Test', $dto->name);
-        // Array values are NOT trimmed (autoTrim only affects string values at top level)
-        $this->assertEquals(['  tag1  ', '  tag2  '], $dto->tags);
-    }
-
-    public function testGeneratorFieldIsAutoGenerated(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => 'Test Product']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(GeneratorRequest::class, $request);
-
-        $this->assertEquals('Test Product', $dto->name);
-        $this->assertTrue(isset($dto->id));
-        // Validate UUID v4 format: xxxxxxxx-xxxx-4xxx-[89ab]xxx-xxxxxxxxxxxx
-        $this->assertMatchesRegularExpression(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-            $dto->id
-        );
-    }
-
-    public function testGeneratorWithOptions(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => 'Test']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(GeneratorWithOptionsRequest::class, $request);
-
-        $this->assertEquals('Test', $dto->name);
-        $this->assertEquals('users_123', $dto->id);
-    }
-
-    public function testRouteParamsPlaceholderReplacement(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => 'Updated Name']);
-
-        // Verify that {id} placeholder is replaced with actual route param value
-        $this->validator->expects($this->once())
-            ->method('validate')
-            ->with(
-                ['name' => 'Updated Name'],
-                ['name' => 'required|string|unique:products,name,123'] // {id} replaced with 123
-            )
-            ->willReturn([]);
-
-        $dto = $this->handler->handleBody(
-            RouteParamsRequest::class,
-            $request,
-            ['id' => 123]
-        );
-
-        $this->assertEquals('Updated Name', $dto->name);
-    }
-
-    public function testPostProcessorSkipsAutoCast(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        // Send JSON string - without the fix, auto-cast would convert it to ['["a","b"]'] (single value wrapped)
-        $request->method('getParsedBody')->willReturn(['tags' => '["a","b"]']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(PostProcessorSkipsCastRequest::class, $request);
-
-        // PostProcessor receives raw string and decodes it properly
-        $this->assertEquals(['a', 'b'], $dto->tags);
-    }
-
-    public function testRegisterAllowsDependencyInjection(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => 'Test']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        // Register generator with "injected" dependency
-        $generatorWithDep = new TestGeneratorWithDependency('injected_prefix');
-        $this->handler->register(TestGeneratorWithDependency::class, $generatorWithDep);
-
-        $dto = $this->handler->handleBody(RegisteredGeneratorRequest::class, $request);
-
-        $this->assertEquals('Test', $dto->name);
-        $this->assertEquals('injected_prefix_generated', $dto->id);
-    }
-
-    public function testPostProcessorReceivesConfig(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['amount' => '99.99']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(PostProcessConfigRequest::class, $request);
-
-        $this->assertEquals('$99.99', $dto->amount);
-    }
-
-    public function testPostProcessorWorksWithoutConfig(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['amount' => '99.99']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(PostProcessNoConfigRequest::class, $request);
-
-        $this->assertEquals('99.99', $dto->amount);
-    }
-
-    public function testHandleBodyWithItems(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn([
-            'name' => 'Order #1',
-            'items' => [
-                ['product' => 'Widget', 'quantity' => '3'],
-                ['product' => 'Gadget', 'quantity' => '1'],
-            ],
-        ]);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(OrderRequest::class, $request);
-
-        $this->assertEquals('Order #1', $dto->name);
-        $this->assertIsArray($dto->items);
-        $this->assertCount(2, $dto->items);
-        $this->assertInstanceOf(OrderItemRequest::class, $dto->items[0]);
-        $this->assertInstanceOf(OrderItemRequest::class, $dto->items[1]);
-        $this->assertEquals('Widget', $dto->items[0]->product);
-        $this->assertSame(3, $dto->items[0]->quantity);
-        $this->assertEquals('Gadget', $dto->items[1]->product);
-        $this->assertSame(1, $dto->items[1]->quantity);
-    }
-
-    public function testHandleBodyWithItemsValidationErrors(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn([
-            'name' => 'Order #1',
-            'items' => [
-                ['product' => '', 'quantity' => '3'],
-                ['product' => 'Gadget', 'quantity' => ''],
-            ],
-        ]);
-
-        // First call validates OrderRequest (name) - passes
-        // Second and third calls validate OrderItemRequest items - fail
-        $this->validator->method('validate')
-            ->willReturnCallback(function (array $data, array $rules) {
-                if (isset($rules['product']) && ($data['product'] === '' || $data['product'] === null)) {
-                    return ['product' => ['Product is required']];
-                }
-                if (isset($rules['quantity']) && ($data['quantity'] === '' || $data['quantity'] === null)) {
-                    return ['quantity' => ['Quantity is required']];
-                }
-                return [];
-            });
-
-        try {
-            $this->handler->handleBody(OrderRequest::class, $request);
-            $this->fail('Expected ValidationException');
-        } catch (ValidationException $e) {
-            $errors = $e->getErrors();
-            $this->assertArrayHasKey('items.0.product', $errors);
-            $this->assertArrayHasKey('items.1.quantity', $errors);
-        }
-    }
-
-    public function testHandleBodyWithItemsNonArrayItem(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn([
-            'name' => 'Order #1',
-            'items' => [
-                'not-an-array',
-                ['product' => 'Widget', 'quantity' => '1'],
-            ],
-        ]);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        try {
-            $this->handler->handleBody(OrderRequest::class, $request);
-            $this->fail('Expected ValidationException');
-        } catch (ValidationException $e) {
-            $errors = $e->getErrors();
-            $this->assertArrayHasKey('items.0', $errors);
-            $this->assertEquals([['rule' => 'array']], $errors['items.0']);
-        }
-    }
-
-    public function testHandleBodyWithNullItems(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => 'Order #1']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(OrderRequest::class, $request);
-
-        $this->assertEquals('Order #1', $dto->name);
-        $this->assertNull($dto->items);
-    }
-
-    public function testHandleBodyWithEmptyItems(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn([
-            'name' => 'Order #1',
-            'items' => [],
-        ]);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(OrderRequest::class, $request);
-
-        $this->assertEquals('Order #1', $dto->name);
-        $this->assertIsArray($dto->items);
-        $this->assertEmpty($dto->items);
+        $this->assertSame('Test', $dto->name);
+        $this->assertSame(20.0, $dto->price);
     }
 
     public function testHandleArrayMethod(): void
@@ -652,76 +130,200 @@ final class RequestHandlerTest extends TestCase
             'quantity' => '5',
         ]);
 
-        $this->assertEquals('Widget', $dto->product);
+        $this->assertSame('Widget', $dto->product);
         $this->assertSame(5, $dto->quantity);
     }
 
-    public function testGroupUsesMapToForOutputKey(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getQueryParams')->willReturn([
-            'position_id' => '5',
-            'search' => 'test',
-            'page' => '2',
-        ]);
+    // ===== source attributes =====
 
+    public function testFromRouteResolvesFromRouteBag(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'X']);
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handleQuery(MapToGroupedRequest::class, $request);
+        $dto = $this->handler->handleBody(
+            UpdateProductRequest::class,
+            $request,
+            route: ['id' => 42],
+        );
 
-        $criteria = $dto->group('criteria');
-        $this->assertEquals(['positions.id' => 5, 'search' => 'test'], $criteria);
-        $this->assertArrayNotHasKey('position_id', $criteria);
-        $this->assertArrayNotHasKey('page', $criteria);
+        $this->assertSame(42, $dto->id);
+        $this->assertSame('X', $dto->name);
+    }
+
+    public function testFromRouteWithExplicitKey(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'X']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(
+            UpdateWithExplicitKeyRequest::class,
+            $request,
+            route: ['product_id' => 7],
+        );
+
+        $this->assertSame(7, $dto->productId);
+    }
+
+    public function testFromContextReads(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'X']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(
+            ContextRequest::class,
+            $request,
+            context: ['authUserId' => 17],
+        );
+
+        $this->assertSame(17, $dto->createdBy);
+    }
+
+    public function testMissingFromRouteWithoutDefaultDoesNotLeakBody(): void
+    {
+        // Body has key 'id' but property declares FromRoute — body must NOT satisfy it.
+        $request = $this->makeRequest(body: ['id' => 999, 'name' => 'X']);
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(
+                $this->callback(fn (array $data): bool => array_key_exists('id', $data) && $data['id'] === null),
+                $this->anything()
+            )
+            ->willReturn(['id' => [['rule' => 'required']]]);
+
+        $this->expectException(ValidationException::class);
+        $this->handler->handleBody(UpdateProductRequest::class, $request);
+    }
+
+    // ===== regression: extras do NOT leak into nested items =====
+
+    public function testRouteDoesNotLeakIntoNestedItems(): void
+    {
+        // Outer route param `id` (= 999) must not overwrite each item's own `id` field.
+        $request = $this->makeRequest(body: [
+            'name' => 'Order #42',
+            'items' => [
+                ['id' => 1, 'product' => 'Widget', 'quantity' => '2'],
+                ['id' => 2, 'product' => 'Gadget', 'quantity' => '3'],
+            ],
+        ]);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(
+            OrderWithIdItemsRequest::class,
+            $request,
+            route: ['id' => 999],
+        );
+
+        $this->assertIsArray($dto->items);
+        $this->assertSame(1, $dto->items[0]->id);
+        $this->assertSame(2, $dto->items[1]->id);
+    }
+
+    // ===== regression: null in route does not silently break body fields =====
+
+    public function testNullRouteDoesNotAffectBodyField(): void
+    {
+        // Property reads from body — route null for the same key has no effect.
+        $request = $this->makeRequest(body: ['name' => 'real']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(
+            BasicRequest::class,
+            $request,
+            route: ['name' => null],
+        );
+
+        $this->assertSame('real', $dto->name);
+    }
+
+    // ===== processing pipeline =====
+
+    public function testPreAndPostProcessing(): void
+    {
+        $request = $this->makeRequest(body: ['name' => '  Test  ', 'slug' => 'Test Title']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(ProcessingRequest::class, $request);
+
+        $this->assertSame('Test', $dto->name);
+        $this->assertSame('test-title', $dto->slug);
+    }
+
+    public function testCustomCaster(): void
+    {
+        $request = $this->makeRequest(body: ['id' => '5']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(CustomCasterRequest::class, $request);
+
+        $this->assertSame(10, $dto->id);
+    }
+
+    public function testPreProcessorInterface(): void
+    {
+        $request = $this->makeRequest(body: ['value' => 'test']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(PreProcessorRequest::class, $request);
+
+        $this->assertSame('pre_test', $dto->value);
+    }
+
+    public function testPostProcessorInterface(): void
+    {
+        $request = $this->makeRequest(body: ['value' => 'test']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(PostProcessorRequest::class, $request);
+
+        $this->assertSame('test_post', $dto->value);
+    }
+
+    public function testCasterAsPreProcessor(): void
+    {
+        $request = $this->makeRequest(body: ['value' => 'test']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(CasterAsProcessorRequest::class, $request);
+
+        $this->assertSame('casted_test', $dto->value);
+    }
+
+    public function testEmptyFieldHavingDefault(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'Test', 'page' => '']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(BasicRequest::class, $request);
+
+        $this->assertSame('Test', $dto->name);
+        $this->assertSame(1, $dto->page);
+    }
+
+    public function testEmptyFieldWithoutDefault(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'Test', 'description' => '']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(BasicRequest::class, $request);
+
+        $this->assertSame('', $dto->description);
     }
 
     public function testExplicitNullForNullableField(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => 'Test', 'description' => null]);
-
+        $request = $this->makeRequest(body: ['name' => 'Test', 'description' => null]);
         $this->validator->method('validate')->willReturn([]);
 
-        $dto = $this->handler->handleBody(TestRequest::class, $request);
+        $dto = $this->handler->handleBody(BasicRequest::class, $request);
 
-        $this->assertEquals('Test', $dto->name);
         $this->assertNull($dto->description);
-    }
-
-    public function testExplicitNullForNonNullableFieldWithDefault(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => 'Test', 'page' => null]);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(TestRequest::class, $request);
-
-        $this->assertEquals('Test', $dto->name);
-        $this->assertEquals(1, $dto->page);
-    }
-
-    public function testProcessorReceivesRouteParams(): void
-    {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['slug' => 'test-slug']);
-
-        $this->validator->method('validate')->willReturn([]);
-
-        $dto = $this->handler->handleBody(
-            RouteParamsProcessorRequest::class,
-            $request,
-            ['id' => 42]
-        );
-
-        $this->assertEquals('test-slug-42', $dto->slug);
     }
 
     public function testExplicitNullForRequiredField(): void
     {
-        $request = $this->createMock(ServerRequestInterface::class);
-        $request->method('getParsedBody')->willReturn(['name' => null]);
-
+        $request = $this->makeRequest(body: ['name' => null]);
         $this->validator->expects($this->once())
             ->method('validate')
             ->with(
@@ -731,33 +333,788 @@ final class RequestHandlerTest extends TestCase
             ->willReturn(['name' => ['The name field is required']]);
 
         $this->expectException(ValidationException::class);
-        $this->handler->handleBody(TestRequest::class, $request);
+        $this->handler->handleBody(BasicRequest::class, $request);
     }
 
+    // ===== auto-trim =====
+
+    public function testAutoTrimEnabledByDefault(): void
+    {
+        $request = $this->makeRequest(body: ['name' => '  Test  ', 'price' => '10.50']);
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(
+                ['name' => 'Test', 'price' => '10.50'],
+                ['name' => 'required|string', 'price' => 'required|numeric']
+            )
+            ->willReturn([]);
+
+        $dto = $this->handler->handleBody(BasicRequest::class, $request);
+
+        $this->assertSame('Test', $dto->name);
+    }
+
+    public function testAutoTrimCanBeDisabled(): void
+    {
+        $handler = $this->createHandler(autoTrim: false);
+
+        $request = $this->makeRequest(body: ['name' => '  Test  ', 'price' => '10.50']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $handler->handleBody(BasicRequest::class, $request);
+
+        $this->assertSame('  Test  ', $dto->name);
+    }
+
+    public function testAutoTrimOnlyAffectsStringsNotArrays(): void
+    {
+        $request = $this->makeRequest(body: ['name' => '  Test  ', 'tags' => ['  tag1  ', '  tag2  ']]);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(AutoTrimArrayRequest::class, $request);
+
+        $this->assertSame('Test', $dto->name);
+        $this->assertSame(['  tag1  ', '  tag2  '], $dto->tags);
+    }
+
+    // ===== generator =====
+
+    public function testGeneratorFieldIsAutoGenerated(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'Test Product']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(GeneratorRequest::class, $request);
+
+        $this->assertSame('Test Product', $dto->name);
+        $this->assertMatchesRegularExpression(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
+            $dto->id
+        );
+    }
+
+    public function testGeneratorWithOptions(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'Test']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(GeneratorWithOptionsRequest::class, $request);
+
+        $this->assertSame('users_123', $dto->id);
+    }
+
+    public function testRegisterAllowsDependencyInjection(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'Test']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $this->handler->register(
+            TestGeneratorWithDependency::class,
+            new TestGeneratorWithDependency('injected_prefix')
+        );
+
+        $dto = $this->handler->handleBody(RegisteredGeneratorRequest::class, $request);
+
+        $this->assertSame('injected_prefix_generated', $dto->id);
+    }
+
+    public function testProcessorReceivesContext(): void
+    {
+        $request = $this->makeRequest(body: ['slug' => 'test-slug']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(
+            ContextProcessorRequest::class,
+            $request,
+            route: ['id' => 42],
+            context: ['tenant' => 'acme'],
+        );
+
+        $this->assertSame('test-slug-42-acme', $dto->slug);
+    }
+
+    // ===== post-processor skips auto-cast =====
+
+    public function testPostProcessorSkipsAutoCast(): void
+    {
+        $request = $this->makeRequest(body: ['tags' => '["a","b"]']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(PostProcessorSkipsCastRequest::class, $request);
+
+        $this->assertSame(['a', 'b'], $dto->tags);
+    }
+
+    public function testPostProcessorReceivesConfig(): void
+    {
+        $request = $this->makeRequest(body: ['amount' => '99.99']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(PostProcessConfigRequest::class, $request);
+
+        $this->assertSame('$99.99', $dto->amount);
+    }
+
+    public function testPostProcessorWorksWithoutConfig(): void
+    {
+        $request = $this->makeRequest(body: ['amount' => '99.99']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(PostProcessNoConfigRequest::class, $request);
+
+        $this->assertSame('99.99', $dto->amount);
+    }
+
+    // ===== items =====
+
+    public function testItemsValid(): void
+    {
+        $request = $this->makeRequest(body: [
+            'name' => 'Order #1',
+            'items' => [
+                ['product' => 'Widget', 'quantity' => '3'],
+                ['product' => 'Gadget', 'quantity' => '1'],
+            ],
+        ]);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(OrderRequest::class, $request);
+
+        $this->assertIsArray($dto->items);
+        $this->assertCount(2, $dto->items);
+        $this->assertSame('Widget', $dto->items[0]->product);
+        $this->assertSame(3, $dto->items[0]->quantity);
+    }
+
+    public function testItemsValidationErrors(): void
+    {
+        $request = $this->makeRequest(body: [
+            'name' => 'Order #1',
+            'items' => [
+                ['product' => '', 'quantity' => '3'],
+                ['product' => 'Gadget', 'quantity' => ''],
+            ],
+        ]);
+
+        $this->validator->method('validate')->willReturnCallback(
+            function (array $data, array $rules): array {
+                if (isset($rules['product']) && ($data['product'] === '' || $data['product'] === null)) {
+                    return ['product' => ['Product is required']];
+                }
+                if (isset($rules['quantity']) && ($data['quantity'] === '' || $data['quantity'] === null)) {
+                    return ['quantity' => ['Quantity is required']];
+                }
+                return [];
+            }
+        );
+
+        try {
+            $this->handler->handleBody(OrderRequest::class, $request);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $errors = $e->getErrors();
+            $this->assertArrayHasKey('items.0.product', $errors);
+            $this->assertArrayHasKey('items.1.quantity', $errors);
+        }
+    }
+
+    public function testItemsNonArrayItemYieldsStructuredError(): void
+    {
+        $request = $this->makeRequest(body: [
+            'name' => 'Order #1',
+            'items' => ['not-an-array', ['product' => 'Widget', 'quantity' => '1']],
+        ]);
+        $this->validator->method('validate')->willReturn([]);
+
+        try {
+            $this->handler->handleBody(OrderRequest::class, $request);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('items.0', $e->getErrors());
+            $this->assertSame([['rule' => 'array']], $e->getErrors()['items.0']);
+        }
+    }
+
+    public function testItemsNonArrayFieldYieldsStructuredErrorNotTypeError(): void
+    {
+        // Property has #[Items] but no #[Validate('array')] rule; client sends a string.
+        // Must produce a clean ValidationException, NOT a TypeError on setValue.
+        $request = $this->makeRequest(body: ['items' => 'oops']);
+        $this->validator->method('validate')->willReturn([]);
+
+        try {
+            $this->handler->handleBody(NoRulesItemsRequest::class, $request);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('items', $e->getErrors());
+            $this->assertSame([['rule' => 'array']], $e->getErrors()['items']);
+        }
+    }
+
+    public function testItemsNullStaysNull(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'Order #1']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(OrderRequest::class, $request);
+
+        $this->assertNull($dto->items);
+    }
+
+    public function testItemsExplicitNullDoesNotThrow(): void
+    {
+        // F1: explicit `{"items": null}` on a nullable items property must pass
+        // through, not raise spurious ValidationException('array').
+        $request = $this->makeRequest(body: ['name' => 'Order #1', 'items' => null]);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(OrderRequest::class, $request);
+
+        $this->assertNull($dto->items);
+    }
+
+    public function testItemsEmptyArrayStaysEmpty(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'Order #1', 'items' => []]);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(OrderRequest::class, $request);
+
+        $this->assertSame([], $dto->items);
+    }
+
+    // ===== groups =====
+
+    public function testGroupReturnsFieldsWithSameGroup(): void
+    {
+        $request = $this->makeRequest(query: [
+            'search' => 'test',
+            'deleted' => 'only',
+            'page' => '2',
+            'per_page' => '10',
+        ]);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleQuery(GroupedRequest::class, $request);
+
+        $this->assertSame(['search' => 'test', 'deleted' => 'only'], $dto->group('criteria'));
+    }
+
+    public function testGroupSkipsNullScalarMembers(): void
+    {
+        // Pre-2.0 group() emitted ['search' => null, 'deleted' => null]; now nulls are skipped.
+        $request = $this->makeRequest(query: ['page' => '1']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleQuery(GroupedRequest::class, $request);
+
+        $this->assertSame([], $dto->group('criteria'));
+    }
+
+    public function testGroupUsesMapTo(): void
+    {
+        $request = $this->makeRequest(query: [
+            'position_id' => '5',
+            'search' => 'test',
+            'page' => '2',
+        ]);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleQuery(MapToGroupedRequest::class, $request);
+
+        $criteria = $dto->group('criteria');
+        $this->assertSame(['positions.id' => 5, 'search' => 'test'], $criteria);
+    }
+
+    // ===== passthrough properties (no attributes) =====
+
+    public function testPublicPropertiesWithoutAttributesArePassThrough(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'John', 'email' => 'john@example.com']);
+
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(['name' => 'John'], ['name' => 'required|string'])
+            ->willReturn([]);
+
+        $dto = $this->handler->handleBody(NoAttributeRequest::class, $request);
+
+        $this->assertSame('John', $dto->name);
+        $this->assertSame('john@example.com', $dto->email);
+        $this->assertSame(18, $dto->age);
+    }
+
+    public function testProtectedPropertyIsIgnoredByHandler(): void
+    {
+        // Visibility-based opt-out: protected/private properties stay outside the pipeline.
+        $request = $this->makeRequest(body: ['name' => 'X', 'internal' => 'evil']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(ProtectedInternalRequest::class, $request);
+
+        $this->assertSame('X', $dto->name);
+        $this->assertSame('default-internal', $dto->reveal());
+    }
+
+    public function testIgnoredPublicPropertyIsNotPopulatedFromInput(): void
+    {
+        // #[Ignore] on a public property — handler must not read 'computed' from body,
+        // even though the body has a key by that name.
+        $request = $this->makeRequest(body: ['name' => 'X', 'computed' => 'attacker-supplied']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(IgnorePublicRequest::class, $request);
+
+        $this->assertSame('X', $dto->name);
+        $this->assertSame('controller-default', $dto->computed);
+    }
+
+    public function testIgnoredPublicPropertyIsNotValidatedNorInToArray(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'X']);
+        // Validator should NOT receive 'computed' in the rules map.
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(['name' => 'X'], ['name' => 'required|string'])
+            ->willReturn([]);
+
+        $dto = $this->handler->handleBody(IgnorePublicRequest::class, $request);
+
+        $this->assertSame(['name' => 'X'], $dto->toArray());
+    }
+
+    public function testIgnoredPropertyAssignedByControllerSurvives(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'X']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(IgnorePublicRequest::class, $request);
+        $dto->computed = 'set-by-controller';
+
+        $this->assertSame('set-by-controller', $dto->computed);
+        $this->assertSame(['name' => 'X'], $dto->toArray());
+    }
+
+    public function testIgnoreWithCompanionAttributeThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('#[Ignore]');
+        $this->handler->handleBody(IgnoreWithValidateConflictRequest::class, $this->makeRequest(body: []));
+    }
+
+    // ===== FromBody (nested dot-path) =====
+
+    public function testFromBodyReadsNestedValue(): void
+    {
+        $request = $this->makeRequest(body: [
+            'customer' => ['id' => 42, 'name' => 'Alice'],
+            'note'     => 'urgent',
+        ]);
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(
+                ['customerId' => 42, 'note' => 'urgent'],
+                ['customerId' => 'required|integer', 'note' => 'nullable|string']
+            )
+            ->willReturn([]);
+
+        $dto = $this->handler->handleBody(FromBodyOrderRequest::class, $request);
+
+        $this->assertSame(42, $dto->customerId);
+        $this->assertSame('urgent', $dto->note);
+    }
+
+    public function testFromBodyDeeplyNestedValue(): void
+    {
+        $request = $this->makeRequest(body: [
+            'shipping' => ['address' => ['zip' => '90210']],
+        ]);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(FromBodyDeepRequest::class, $request);
+
+        $this->assertSame('90210', $dto->shippingZip);
+    }
+
+    public function testFromBodyMissingIntermediateUsesDefault(): void
+    {
+        // 'customer' key absent entirely — property has default, no validation triggered.
+        $request = $this->makeRequest(body: ['note' => 'x']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(FromBodyWithDefaultRequest::class, $request);
+
+        $this->assertSame(0, $dto->customerId);
+    }
+
+    public function testFromBodyMissingIntermediateTriggersRequired(): void
+    {
+        // 'customer' key absent on a required field → validator sees null.
+        $request = $this->makeRequest(body: []);
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(['customerId' => null], ['customerId' => 'required|integer'])
+            ->willReturn(['customerId' => [['rule' => 'required']]]);
+
+        $this->expectException(ValidationException::class);
+        $this->handler->handleBody(FromBodyOrderRequest::class, $request);
+    }
+
+    public function testFromBodyNonArrayIntermediateBehavesAsMissing(): void
+    {
+        // 'customer' is a scalar string instead of an array — traversal must
+        // stop cleanly and yield "missing", not blow up.
+        $request = $this->makeRequest(body: ['customer' => 'not-an-array']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(FromBodyWithDefaultRequest::class, $request);
+
+        $this->assertSame(0, $dto->customerId);
+    }
+
+    public function testFromBodySingleSegmentRemap(): void
+    {
+        // FromBody('display_name') on $name: body['display_name'] feeds $name.
+        $request = $this->makeRequest(body: ['display_name' => 'Alice']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(FromBodyFlatRequest::class, $request);
+
+        $this->assertSame('Alice', $dto->name);
+    }
+
+    public function testFromBodyCombinedWithFromRouteThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('multiple source attributes');
+        $this->handler->handleBody(FromBodyAndRouteConflictRequest::class, $this->makeRequest(body: []));
+    }
+
+    public function testFromBodyArrayLeafOnScalarPropertyEmitsScalarError(): void
+    {
+        // F11: pointing FromBody at a sub-object on a string-typed property
+        // produces a clear `rule: scalar` ValidationException with path info,
+        // not a misleading 'string' validator error.
+        $request = $this->makeRequest(body: ['shipping' => ['address' => ['zip' => '90210']]]);
+        $this->validator->method('validate')->willReturn([]);
+
+        try {
+            $this->handler->handleBody(FromBodyScalarMismatchRequest::class, $request);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $errors = $e->getErrors();
+            $this->assertArrayHasKey('shipping', $errors);
+            $this->assertSame('scalar', $errors['shipping'][0]['rule']);
+        }
+    }
+
+    // ===== F3: PSR-7 object body =====
+
+    public function testObjectBodyIsNormalisedToArray(): void
+    {
+        // Middleware-decoded JSON (`json_decode($json)` without assoc=true)
+        // returns stdClass — body normalisation must convert it to array.
+        $body = (object)['name' => 'Alice', 'nested' => (object)['key' => 'value']];
+        $request = $this->createStub(ServerRequestInterface::class);
+        $request->method('getParsedBody')->willReturn($body);
+        $request->method('getQueryParams')->willReturn([]);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(NoAttributeRequest::class, $request);
+
+        $this->assertSame('Alice', $dto->name);
+    }
+
+    // ===== F5: explicit null/empty values get validated =====
+
+    public function testExplicitEmptyStringIsHandedToValidator(): void
+    {
+        // F5: `{"email": ""}` on an optional `email` rule must reach the validator,
+        // not silently bypass it.
+        $request = $this->makeRequest(body: ['email' => '']);
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(['email' => ''], ['email' => 'nullable|email'])
+            ->willReturn(['email' => [['rule' => 'email']]]);
+
+        $this->expectException(ValidationException::class);
+        $this->handler->handleBody(OptionalEmailRequest::class, $request);
+    }
+
+    public function testExplicitNullIsHandedToValidator(): void
+    {
+        $request = $this->makeRequest(body: ['email' => null]);
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(['email' => null], ['email' => 'nullable|email'])
+            ->willReturn([]);
+
+        $dto = $this->handler->handleBody(OptionalEmailRequest::class, $request);
+
+        $this->assertNull($dto->email);
+    }
+
+    // ===== F8: generator-conflict wins over rule-related checks =====
+
+    public function testGeneratorWithRequiredRuleAndDefaultReportsGeneratorConflict(): void
+    {
+        // F8: previous order surfaced `requiredWithDefault` first; now Generator
+        // conflict wins because that's the actual misconfiguration.
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('Generator');
+        $this->expectExceptionMessage('Validate');
+        $this->handler->handleBody(
+            GeneratorRequiredDefaultRequest::class,
+            $this->makeRequest(body: []),
+        );
+    }
+
+    // ===== F10: ProcessorRegistry::register type guard =====
+
+    public function testRegisterWithMismatchedInstanceThrows(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('is not a');
+        $this->handler->register(\DateTimeImmutable::class, new \stdClass());
+    }
+
+    public function testRequiredFieldMissing(): void
+    {
+        $request = $this->makeRequest(body: []);
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(['name' => null], ['name' => 'required|string'])
+            ->willReturn(['name' => ['The name field is required']]);
+
+        $this->expectException(ValidationException::class);
+        $this->handler->handleBody(NoAttributeRequest::class, $request);
+    }
+
+    public function testOptionalFieldWithoutRulesHasNoValidation(): void
+    {
+        $request = $this->makeRequest(body: ['value' => 'test']);
+        $this->validator->expects($this->never())->method('validate');
+
+        $dto = $this->handler->handleBody(OptionalNoRulesRequest::class, $request);
+
+        $this->assertSame('test', $dto->value);
+    }
+
+    // ===== exclude =====
+
+    public function testExcludeHidesFromToArrayButRunsPipeline(): void
+    {
+        $request = $this->makeRequest(body: ['name' => 'X', 'password' => 'secret123']);
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleBody(ExcludeRequest::class, $request);
+
+        $this->assertSame('secret123', $dto->password);
+        $this->assertSame(['name' => 'X'], $dto->toArray());
+    }
+
+    // ===== configuration exceptions =====
+
+    public function testCastWithClassNameThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("#[Cast('Solo");
+        $this->handler->handleBody(CastWithClassRequest::class, $this->makeRequest(body: []));
+    }
+
+    public function testCastWithUnknownTypeThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("which is neither a built-in type");
+        $this->handler->handleBody(UnknownCastRequest::class, $this->makeRequest(body: []));
+    }
+
+    public function testCasterMustImplementCasterInterface(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('invalid #[Caster(');
+        $this->handler->handleBody(InvalidCasterRequest::class, $this->makeRequest(body: []));
+    }
+
+    public function testCastAndCasterConflictThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('has both #[Cast] and #[Caster]');
+        $this->handler->handleBody(CastAndCasterConflictRequest::class, $this->makeRequest(body: []));
+    }
+
+    public function testGeneratorWithValidateThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('Generator');
+        $this->expectExceptionMessage('Validate');
+        $this->handler->handleBody(GeneratorWithValidateRequest::class, $this->makeRequest(body: []));
+    }
+
+    public function testGeneratorWithFromRouteThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('FromRoute');
+        $this->handler->handleBody(GeneratorWithFromRouteRequest::class, $this->makeRequest(body: []));
+    }
+
+    public function testGeneratorWithItemsThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('Items');
+        $this->handler->handleBody(GeneratorWithItemsRequest::class, $this->makeRequest(body: []));
+    }
+
+    public function testItemsWithCastThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('Items');
+        $this->expectExceptionMessage('Cast');
+        $this->handler->handleBody(ItemsWithCastRequest::class, $this->makeRequest(body: []));
+    }
+
+    public function testMultipleSourcesThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('multiple source attributes');
+        $this->handler->handleBody(MultipleSourcesRequest::class, $this->makeRequest(body: []));
+    }
+
+    public function testNonStaticProcessorMethodThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('NON-static');
+        $this->handler->handleBody(NonStaticProcessorRequest::class, $this->makeRequest(body: ['value' => 'x']));
+    }
+
+    public function testUnknownProcessorThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("invalid preProcess 'nonExistentHandler'");
+        $this->handler->handleBody(UnknownProcessorRequest::class, $this->makeRequest(body: ['value' => 'x']));
+    }
+
+    public function testHasRuleDoesNotMatchInsideInList(): void
+    {
+        // 'in:nullable,active' must NOT trigger nullable rule detection.
+        $request = $this->makeRequest(body: ['status' => 'active']);
+        $this->validator->method('validate')->willReturn([]);
+
+        // No exception (would throw nullableRuleWithNonNullableType if hasRule false-matched).
+        $dto = $this->handler->handleBody(InRuleWithNullableLiteralRequest::class, $request);
+
+        $this->assertSame('active', $dto->status);
+    }
+
+    // ===== runtime guard =====
+
+    public function testPopulateInstanceSkipsNullForNonNullableTypes(): void
+    {
+        $handlerReflection = new \ReflectionClass($this->handler);
+        $method = $handlerReflection->getMethod('populateInstance');
+
+        $cacheProperty = $handlerReflection->getProperty('cache');
+        /** @var \Solo\RequestHandler\Cache\ReflectionCache $cache */
+        $cache = $cacheProperty->getValue($this->handler);
+        $metadata = $cache->get(NonNullableRequest::class);
+        $instance = $metadata->reflection->newInstanceWithoutConstructor();
+
+        $dto = $method->invoke($this->handler, $instance, $metadata, [
+            'id' => null,
+            'name' => 'Test',
+        ]);
+
+        $this->assertSame('Test', $dto->name);
+        $this->assertFalse(isset($dto->id));
+    }
+
+    public function testUntypedPropertyPassesValueThroughWithoutCasting(): void
+    {
+        // Untyped properties have no PHP type to drive the type-based cast,
+        // no #[Cast]/#[Caster], so castValue() must return the value verbatim.
+        $payload = ['anything' => ['nested' => 'object', 'n' => 1]];
+
+        $dto = $this->handler->handleArray(UntypedPassThroughRequest::class, $payload);
+
+        $this->assertSame(['nested' => 'object', 'n' => 1], $dto->anything);
+    }
 }
 
-final class TestRequest extends Request
+// ============================================================================
+// Fixtures
+// ============================================================================
+
+final class BasicRequest extends Request
 {
-    #[Field(rules: 'required|string')]
+    #[Validate('required|string')]
     public string $name;
 
-    #[Field(rules: 'required|numeric')]
+    #[Validate('required|numeric')]
     public float $price;
 
     public ?string $description = null;
 
     public int $page = 1;
+}
 
-    #[Field(mapFrom: 'user.id')]
-    public ?int $userId = null;
+final class UpdateProductRequest extends Request
+{
+    #[FromRoute]
+    #[Validate('required|integer')]
+    public int $id;
+
+    #[Validate('required|string')]
+    public string $name;
+}
+
+final class UpdateWithExplicitKeyRequest extends Request
+{
+    #[FromRoute('product_id')]
+    #[Validate('required|integer')]
+    public int $productId;
+
+    #[Validate('required|string')]
+    public string $name;
+}
+
+final class ContextRequest extends Request
+{
+    #[FromContext('authUserId')]
+    public int $createdBy;
+
+    #[Validate('required|string')]
+    public string $name;
+}
+
+final class OrderItemWithIdRequest extends Request
+{
+    #[Validate('required|integer')]
+    public int $id;
+
+    #[Validate('required|string')]
+    public string $product;
+
+    #[Validate('required|integer')]
+    public int $quantity;
+}
+
+final class OrderWithIdItemsRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $name;
+
+    /** @var OrderItemWithIdRequest[]|null */
+    #[Validate('nullable|array')]
+    #[Items(OrderItemWithIdRequest::class)]
+    public ?array $items = null;
 }
 
 final class ProcessingRequest extends Request
 {
-    #[Field(preProcess: 'trim')]
+    #[PreProcess('trim')]
     public string $name;
 
-    #[Field(postProcess: 'slugify')]
+    #[PostProcess('slugify')]
     public string $slug;
 
     public static function slugify(string $value): string
@@ -768,35 +1125,26 @@ final class ProcessingRequest extends Request
 
 final class CustomCasterRequest extends Request
 {
-    #[Field(cast: CustomCaster::class)]
+    #[Caster(CustomCaster::class)]
     public int $id;
 }
 
 final class PreProcessorRequest extends Request
 {
-    #[Field(preProcess: TestPreProcessor::class)]
+    #[PreProcess(TestPreProcessor::class)]
     public string $value;
 }
 
 final class PostProcessorRequest extends Request
 {
-    #[Field(postProcess: TestPostProcessor::class)]
+    #[PostProcess(TestPostProcessor::class)]
     public string $value;
 }
 
-final class GroupedRequest extends Request
+final class CasterAsProcessorRequest extends Request
 {
-    #[Field(group: 'criteria')]
-    public ?string $search = null;
-
-    #[Field(rules: 'in:only,with', group: 'criteria')]
-    public ?string $deleted = null;
-
-    #[Field(rules: 'min:1')]
-    public int $page = 1;
-
-    #[Field(rules: 'min:1|max:100')]
-    public int $per_page = 20;
+    #[PreProcess(TestCasterAsProcessor::class)]
+    public string $value;
 }
 
 final class CustomCaster implements \Solo\RequestHandler\Contracts\CasterInterface
@@ -831,64 +1179,138 @@ final class TestCasterAsProcessor implements \Solo\RequestHandler\Contracts\Cast
     }
 }
 
-final class CasterAsProcessorRequest extends Request
+final class GroupedRequest extends Request
 {
-    #[Field(preProcess: TestCasterAsProcessor::class)]
-    public string $value;
+    #[Group('criteria')]
+    public ?string $search = null;
+
+    #[Validate('in:only,with')]
+    #[Group('criteria')]
+    public ?string $deleted = null;
+
+    #[Validate('min:1')]
+    public int $page = 1;
+
+    #[Validate('min:1|max:100')]
+    public int $per_page = 20;
 }
 
-final class UnknownProcessorRequest extends Request
+final class MapToGroupedRequest extends Request
 {
-    #[Field(preProcess: 'nonExistentHandler')]
-    public string $value;
+    #[Validate('integer')]
+    #[Group('criteria', mapTo: 'positions.id')]
+    public int $position_id;
+
+    #[Group('criteria')]
+    public ?string $search = null;
+
+    #[Validate('min:1')]
+    public int $page = 1;
 }
 
-// Test: #[Field] is optional, properties without it still work
 final class NoAttributeRequest extends Request
 {
-    #[Field(rules: 'required|string')]
+    #[Validate('required|string')]
     public string $name;
 
-    public ?string $email = null;  // No rules - won't be validated
-    public int $age = 18;          // No rules - won't be validated
+    public ?string $email = null;
+    public int $age = 18;
+}
+
+final class ProtectedInternalRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $name;
+
+    protected string $internal = 'default-internal';
+
+    public function reveal(): string
+    {
+        return $this->internal;
+    }
+}
+
+final class IgnorePublicRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $name;
+
+    #[Ignore]
+    public string $computed = 'controller-default';
+}
+
+final class IgnoreWithValidateConflictRequest extends Request
+{
+    #[Ignore]
+    #[Validate('required|string')]
+    public string $foo;
+}
+
+final class FromBodyOrderRequest extends Request
+{
+    #[FromBody('customer.id')]
+    #[Validate('required|integer')]
+    public int $customerId;
+
+    #[Validate('nullable|string')]
+    public ?string $note = null;
+}
+
+final class FromBodyDeepRequest extends Request
+{
+    #[FromBody('shipping.address.zip')]
+    public string $shippingZip;
+}
+
+final class FromBodyWithDefaultRequest extends Request
+{
+    #[FromBody('customer.id')]
+    public int $customerId = 0;
+}
+
+final class FromBodyFlatRequest extends Request
+{
+    #[FromBody('display_name')]
+    public string $name;
+}
+
+final class FromBodyAndRouteConflictRequest extends Request
+{
+    #[FromBody('foo')]
+    #[FromRoute]
+    public string $foo;
+}
+
+final class FromBodyScalarMismatchRequest extends Request
+{
+    #[FromBody('shipping')]
+    public string $shipping;
+}
+
+final class OptionalEmailRequest extends Request
+{
+    #[Validate('nullable|email')]
+    public ?string $email = null;
+}
+
+final class GeneratorRequiredDefaultRequest extends Request
+{
+    #[Generator(\Solo\RequestHandler\Tests\Integration\ConflictTestGenerator::class)]
+    #[Validate('required|string')]
+    public string $id = 'default';
+}
+
+final class ConflictTestGenerator implements GeneratorInterface
+{
+    public function generate(array $options = []): string
+    {
+        return 'generated';
+    }
 }
 
 final class OptionalNoRulesRequest extends Request
 {
     public ?string $value = null;
-}
-
-// Class that doesn't implement CasterInterface
-final class NotACaster
-{
-    public function cast(mixed $value): string
-    {
-        return 'should_not_work';
-    }
-}
-
-final class InvalidCasterRequest extends Request
-{
-    #[Field(cast: NotACaster::class)]
-    public string $value;
-}
-
-final class ExplicitBuiltInCastRequest extends Request
-{
-    #[Field(cast: 'int')]
-    public int $value;
-}
-
-final class NonBuiltInTypeRequest extends Request
-{
-    /** @var mixed */
-    public $data;
-}
-
-final class NonNullableRequest extends Request
-{
-    public int $id;
-    public string $name;
 }
 
 final class AutoTrimArrayRequest extends Request
@@ -898,63 +1320,49 @@ final class AutoTrimArrayRequest extends Request
     public array $tags = [];
 }
 
-final class GeneratorRequest extends Request
+final class NonNullableRequest extends Request
 {
-    #[Field(generator: TestUuidGenerator::class)]
-    public string $id;
-
-    #[Field(rules: 'required|string')]
+    public int $id;
     public string $name;
 }
 
-final class GeneratorWithOptionsRequest extends Request
+final class UntypedPassThroughRequest extends Request
 {
-    #[Field(generator: TestIdGenerator::class, generatorOptions: ['table' => 'users', 'id' => 123])]
-    public string $id;
-
-    #[Field(rules: 'required|string')]
-    public string $name;
+    /** @var mixed */
+    public $anything;
 }
 
-final class TestUuidGenerator implements GeneratorInterface
+final class ExcludeRequest extends Request
 {
-    public function generate(array $options = []): string
+    #[Validate('required|string')]
+    public string $name;
+
+    #[Validate('required|string|min:8')]
+    #[Exclude]
+    public string $password;
+}
+
+final class ContextProcessorRequest extends Request
+{
+    #[Validate('required|string')]
+    #[PostProcess(RouteAndContextAwareProcessor::class)]
+    public string $slug;
+}
+
+final class RouteAndContextAwareProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
+{
+    public function process(mixed $value, ProcessContext $context): string
     {
-        $uuid = random_bytes(16);
-        $uuid[6] = $uuid[6] & "\x0F" | "\x40";
-        $uuid[8] = $uuid[8] & "\x3F" | "\x80";
-
-        $hex = bin2hex($uuid);
-
-        return
-            substr($hex, 0, 8) . '-' .
-            substr($hex, 8, 4) . '-' .
-            substr($hex, 12, 4) . '-' .
-            substr($hex, 16, 4) . '-' .
-            substr($hex, 20, 12);
+        $id = $context->route['id'] ?? '';
+        $tenant = $context->context['tenant'] ?? '';
+        return "{$value}-{$id}-{$tenant}";
     }
-}
-
-final class TestIdGenerator implements GeneratorInterface
-{
-    public function generate(array $options = []): string
-    {
-        $table = $options['table'] ?? 'unknown';
-        $id = $options['id'] ?? 0;
-        return "{$table}_{$id}";
-    }
-}
-
-final class RouteParamsRequest extends Request
-{
-    #[Field(rules: 'required|string|unique:products,name,{id}')]
-    public string $name;
 }
 
 final class PostProcessorSkipsCastRequest extends Request
 {
     /** @var array<string>|null */
-    #[Field(postProcess: JsonToArrayProcessor::class)]
+    #[PostProcess(JsonToArrayProcessor::class)]
     public ?array $tags = null;
 }
 
@@ -964,27 +1372,6 @@ final class JsonToArrayProcessor implements \Solo\RequestHandler\Contracts\Proce
     public function process(mixed $value, ProcessContext $context): array
     {
         return json_decode($value, true);
-    }
-}
-
-final class RegisteredGeneratorRequest extends Request
-{
-    #[Field(generator: TestGeneratorWithDependency::class)]
-    public string $id;
-
-    #[Field(rules: 'required|string')]
-    public string $name;
-}
-
-final class TestGeneratorWithDependency implements GeneratorInterface
-{
-    public function __construct(private readonly string $prefix)
-    {
-    }
-
-    public function generate(array $options = []): string
-    {
-        return $this->prefix . '_generated';
     }
 }
 
@@ -999,62 +1386,197 @@ final class TestConfigProcessor implements \Solo\RequestHandler\Contracts\Proces
 
 final class PostProcessConfigRequest extends Request
 {
-    #[Field(
-        rules: 'required|string',
-        postProcess: TestConfigProcessor::class,
-        postProcessConfig: ['prefix' => '$']
-    )]
+    #[Validate('required|string')]
+    #[PostProcess(TestConfigProcessor::class, config: ['prefix' => '$'])]
     public string $amount;
 }
 
 final class PostProcessNoConfigRequest extends Request
 {
-    #[Field(rules: 'required|string', postProcess: TestConfigProcessor::class)]
+    #[Validate('required|string')]
+    #[PostProcess(TestConfigProcessor::class)]
     public string $amount;
-}
-
-final class MapToGroupedRequest extends Request
-{
-    #[Field(rules: 'integer', mapTo: 'positions.id', group: 'criteria')]
-    public int $position_id;
-
-    #[Field(group: 'criteria')]
-    public ?string $search = null;
-
-    #[Field(rules: 'min:1')]
-    public int $page = 1;
-}
-
-final class RouteParamsProcessorRequest extends Request
-{
-    #[Field(rules: 'required|string', postProcess: RouteParamsAwareProcessor::class)]
-    public string $slug;
-}
-
-final class RouteParamsAwareProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
-{
-    public function process(mixed $value, ProcessContext $context): string
-    {
-        $id = $context->routeParams['id'] ?? '';
-        return $value . '-' . $id;
-    }
 }
 
 final class OrderItemRequest extends Request
 {
-    #[Field(rules: 'required|string')]
+    #[Validate('required|string')]
     public string $product;
 
-    #[Field(rules: 'required|integer')]
+    #[Validate('required|integer')]
     public int $quantity;
 }
 
 final class OrderRequest extends Request
 {
-    #[Field(rules: 'required|string')]
+    #[Validate('required|string')]
     public string $name;
 
     /** @var OrderItemRequest[]|null */
-    #[Field(rules: 'nullable|array', items: OrderItemRequest::class)]
+    #[Validate('nullable|array')]
+    #[Items(OrderItemRequest::class)]
     public ?array $items = null;
+}
+
+final class NoRulesItemsRequest extends Request
+{
+    /** @var OrderItemRequest[]|null */
+    #[Items(OrderItemRequest::class)]
+    public ?array $items = null;
+}
+
+final class GeneratorRequest extends Request
+{
+    #[Generator(TestUuidGenerator::class)]
+    public string $id;
+
+    #[Validate('required|string')]
+    public string $name;
+}
+
+final class GeneratorWithOptionsRequest extends Request
+{
+    #[Generator(TestIdGenerator::class, options: ['table' => 'users', 'id' => 123])]
+    public string $id;
+
+    #[Validate('required|string')]
+    public string $name;
+}
+
+final class RegisteredGeneratorRequest extends Request
+{
+    #[Generator(TestGeneratorWithDependency::class)]
+    public string $id;
+
+    #[Validate('required|string')]
+    public string $name;
+}
+
+final class TestUuidGenerator implements GeneratorInterface
+{
+    public function generate(array $options = []): string
+    {
+        $uuid = random_bytes(16);
+        $uuid[6] = $uuid[6] & "\x0F" | "\x40";
+        $uuid[8] = $uuid[8] & "\x3F" | "\x80";
+        $hex = bin2hex($uuid);
+        return substr($hex, 0, 8) . '-' . substr($hex, 8, 4) . '-' . substr($hex, 12, 4)
+             . '-' . substr($hex, 16, 4) . '-' . substr($hex, 20, 12);
+    }
+}
+
+final class TestIdGenerator implements GeneratorInterface
+{
+    public function generate(array $options = []): string
+    {
+        return ($options['table'] ?? 'unknown') . '_' . ($options['id'] ?? 0);
+    }
+}
+
+final class TestGeneratorWithDependency implements GeneratorInterface
+{
+    public function __construct(private readonly string $prefix)
+    {
+    }
+
+    public function generate(array $options = []): string
+    {
+        return $this->prefix . '_generated';
+    }
+}
+
+final class UnknownProcessorRequest extends Request
+{
+    #[PreProcess('nonExistentHandler')]
+    public string $value;
+}
+
+final class NonStaticProcessorRequest extends Request
+{
+    #[PreProcess('normalize')]
+    public string $value;
+
+    public function normalize(string $v): string  // intentionally non-static
+    {
+        return $v;
+    }
+}
+
+final class InRuleWithNullableLiteralRequest extends Request
+{
+    #[Validate('in:nullable,active')]
+    public string $status;
+}
+
+// ===== configuration-error fixtures =====
+
+final class NotACaster
+{
+    public function cast(mixed $value): string
+    {
+        return 'nope';
+    }
+}
+
+final class InvalidCasterRequest extends Request
+{
+    /** @phpstan-ignore-next-line — intentional: class does not implement CasterInterface */
+    #[Caster(NotACaster::class)]
+    public string $value;
+}
+
+final class CastAndCasterConflictRequest extends Request
+{
+    #[Cast('int')]
+    #[Caster(CustomCaster::class)]
+    public int $value;
+}
+
+final class CastWithClassRequest extends Request
+{
+    #[Cast(CustomCaster::class)]
+    public int $value;
+}
+
+final class UnknownCastRequest extends Request
+{
+    #[Cast('unknown_type')]
+    public string $value;
+}
+
+final class GeneratorWithValidateRequest extends Request
+{
+    #[Generator(TestUuidGenerator::class)]
+    #[Validate('required|string')]
+    public string $id;
+}
+
+final class GeneratorWithFromRouteRequest extends Request
+{
+    #[Generator(TestUuidGenerator::class)]
+    #[FromRoute]
+    public string $id;
+}
+
+final class GeneratorWithItemsRequest extends Request
+{
+    /** @var array<mixed>|null */
+    #[Generator(TestUuidGenerator::class)]
+    #[Items(OrderItemRequest::class)]
+    public ?array $id = null;
+}
+
+final class ItemsWithCastRequest extends Request
+{
+    /** @var array<mixed> */
+    #[Items(OrderItemRequest::class)]
+    #[Cast('array')]
+    public array $items = [];
+}
+
+final class MultipleSourcesRequest extends Request
+{
+    #[FromRoute]
+    #[FromContext('value')]
+    public string $value;
 }

@@ -1,347 +1,233 @@
-# Field Attribute API
+# Attributes API
 
-The `#[Field]` attribute marks a property to be populated from HTTP requests.
+13 attribute classes organised into two namespaces. See [Attributes (feature guide)](/features/field-attribute) for usage patterns and examples.
 
-## Definition
+All attributes target `Attribute::TARGET_PROPERTY` and are not repeatable — at most one of each per property.
+
+---
+
+## Source attributes — `Solo\RequestHandler\Attributes\Source\*`
+
+Source attributes are optional. Without one, the source defaults to whatever the `handle*` method dictates (Body for `handleBody`/`handleArray`, Query for `handleQuery`). Declaring more than one source attribute on the same property throws `ConfigurationException::multipleSources`.
+
+### `#[FromRoute(?string $key = null)]`
+
+```php
+namespace Solo\RequestHandler\Attributes\Source;
+
+#[Attribute(Attribute::TARGET_PROPERTY)]
+final class FromRoute
+{
+    public function __construct(public ?string $key = null) {}
+}
+```
+
+Reads from the `$route` argument passed to `handle*()`. Flat keys only — dots are part of the literal key name. Defaults to property name when `null`. Empty-string key throws `InvalidArgumentException`.
+
+### `#[FromContext(string $key)]`
+
+```php
+final class FromContext
+{
+    public function __construct(public string $key) {}
+}
+```
+
+Reads from the `$context` argument passed to `handle*()`. `$key` is required and non-empty.
+
+### `#[FromBody(string $path)]`
+
+```php
+final class FromBody
+{
+    public function __construct(public string $path) {}
+}
+```
+
+Reads from the body bag via a dot-path (`'customer.id'`, `'address.city'`). A single-segment path acts as a flat key remap (`#[FromBody('display_name')]` on `public string $name`).
+
+Malformed paths (leading/trailing dot, empty segment like `'a..b'`) throw `InvalidArgumentException`. Resolving the dot-path to an array while the property is a scalar yields a `ValidationException` with `['field' => [['rule' => 'scalar']]]`.
+
+---
+
+## Pipeline attributes — `Solo\RequestHandler\Attributes\*`
+
+### `#[Validate(string $rules)]`
 
 ```php
 namespace Solo\RequestHandler\Attributes;
 
 #[Attribute(Attribute::TARGET_PROPERTY)]
-final class Field
+final class Validate
+{
+    public function __construct(public string $rules) {}
+}
+```
+
+Rules are passed verbatim to `ValidatorInterface::validate()`. The handler does not transform rule strings; cross-field references (e.g. `unique:users,email,{id}`) are the validator's concern, and a typical implementation resolves `{id}` against the validation payload — which contains every DTO field, including those marked `#[FromRoute]` / `#[FromContext]`. Empty rules throw `InvalidArgumentException`.
+
+### `#[Cast(string $type)]`
+
+```php
+final class Cast
+{
+    public function __construct(public string $type) {}
+}
+```
+
+Built-in type for `BuiltInCaster`: `int`, `float`, `bool`, `string`, `array`, or a datetime spec (`datetime`, `datetime:immutable`, `datetime:Y-m-d`, `datetime:immutable:Y-m-d H:i:s`).
+
+Passing a class name throws `ConfigurationException::castExpectsBuiltInType` at metadata-build time — use `#[Caster]` for custom logic. Unknown strings throw `ConfigurationException::unknownCastType`. Mutually exclusive with `#[Caster]` and `#[Items]`.
+
+### `#[Caster(class-string<CasterInterface> $class)]`
+
+```php
+final class Caster
+{
+    public function __construct(public string $class) {}
+}
+```
+
+Custom caster — `$class` must implement `CasterInterface`. Missing or non-implementing class throws `ConfigurationException::invalidCaster`. Mutually exclusive with `#[Cast]` and `#[Items]`.
+
+### `#[PreProcess(string $handler)]`
+
+```php
+final class PreProcess
+{
+    public function __construct(public string $handler) {}
+}
+```
+
+Handler can be a global function, a `ProcessorInterface`/`CasterInterface` class, or a `public static` method on the Request class (non-static methods throw `ConfigurationException::processorMethodNotStatic`).
+
+Runs before validation. Has no `config` parameter.
+
+### `#[PostProcess(string $handler, array $config = [])]`
+
+```php
+final class PostProcess
 {
     public function __construct(
-        public ?string $rules = null,
-        public ?string $cast = null,
-        public ?string $mapFrom = null,
-        public ?string $mapTo = null,
-        public ?string $preProcess = null,
-        public ?string $postProcess = null,
-        public ?string $group = null,
-        public ?string $generator = null,
-        public array $generatorOptions = [],
-        public bool $exclude = false,
-        public ?string $items = null,
+        public string $handler,
+        /** @var array<string, mixed> */
+        public array $config = [],
     ) {}
 }
 ```
 
----
+Same handler rules as `#[PreProcess]`. `config` is exposed to `ProcessorInterface` implementations via `ProcessContext::$config`. Auto-casting is skipped on properties with `#[PostProcess]`.
 
-## Parameters
-
-### rules
-
-Validation rules as a pipe-separated string.
-
-| Type | Default |
-|------|---------|
-| `?string` | `null` |
+### `#[Generator(class-string<GeneratorInterface> $class, array $options = [])]`
 
 ```php
-#[Field(rules: 'required|string|max:255')]
-public string $name;
-
-#[Field(rules: 'nullable|email|unique:users,email')]
-public ?string $email = null;
+final class Generator
+{
+    public function __construct(
+        public string $class,
+        /** @var array<string, mixed> */
+        public array $options = [],
+    ) {}
+}
 ```
 
-See [Validation](/features/validation) for available rules.
+`$class` must implement `GeneratorInterface`. The property is **not** read from any source — the generator produces the value. `$options` are passed to `generate()`.
 
----
+Mutually exclusive with `#[Validate]`, `#[PreProcess]`, `#[PostProcess]`, `#[Cast]`, `#[Caster]`, `#[Items]`, and every source attribute (throws `ConfigurationException::generatorConflict`).
 
-### cast
-
-Explicit type casting. Overrides automatic casting based on property type.
-
-| Type | Default |
-|------|---------|
-| `?string` | `null` |
-
-**Built-in types:**
-- `int`, `integer`
-- `float`, `double`
-- `bool`, `boolean`
-- `string`
-- `array`
-- `datetime`, `datetime:Y-m-d`, `datetime:immutable`, `datetime:immutable:Y-m-d`
-
-**Custom caster:**
+### `#[Items(class-string<Request> $class)]`
 
 ```php
-#[Field(cast: MoneyCaster::class)]
-public Money $price;
+final class Items
+{
+    public function __construct(public string $class) {}
+}
 ```
 
-See [Type Casting](/features/type-casting) for details.
+`$class` must extend `Request`. Property must be typed `array` or `?array`. Each element of the input array is processed through `$class`. Auto-casting is skipped on items properties.
 
----
+Mutually exclusive with `#[Cast]`, `#[Caster]`, `#[Generator]`. `$route` is NOT propagated into nested items — `$context` IS.
 
-### mapFrom
-
-Dot-notation path to extract value from nested input data.
-
-| Type | Default |
-|------|---------|
-| `?string` | `null` (uses property name) |
+### `#[Group(string $name, ?string $mapTo = null)]`
 
 ```php
-// Request: {"user": {"profile": {"age": 30}}}
-
-#[Field(mapFrom: 'user.profile.age')]
-public int $userAge; // 30
+final class Group
+{
+    public function __construct(
+        public string $name,
+        public ?string $mapTo = null,
+    ) {}
+}
 ```
 
----
+Marks the property as a member of group `$name`. `$mapTo` optionally remaps the output key when `Request::group($name)` is built. See [Field Grouping](/features/grouping).
 
-### mapTo
-
-Output key name used in `group()` instead of the property name. Useful for mapping PHP property names to database column names or API field names.
-
-| Type | Default |
-|------|---------|
-| `?string` | `null` (uses property name) |
+### `#[Exclude]`
 
 ```php
-#[Field(mapTo: 'positions.id', group: 'criteria')]
-public int $position_id; // In group(): key will be 'positions.id'
+final class Exclude {}
 ```
 
-::: info
-`mapTo` only affects the output key in `group()`. It does **not** affect `toArray()`, which always uses the property name.
-:::
+Property is processed normally but omitted from `Request::toArray()`. `has()` / `get()` / `group()` still work. Use for sensitive fields (passwords, tokens).
 
-See [Field Grouping](/features/grouping) for details.
-
----
-
-### preProcess
-
-Function or class to transform value **before** validation.
-
-| Type | Default |
-|------|---------|
-| `?string` | `null` |
-
-**Accepts:**
-- Global function name: `'trim'`, `'strtolower'`
-- Class implementing `ProcessorInterface`
-- Class implementing `CasterInterface`
-- Static method name on the Request class
+### `#[Ignore]`
 
 ```php
-#[Field(preProcess: 'trim', rules: 'required|string')]
-public string $name;
-
-#[Field(preProcess: HtmlSanitizer::class)]
-public string $content;
+final class Ignore {}
 ```
 
-See [Processors](/features/processors) for details.
+Removes the property from the RequestHandler pipeline entirely — it is NOT read from any source, NOT validated, NOT cast, and NOT included in `toArray()`/`has()`/`get()`/`group()`. Use for public properties that the controller assigns directly (injected services, computed values).
+
+Cannot coexist with any other RequestHandler attribute — throws `ConfigurationException::ignoreConflict` if combined. Visibility-based opt-out (`protected`/`private`) is an equivalent alternative when the property does not need to stay public.
 
 ---
 
-### postProcess
-
-Function or class to transform value **after** validation and casting.
-
-| Type | Default |
-|------|---------|
-| `?string` | `null` |
-
-::: warning
-When `postProcess` is defined, automatic type casting is **skipped**. The postProcessor must return the correctly typed value.
-:::
+## Field source enum — `Solo\RequestHandler\FieldSource`
 
 ```php
-#[Field(rules: 'required|string', postProcess: 'strtolower')]
-public string $email;
-
-#[Field(postProcess: JsonDecoder::class)]
-public array $metadata;
+enum FieldSource
+{
+    case Body;
+    case Query;
+    case Route;
+    case Context;
+}
 ```
 
-See [Processors](/features/processors) for details.
+Stored in `PropertyMetadata::$source` and used by `RequestHandler` to dispatch to the correct bag at lookup time.
 
 ---
 
-### group
+## Composition
 
-Assign field to a named group for bulk extraction.
-
-| Type | Default |
-|------|---------|
-| `?string` | `null` |
+Attributes compose freely; a typical "rich" property uses 2–3:
 
 ```php
-#[Field(group: 'filters')]
-public ?string $search = null;
+use Solo\RequestHandler\Attributes\{Validate, Cast, PreProcess, PostProcess, Generator, Items, Group, Exclude};
+use Solo\RequestHandler\Attributes\Source\{FromRoute, FromContext};
 
-#[Field(group: 'filters')]
-public ?string $status = null;
+#[FromRoute]
+#[Validate('required|integer|exists:products,id')]
+public int $id;
 
-// Extract all filter fields
-$filters = $dto->group('filters');
-```
+#[Validate('required|integer|min:1')]
+#[Cast('int')]
+public int $quantity;
 
-See [Field Grouping](/features/grouping) for details.
-
----
-
-### generator
-
-Class to auto-generate field value. Must implement `GeneratorInterface`.
-
-| Type | Default |
-|------|---------|
-| `?string` | `null` |
-
-```php
-#[Field(generator: UuidGenerator::class)]
-public string $id;
-```
-
-**Behavior:**
-- Request value is **ignored** — always generates new value
-- Field **bypasses** validation rules
-- Runs before casting
-
-See [Generators](/features/generators) for details.
-
----
-
-### generatorOptions
-
-Options array passed to generator's `generate()` method.
-
-| Type | Default |
-|------|---------|
-| `array` | `[]` |
-
-```php
-#[Field(
-    generator: SequenceGenerator::class,
-    generatorOptions: ['table' => 'orders', 'prefix' => 'ORD']
-)]
-public string $orderNumber;
-```
-
----
-
-### exclude
-
-Exclude field from `toArray()` output.
-
-| Type | Default |
-|------|---------|
-| `bool` | `false` |
-
-```php
-#[Field(rules: 'in:pending,processing', exclude: true)]
-public string $internalStatus = 'pending';
-
-$dto->toArray(); // Does NOT include 'internalStatus'
-$dto->internalStatus; // Still accessible directly
-```
-
----
-
-### items
-
-Request class for validating and processing nested array items. Must extend `Request`.
-
-| Type | Default |
-|------|---------|
-| `?string` | `null` |
-
-```php
-#[Field(rules: 'required|array|min:1', items: OrderItemRequest::class)]
+#[Validate('required|array|min:1')]
+#[Items(OrderItemRequest::class)]
 public ?array $items = null;
+
+#[Generator(UuidGenerator::class)]
+public string $revisionId;
+
+#[Validate('required|string|min:8')]
+#[Exclude]
+public string $password;
+
+#[FromContext('authUserId')]
+#[Validate('required|integer')]
+public int $updatedBy;
+
+protected ?User $currentUser = null; // controller sets this — handler ignores
 ```
-
-**Behavior:**
-- Each array element goes through the referenced Request's full pipeline
-- Auto-casting is **skipped** on the parent field
-- Validation errors use dot-notation: `items.0.field`
-- Cannot be combined with `generator`
-
-See [Nested Items](/features/nested-items) for details.
-
----
-
-## Optional Attribute
-
-The `#[Field]` attribute is **optional**. Properties without it are still processed:
-
-```php
-final class UserRequest extends Request
-{
-    #[Field(rules: 'required|string')]
-    public string $name;           // With validation
-
-    public ?string $email = null;  // No validation, just populated
-    public int $page = 1;          // No validation, has default
-}
-```
-
----
-
-## Complete Example
-
-```php
-final class CreateOrderRequest extends Request
-{
-    #[Field(generator: UuidGenerator::class)]
-    public string $id;
-
-    #[Field(
-        rules: 'required|integer|exists:users,id',
-        mapFrom: 'customer.id'
-    )]
-    public int $customerId;
-
-    #[Field(rules: 'required|array|min:1', items: OrderItemRequest::class)]
-    public ?array $items = null;
-
-    #[Field(
-        rules: 'nullable|string|max:500',
-        preProcess: 'trim'
-    )]
-    public ?string $notes = null;
-
-    #[Field(
-        rules: 'in:pending,confirmed',
-        exclude: true
-    )]
-    public string $status = 'pending';
-
-    #[Field(
-        cast: 'datetime:Y-m-d',
-        group: 'meta'
-    )]
-    public ?DateTime $deliveryDate = null;
-
-    #[Field(group: 'meta')]
-    public ?string $couponCode = null;
-}
-```
-
----
-
-## Configuration Validation
-
-Invalid configurations throw `ConfigurationException` at build time:
-
-| Error | Cause | Fix |
-|-------|-------|-----|
-| Nullable rule with non-nullable type | `#[Field(rules: 'nullable')]` on `string` | Use `?string` |
-| Required with default | `#[Field(rules: 'required')]` on `= 'default'` | Remove default or `required` |
-| Incompatible cast | `#[Field(cast: 'string')]` on `int` | Match cast to property type |
-| Invalid processor | Non-existent function/class | Check spelling, implement interface |
-| Invalid generator | Class doesn't implement `GeneratorInterface` | Implement the interface |
-| Invalid items class | Class doesn't exist or doesn't extend `Request` | Check class name, extend `Request` |
-| Items requires array type | `items` on non-array property | Use `array` or `?array` type |
-| Items with generator | Both `items` and `generator` set | Remove one — mutually exclusive |
-| Invalid items class | Class doesn't exist or doesn't extend `Request` | Check class, extend `Request` |
-| Items requires array type | `items` on non-array property | Use `array` or `?array` type |
-| Items with generator | Both `items` and `generator` set | Remove one — mutually exclusive |

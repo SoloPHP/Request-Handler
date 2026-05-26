@@ -5,18 +5,26 @@ declare(strict_types=1);
 namespace Solo\RequestHandler;
 
 use ReflectionProperty;
+use Solo\RequestHandler\Attributes\Exclude;
+use Solo\RequestHandler\Attributes\Group;
+use Solo\RequestHandler\Attributes\Ignore;
 
 /**
- * Base class for request DTOs with explicit typed properties
+ * Base class for request DTOs with explicit typed properties.
  *
- * Properties must have #[Field] attribute to be processed from HTTP requests.
+ * All public non-static properties are part of the DTO surface and managed
+ * by `RequestHandler`. Use `protected` / `private` visibility — or
+ * `#[Ignore]` on a public property — for state that must stay outside the
+ * input pipeline and output serialisation.
  *
  * Example:
  * ```php
- * #[Field(rules: 'required|string')]
+ * use Solo\RequestHandler\Attributes\Validate;
+ *
+ * #[Validate('required|string')]
  * public string $name;
  *
- * #[Field(rules: 'nullable|string')]
+ * #[Validate('nullable|string')]
  * public ?string $description = null;
  * ```
  *
@@ -56,18 +64,18 @@ abstract class Request
         $cache = [];
         $reflection = new \ReflectionClass($class);
         foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
-            if ($property->isStatic()) {
+            if ($property->isStatic() || !empty($property->getAttributes(Ignore::class))) {
                 continue;
             }
 
-            $attributes = $property->getAttributes(Attributes\Field::class);
-            $field = !empty($attributes) ? $attributes[0]->newInstance() : null;
+            $groupAttr = $property->getAttributes(Group::class);
+            $group = !empty($groupAttr) ? $groupAttr[0]->newInstance() : null;
 
             $cache[$property->getName()] = [
                 'property' => $property,
-                'exclude'  => $field !== null && $field->exclude,
-                'group'    => $field?->group,
-                'mapTo'    => $field?->mapTo,
+                'exclude'  => !empty($property->getAttributes(Exclude::class)),
+                'group'    => $group?->name,
+                'mapTo'    => $group?->mapTo,
             ];
         }
 
@@ -75,7 +83,7 @@ abstract class Request
     }
 
     /**
-     * Returns all initialized properties as array (excluding fields with exclude: true)
+     * Returns all initialized properties as array (skips uninitialized and #[Exclude]-marked).
      *
      * @return array<string, mixed>
      */
@@ -106,7 +114,7 @@ abstract class Request
     }
 
     /**
-     * Check if property is initialized (was present in request)
+     * Check if property is initialized (was present in request, populated, or has a default).
      */
     public function has(string $name): bool
     {
@@ -115,7 +123,7 @@ abstract class Request
     }
 
     /**
-     * Get property value or default if not initialized
+     * Get property value or default if not initialized.
      */
     public function get(string $name, mixed $default = null): mixed
     {
@@ -127,13 +135,13 @@ abstract class Request
     }
 
     /**
-     * Get all properties belonging to a specific group as a flat array
+     * Get all properties belonging to a specific group as a flat array.
      *
-     * Associative arrays are merged by their keys into the result.
-     * Scalars and sequential arrays are stored under property name (or mapTo if specified).
-     * Empty arrays are skipped.
+     * - Associative array properties: contents are merged by their own keys.
+     * - Scalar properties and sequential arrays: added under property name (or `mapTo`).
+     * - Empty arrays AND null scalars are skipped — they carry no group info.
      *
-     * @throws \LogicException When duplicate keys are detected
+     * @throws \LogicException When duplicate keys are detected.
      * @return array<string, mixed>
      */
     public function group(string $groupName): array
@@ -159,8 +167,8 @@ abstract class Request
 
             $value = $property->getValue($this);
 
-            // Skip empty arrays — they carry no criteria info
-            if ($value === []) {
+            // Skip empty arrays and nulls — they convey "no criteria for this slot".
+            if ($value === [] || $value === null) {
                 continue;
             }
 
@@ -182,7 +190,11 @@ abstract class Request
     }
 
     /**
-     * Clear cached metadata. Useful for long-running runtimes (Swoole, RoadRunner, Octane).
+     * Clear the static metadata cache used by `toArray()`/`has()`/`get()`/`group()`.
+     *
+     * Primarily a test helper for isolating cases within a single PHP process —
+     * the cache is per-class and immutable, so production code under PHP-FPM
+     * never needs to call this (state dies with the request).
      *
      * @param string|null $className Clear cache for specific class only, or all if null
      */

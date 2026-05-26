@@ -1,51 +1,57 @@
 # Processors
 
-Processors transform data before validation (`preProcess`) or after casting (`postProcess`).
+Processors transform data before validation (`#[PreProcess]`) or after casting (`#[PostProcess]`).
 
-## preProcess
+## `#[PreProcess]`
 
 Runs **before** validation. Use for sanitization:
 
 ```php
-#[Field(preProcess: 'trim', rules: 'required|string')]
+use Solo\RequestHandler\Attributes\{PreProcess, Validate};
+
+#[PreProcess('trim')]
+#[Validate('required|string')]
 public string $name;
 
 // Input: "  John  " → Validated as: "John"
 ```
 
-## postProcess
+## `#[PostProcess]`
 
 Runs **after** validation and casting. Use for transformation:
 
 ```php
-#[Field(rules: 'required|string', postProcess: 'strtolower')]
+use Solo\RequestHandler\Attributes\{PostProcess, Validate};
+
+#[Validate('required|string')]
+#[PostProcess('strtolower')]
 public string $email;
 
 // Input: "John@Example.COM" → Stored as: "john@example.com"
 ```
 
 ::: warning
-When `postProcess` is defined, automatic type casting is skipped. The postProcessor receives the raw validated value and must return the correctly typed result.
+When `#[PostProcess]` is defined, automatic type casting is skipped. The postProcessor receives the raw validated value and must return the correctly typed result.
 :::
 
 ---
 
-## Processor Types
+## Handler Types
 
 ### Global Functions
 
 ```php
-#[Field(preProcess: 'trim')]
+#[PreProcess('trim')]
 public string $name;
 
-#[Field(postProcess: 'strtolower')]
+#[PostProcess('strtolower')]
 public string $email;
 
-#[Field(postProcess: 'json_decode')]
+#[PostProcess('json_decode')]
 public array $data;
 ```
 
-### ProcessorInterface Class
+### `ProcessorInterface` Class
 
 ```php
 use Solo\RequestHandler\Contracts\ProcessorInterface;
@@ -62,11 +68,11 @@ final class SlugProcessor implements ProcessorInterface
 }
 
 // Usage
-#[Field(postProcess: SlugProcessor::class)]
+#[PostProcess(SlugProcessor::class)]
 public string $slug;
 ```
 
-### CasterInterface as Processor
+### `CasterInterface` as Processor
 
 Casters can also be used as processors:
 
@@ -85,7 +91,8 @@ final class JsonArrayCaster implements CasterInterface
 }
 
 // Used as preProcess
-#[Field(preProcess: JsonArrayCaster::class, rules: 'array|min:1')]
+#[PreProcess(JsonArrayCaster::class)]
+#[Validate('array|min:1')]
 public array $items;
 ```
 
@@ -94,12 +101,12 @@ public array $items;
 ```php
 final class ContactRequest extends Request
 {
-    #[Field(rules: 'required|string', postProcess: 'normalizePhone')]
+    #[Validate('required|string')]
+    #[PostProcess('normalizePhone')]
     public string $phone;
 
     public static function normalizePhone(string $value): string
     {
-        // Remove everything except digits and +
         return preg_replace('/[^0-9+]/', '', $value);
     }
 }
@@ -107,16 +114,13 @@ final class ContactRequest extends Request
 
 ---
 
-## postProcessConfig
+## PostProcess `config`
 
-Pass configuration to a post-processor via `postProcessConfig`. The config is available through `$context->config`:
+Pass configuration to a post-processor via the `config:` named argument. It is exposed through `$context->config`:
 
 ```php
-#[Field(
-    rules: 'required|string',
-    postProcess: CurrencyFormatter::class,
-    postProcessConfig: ['currency' => 'USD', 'decimals' => 2]
-)]
+#[Validate('required|string')]
+#[PostProcess(CurrencyFormatter::class, config: ['currency' => 'USD', 'decimals' => 2])]
 public string $price;
 ```
 
@@ -131,6 +135,8 @@ final class CurrencyFormatter implements ProcessorInterface
     }
 }
 ```
+
+`#[PreProcess]` does not carry a config argument — if you need configurable pre-processing, use `#[PostProcess]` or split logic into a separate handler with constructor dependencies.
 
 ---
 
@@ -160,11 +166,29 @@ $handler->register(
 
 ---
 
+## Accessing Extras From a Processor
+
+`ProcessContext` exposes the same `$route` and `$context` arrays passed to `handleBody()` / `handleQuery()` via separate slots:
+
+```php
+final class SlugWithIdProcessor implements ProcessorInterface
+{
+    public function process(mixed $value, ProcessContext $context): string
+    {
+        $id = $context->route['id'] ?? '';
+        $tenant = $context->context['tenantId'] ?? '';
+        return "{$value}-{$id}-{$tenant}";
+    }
+}
+```
+
+---
+
 ## Processing Pipeline
 
 The complete processing order:
 
-1. **Extract** — Get value from request
+1. **Extract** — Read value from the bag the property's source attribute points to (or the default-source bag if no attribute)
 2. **Auto-trim** — Trim strings (if enabled)
 3. **Empty check** — `null` and `""` exit early (skip steps 4-7)
 4. **preProcess** — Run pre-processor
@@ -174,18 +198,16 @@ The complete processing order:
 8. **Assign** — Set property value
 
 ::: info Early exit for null and empty string
-When a field is present in the request but its value is `null` or `""`, it bypasses pre-processing, casting, and post-processing. The value is stored directly:
+When a field is present in the input but its value is `null` or `""`, it bypasses pre-processing, casting, and post-processing. The value is stored directly:
 - `null` — set `null` for nullable types, or default value for non-nullable types with a default
 - `""` — preserved as empty string, then cast per type (e.g. `""` stays `""` for `string`, becomes `null` for `int`)
 :::
 
 ```php
-#[Field(
-    preProcess: 'trim',           // Step 4
-    rules: 'required|string',     // Step 5
-    cast: 'string',               // Step 6 (skipped if postProcess)
-    postProcess: 'strtolower'     // Step 7
-)]
+#[PreProcess('trim')]                 // Step 4
+#[Validate('required|string')]        // Step 5
+#[Cast('string')]                      // Step 6 (skipped if PostProcess)
+#[PostProcess('strtolower')]          // Step 7
 public string $email;
 ```
 
@@ -206,7 +228,8 @@ final class SlugProcessor implements ProcessorInterface
     }
 }
 
-#[Field(rules: 'required|string', postProcess: SlugProcessor::class)]
+#[Validate('required|string')]
+#[PostProcess(SlugProcessor::class)]
 public string $slug;
 
 // "Hello World!" → "hello-world"
@@ -220,16 +243,17 @@ final class PhoneProcessor implements ProcessorInterface
     public function process(mixed $value, ProcessContext $context): string
     {
         $digits = preg_replace('/[^0-9]/', '', $value);
-        
+
         if (strlen($digits) === 10) {
             return '+1' . $digits;
         }
-        
+
         return '+' . $digits;
     }
 }
 
-#[Field(rules: 'required|string', postProcess: PhoneProcessor::class)]
+#[Validate('required|string')]
+#[PostProcess(PhoneProcessor::class)]
 public string $phone;
 
 // "(555) 123-4567" → "+15551234567"
@@ -246,7 +270,8 @@ final class HtmlSanitizer implements ProcessorInterface
     }
 }
 
-#[Field(preProcess: HtmlSanitizer::class, rules: 'required|string')]
+#[PreProcess(HtmlSanitizer::class)]
+#[Validate('required|string')]
 public string $content;
 ```
 
@@ -260,18 +285,18 @@ final class JsonDecoder implements ProcessorInterface
         if (is_array($value)) {
             return $value;
         }
-        
+
         $decoded = json_decode($value, true);
-        
+
         if (json_last_error() !== JSON_ERROR_NONE) {
             return [];
         }
-        
+
         return $decoded;
     }
 }
 
-#[Field(postProcess: JsonDecoder::class)]
+#[PostProcess(JsonDecoder::class)]
 public array $metadata;
 ```
 
@@ -283,11 +308,11 @@ Invalid processors throw `ConfigurationException` at build time:
 
 ```php
 // ❌ Error: nonExistentFunction doesn't exist
-#[Field(preProcess: 'nonExistentFunction')]
+#[PreProcess('nonExistentFunction')]
 public string $value;
 
 // ❌ Error: class doesn't implement required interface
-#[Field(preProcess: SomeClass::class)]
+#[PreProcess(SomeClass::class)]
 public string $value;
 ```
 

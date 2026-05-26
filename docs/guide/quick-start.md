@@ -2,7 +2,7 @@
 
 ## Create a Request DTO
 
-Create a class extending `Request` with public typed properties:
+Create a class extending `Request` with public typed properties. All public non-static properties are managed automatically — attributes only add behaviour.
 
 ```php
 <?php
@@ -11,21 +11,21 @@ declare(strict_types=1);
 
 namespace App\Requests;
 
-use Solo\RequestHandler\Attributes\Field;
+use Solo\RequestHandler\Attributes\Validate;
 use Solo\RequestHandler\Request;
 
 final class CreateProductRequest extends Request
 {
-    #[Field(rules: 'required|string|max:255')]
+    #[Validate('required|string|max:255')]
     public string $name;
 
-    #[Field(rules: 'required|numeric|min:0')]
+    #[Validate('required|numeric|min:0')]
     public float $price;
 
-    #[Field(rules: 'nullable|integer|min:0')]
+    #[Validate('nullable|integer|min:0')]
     public int $stock = 0;
 
-    #[Field(rules: 'nullable|string')]
+    #[Validate('nullable|string')]
     public ?string $description = null;
 }
 ```
@@ -49,18 +49,16 @@ class ProductController
     public function store(ServerRequestInterface $request): ResponseInterface
     {
         try {
-            // Validate, cast, and create DTO
             $dto = $this->requestHandler->handleBody(
                 CreateProductRequest::class,
                 $request
             );
 
-            // Use typed data with full IDE support
             $this->productService->create(
-                name: $dto->name,          // string
-                price: $dto->price,        // float
-                stock: $dto->stock,        // int
-                description: $dto->description // ?string
+                name: $dto->name,
+                price: $dto->price,
+                stock: $dto->stock,
+                description: $dto->description,
             );
 
             return $this->json(['status' => 'created'], 201);
@@ -88,7 +86,7 @@ if ($dto->has('description')) {
 // Get with default value
 $desc = $dto->get('description', 'No description');
 
-// Convert to array
+// Convert to array (skips uninitialized + #[Exclude]-marked properties)
 $data = $dto->toArray();
 ```
 
@@ -110,16 +108,19 @@ if ($dto->has('description')) {
 
 ```php
 // Required: must be present in request
-#[Field(rules: 'required|string')]
+#[Validate('required|string')]
 public string $username;
 
 // Optional: may be missing (use nullable + default)
-#[Field(rules: 'string')]
+#[Validate('nullable|string')]
 public ?string $bio = null;
 
 // Optional with default value
-#[Field(rules: 'integer')]
+#[Validate('integer')]
 public int $page = 1;
+
+// No #[Validate] — handler just reads/casts the value, validator is never called
+public ?string $internal = null;
 ```
 
 ::: tip Null vs Empty String
@@ -128,6 +129,7 @@ The handler distinguishes absent fields, explicit `null`, and empty string `""`.
 
 ## Next Steps
 
-- [Field Attribute](/features/field-attribute) — All attribute parameters
+- [Configuration](/guide/configuration) — `handleBody` / `handleQuery` / route + context
 - [Type Casting](/features/type-casting) — Automatic type conversion
 - [Validation](/features/validation) — Validation rules and messages
+- [Processors](/features/processors) — Pre/post processing

@@ -5,23 +5,32 @@ declare(strict_types=1);
 namespace Solo\RequestHandler\Cache;
 
 use ReflectionProperty;
+use Solo\RequestHandler\FieldSource;
 use Solo\RequestHandler\Request;
 
 /**
- * Cached metadata for a single field
+ * Cached metadata for a single field.
+ *
+ * `source` is null when the property uses the default source dictated by the
+ * `handle*` method (Body for `handleBody`/`handleArray`, Query for `handleQuery`).
+ * `sourceKey` is always populated.
+ *
+ * `pathSegments` is non-null only when the property is sourced via
+ * `#[FromBody('a.b.c')]` — in that case `InputBags::lookup` walks the body
+ * bag segment by segment instead of doing a flat array_key_exists lookup.
  */
 final readonly class PropertyMetadata
 {
     /**
-     * @param array<string>              $inputPath         Pre-exploded `mapFrom` path.
      * @param array<string, mixed>       $postProcessConfig
      * @param array<string, mixed>       $generatorOptions
      * @param class-string<Request>|null $items
+     * @param list<string>|null          $pathSegments
      */
     public function __construct(
         public string $name,
-        public string $inputName,
-        public array $inputPath,
+        public ?FieldSource $source,
+        public string $sourceKey,
         public ?string $type,
         public bool $isNullable,
         public bool $hasDefault,
@@ -42,6 +51,7 @@ final readonly class PropertyMetadata
         public array $generatorOptions = [],
         public bool $exclude = false,
         public ?string $items = null,
+        public ?array $pathSegments = null,
     ) {
     }
 }

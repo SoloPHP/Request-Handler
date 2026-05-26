@@ -5,18 +5,18 @@ The `Request` class is the base class for all request DTOs. Extend it to define 
 ## Usage
 
 ```php
-use Solo\RequestHandler\Attributes\Field;
+use Solo\RequestHandler\Attributes\Validate;
 use Solo\RequestHandler\Request;
 
 final class CreateUserRequest extends Request
 {
-    #[Field(rules: 'required|string|max:255')]
+    #[Validate('required|string|max:255')]
     public string $name;
 
-    #[Field(rules: 'required|email')]
+    #[Validate('required|email')]
     public string $email;
 
-    #[Field(rules: 'nullable|string')]
+    #[Validate('nullable|string')]
     public ?string $bio = null;
 }
 ```
@@ -27,7 +27,7 @@ final class CreateUserRequest extends Request
 
 ### toArray()
 
-Convert all initialized properties to an array. Excludes fields with `exclude: true`.
+Convert all initialized properties to an array. Excludes fields marked with `#[Exclude]`. `protected` and `private` properties are not part of the DTO surface (use those for internal state the handler should not touch).
 
 ```php
 public function toArray(): array
@@ -129,13 +129,13 @@ public function group(string $groupName): array
 ```php
 final class SearchRequest extends Request
 {
-    #[Field(group: 'filters')]
+    #[Group('filters')]
     public array $search = [];
 
-    #[Field(group: 'filters')]
+    #[Group('filters')]
     public ?string $status = null;
 
-    #[Field(group: 'pagination')]
+    #[Group('pagination')]
     public int $page = 1;
 }
 
@@ -152,7 +152,7 @@ See [Field Grouping](/features/grouping) for details.
 
 ### clearCache()
 
-Clear all static metadata caches. Useful for long-running processes (Swoole, RoadRunner, Octane).
+Clear the static metadata cache used by `toArray()`/`has()`/`get()`/`group()`. Primarily a test helper for isolating cases within a single PHP process — under PHP-FPM the cache dies with the request, so production code never needs this.
 
 ```php
 public static function clearCache(?string $className = null): void

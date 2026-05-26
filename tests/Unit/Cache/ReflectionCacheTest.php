@@ -4,12 +4,26 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Tests\Unit\Cache;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Solo\RequestHandler\Attributes\Cast;
+use Solo\RequestHandler\Attributes\Caster;
+use Solo\RequestHandler\Attributes\Exclude;
+use Solo\RequestHandler\Attributes\Generator;
+use Solo\RequestHandler\Attributes\Group;
+use Solo\RequestHandler\Attributes\Ignore;
+use Solo\RequestHandler\Attributes\Items;
+use Solo\RequestHandler\Attributes\PostProcess;
+use Solo\RequestHandler\Attributes\PreProcess;
+use Solo\RequestHandler\Attributes\Source\FromBody;
+use Solo\RequestHandler\Attributes\Source\FromContext;
+use Solo\RequestHandler\Attributes\Source\FromRoute;
+use Solo\RequestHandler\Attributes\Validate;
 use Solo\RequestHandler\Cache\ReflectionCache;
-use Solo\RequestHandler\Attributes\Field;
-use Solo\RequestHandler\Request;
-use Solo\RequestHandler\Exceptions\ConfigurationException;
 use Solo\RequestHandler\Contracts\GeneratorInterface;
+use Solo\RequestHandler\Exceptions\ConfigurationException;
+use Solo\RequestHandler\FieldSource;
+use Solo\RequestHandler\Request;
 
 final class ReflectionCacheTest extends TestCase
 {
@@ -20,22 +34,16 @@ final class ReflectionCacheTest extends TestCase
         $this->cache = new ReflectionCache();
     }
 
+    // ===== caching =====
+
     public function testGetReturnsCachedMetadata(): void
     {
-        $metadata1 = $this->cache->get(ValidRequest::class);
-        $metadata2 = $this->cache->get(ValidRequest::class);
-
-        $this->assertSame($metadata1, $metadata2);
+        $a = $this->cache->get(ValidRequest::class);
+        $b = $this->cache->get(ValidRequest::class);
+        $this->assertSame($a, $b);
     }
 
-    public function testBuildPropertyMetadataIncludesGroup(): void
-    {
-        $metadata = $this->cache->get(GroupedRequest::class);
-
-        $this->assertEquals('criteria', $metadata->properties['search']->group);
-        $this->assertEquals('criteria', $metadata->properties['status']->group);
-        $this->assertNull($metadata->properties['page']->group);
-    }
+    // ===== property metadata =====
 
     public function testStaticPropertiesAreIgnored(): void
     {
@@ -45,184 +53,55 @@ final class ReflectionCacheTest extends TestCase
         $this->assertArrayNotHasKey('counter', $metadata->properties);
     }
 
-    public function testPropertyWithoutTypeIsNullable(): void
+    public function testProtectedAndPrivatePropertiesAreIgnored(): void
     {
-        $metadata = $this->cache->get(UntypedPropertyRequest::class);
+        $metadata = $this->cache->get(VisibilityRequest::class);
 
-        $this->assertNull($metadata->properties['data']->type);
-        $this->assertTrue($metadata->properties['data']->isNullable);
-        $this->assertFalse($metadata->properties['data']->isRequired);
+        $this->assertArrayHasKey('publicField', $metadata->properties);
+        $this->assertArrayNotHasKey('protectedField', $metadata->properties);
+        $this->assertArrayNotHasKey('privateField', $metadata->properties);
     }
 
-    public function testIsRequiredCalculation(): void
+    public function testIgnoredPropertyIsSkippedFromMetadata(): void
     {
-        $metadata = $this->cache->get(RequiredTestRequest::class);
+        $metadata = $this->cache->get(IgnoredFieldRequest::class);
 
-        // Required: has 'required' in rules
-        $this->assertTrue($metadata->properties['required']->isRequired);
-
-        // Not required: no 'required' in rules
-        $this->assertFalse($metadata->properties['optional']->isRequired);
-
-        // Required nullable: has 'required' in rules
-        $this->assertTrue($metadata->properties['requiredNullable']->isRequired);
-
-        // Not required: no rules at all
-        $this->assertFalse($metadata->properties['noRules']->isRequired);
+        $this->assertArrayHasKey('name', $metadata->properties);
+        $this->assertArrayNotHasKey('currentUser', $metadata->properties);
     }
 
-    public function testNullableRuleWithNonNullableTypeThrowsException(): void
+    #[DataProvider('ignoreConflictProvider')]
+    public function testIgnoreWithCompanionAttributeThrows(string $requestClass, string $expectedAttr): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("has 'nullable' in validation rules but type 'string' doesn't allow null");
-
-        $this->cache->get(InvalidNullableRequest::class);
+        $this->expectExceptionMessage('#[Ignore]');
+        $this->expectExceptionMessage("#[{$expectedAttr}]");
+        /** @var class-string $requestClass */
+        $this->cache->get($requestClass);
     }
 
-    public function testCastTypeMismatchThrowsException(): void
+    /** @return array<string, array{0: class-string, 1: string}> */
+    public static function ignoreConflictProvider(): array
     {
-        $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("cast type 'string' which is incompatible with property type 'int'");
-
-        $this->cache->get(InvalidCastRequest::class);
+        // Representative cases across the three attribute families:
+        // pipeline (Validate), source (FromBody), generation (Generator).
+        return [
+            'Validate'  => [IgnoreWithValidateRequest::class, 'Validate'],
+            'FromBody'  => [IgnoreWithFromBodyRequest::class, 'FromBody'],
+            'Generator' => [IgnoreWithGeneratorRequest::class, 'Generator'],
+        ];
     }
 
-    public function testRequiredWithDefaultThrowsException(): void
+    public function testGroupMetadata(): void
     {
-        $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("has 'required' in rules but also has a default value");
+        $metadata = $this->cache->get(GroupedRequest::class);
 
-        $this->cache->get(InvalidRequiredRequest::class);
+        $this->assertSame('criteria', $metadata->properties['search']->group);
+        $this->assertSame('criteria', $metadata->properties['status']->group);
+        $this->assertNull($metadata->properties['page']->group);
     }
 
-    public function testNullableTypeWithNullableRuleIsValid(): void
-    {
-        // This is a VALID configuration - no exceptions should be thrown
-        $metadata = $this->cache->get(ValidNullableRequest::class);
-
-        $this->assertTrue($metadata->properties['email']->isNullable);
-    }
-
-    public function testUnionTypesWithCompatibleCast(): void
-    {
-        // Union type is compatible if at least one type matches
-        $metadata = $this->cache->get(UnionTypeRequest::class);
-
-        $this->assertArrayHasKey('price', $metadata->properties);
-        $this->assertEquals('float', $metadata->properties['price']->castType);
-    }
-
-    public function testUnionTypesWithIncompatibleCastThrowsException(): void
-    {
-        $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("cast type 'bool' which is incompatible with property type 'int|float'");
-
-        $this->cache->get(InvalidUnionTypeRequest::class);
-    }
-
-    public function testUnknownCastTypeIsAllowed(): void
-    {
-        // Unknown cast types (not in built-in map) should be allowed
-        $metadata = $this->cache->get(UnknownCastTypeRequest::class);
-
-        $this->assertEquals('unknown_type', $metadata->properties['value']->castType);
-    }
-
-    public function testDateTimeCastWithDateTimeInterface(): void
-    {
-        // DateTime cast should be compatible with DateTimeInterface
-        $metadata = $this->cache->get(DateTimeInterfaceRequest::class);
-
-        $this->assertEquals('datetime', $metadata->properties['date']->castType);
-        $this->assertEquals('DateTimeInterface', $metadata->properties['date']->type);
-    }
-
-    public function testDateTimeImmutableCastWithDateTimeInterface(): void
-    {
-        // DateTime immutable cast should be compatible with DateTimeInterface
-        $metadata = $this->cache->get(DateTimeImmutableInterfaceRequest::class);
-
-        $this->assertEquals('datetime:immutable', $metadata->properties['date']->castType);
-        $this->assertEquals('DateTimeInterface', $metadata->properties['date']->type);
-    }
-
-    public function testCustomCasterClassIsAllowed(): void
-    {
-        // Custom caster classes should bypass type validation
-        $metadata = $this->cache->get(CustomCasterRequest::class);
-
-        $this->assertEquals(DummyCaster::class, $metadata->properties['value']->castType);
-        $this->assertEquals('string', $metadata->properties['value']->type);
-    }
-
-    public function testDateTimeCastWithDateTime(): void
-    {
-        // DateTime cast should be compatible with DateTime class
-        $metadata = $this->cache->get(DateTimeRequest::class);
-
-        $this->assertEquals('datetime:Y-m-d H:i:s', $metadata->properties['createdAt']->castType);
-        $this->assertEquals('DateTime', $metadata->properties['createdAt']->type);
-    }
-
-    public function testArrayCastWithArrayType(): void
-    {
-        // Array cast should be compatible with array type
-        $metadata = $this->cache->get(ArrayCastRequest::class);
-
-        $this->assertEquals('array', $metadata->properties['tags']->castType);
-        $this->assertEquals('array', $metadata->properties['tags']->type);
-    }
-
-    public function testInvalidPreProcessorThrowsException(): void
-    {
-        $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("has invalid preProcess 'nonExistentFunction'");
-
-        $this->cache->get(InvalidPreProcessorRequest::class);
-    }
-
-    public function testInvalidPostProcessorThrowsException(): void
-    {
-        $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("has invalid postProcess 'typoFunction'");
-
-        $this->cache->get(InvalidPostProcessorRequest::class);
-    }
-
-    public function testClassWithoutInterfaceThrowsException(): void
-    {
-        $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("has invalid preProcess");
-
-        $this->cache->get(InvalidClassProcessorRequest::class);
-    }
-
-    public function testGeneratorFieldMetadata(): void
-    {
-        $metadata = $this->cache->get(GeneratorFieldRequest::class);
-
-        $this->assertEquals(TestGenerator::class, $metadata->properties['id']->generator);
-        $this->assertEquals(['table' => 'users'], $metadata->properties['id']->generatorOptions);
-        $this->assertNull($metadata->properties['name']->generator);
-    }
-
-    public function testInvalidGeneratorThrowsException(): void
-    {
-        $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("has invalid generator");
-
-        $this->cache->get(InvalidGeneratorRequest::class);
-    }
-
-    public function testNonExistentGeneratorThrowsException(): void
-    {
-        $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("class does not exist");
-
-        $this->cache->get(NonExistentGeneratorRequest::class);
-    }
-
-    public function testExcludeFieldMetadata(): void
+    public function testExcludeMetadata(): void
     {
         $metadata = $this->cache->get(ExcludeFieldRequest::class);
 
@@ -230,63 +109,385 @@ final class ReflectionCacheTest extends TestCase
         $this->assertFalse($metadata->properties['normal']->exclude);
     }
 
-    public function testItemsFieldMetadata(): void
+    public function testIsRequiredCalculation(): void
     {
-        $metadata = $this->cache->get(ValidItemsRequest::class);
+        $metadata = $this->cache->get(RequiredTestRequest::class);
 
-        $this->assertEquals(ItemRequest::class, $metadata->properties['items']->items);
-        $this->assertNull($metadata->properties['name']->items);
+        $this->assertTrue($metadata->properties['required']->isRequired);
+        $this->assertFalse($metadata->properties['optional']->isRequired);
+        $this->assertTrue($metadata->properties['requiredNullable']->isRequired);
+        $this->assertFalse($metadata->properties['noRules']->isRequired);
     }
 
-    public function testInvalidItemsClassThrowsException(): void
+    public function testHasRuleDoesNotMatchInsideValueList(): void
+    {
+        // 'in:nullable,active' must NOT trigger nullable-rule detection.
+        // If it did, the build would throw nullableRuleWithNonNullableType.
+        $metadata = $this->cache->get(InRuleWithNullableLiteralRequest::class);
+
+        $this->assertSame('in:nullable,active', $metadata->properties['status']->validationRules);
+        $this->assertFalse($metadata->properties['status']->isRequired);
+    }
+
+    public function testHasRuleMatchesPipeSeparatedRequired(): void
+    {
+        // 'required|in:active,nullable' — 'required' IS a real rule; 'nullable' inside in: is NOT.
+        $metadata = $this->cache->get(RequiredInRuleRequest::class);
+
+        $this->assertTrue($metadata->properties['status']->isRequired);
+    }
+
+    public function testUntypedPropertyIsNullable(): void
+    {
+        $metadata = $this->cache->get(UntypedPropertyRequest::class);
+
+        $this->assertNull($metadata->properties['data']->type);
+        $this->assertTrue($metadata->properties['data']->isNullable);
+    }
+
+    // ===== source detection =====
+
+    public function testDefaultSourceIsNullWhenNoAttribute(): void
+    {
+        $metadata = $this->cache->get(ValidRequest::class);
+
+        $this->assertNull($metadata->properties['name']->source);
+        $this->assertSame('name', $metadata->properties['name']->sourceKey);
+    }
+
+    public function testFromRouteUsesPropertyNameByDefault(): void
+    {
+        $metadata = $this->cache->get(FromRouteImplicitRequest::class);
+
+        $this->assertSame(FieldSource::Route, $metadata->properties['id']->source);
+        $this->assertSame('id', $metadata->properties['id']->sourceKey);
+    }
+
+    public function testFromContextUsesExplicitKey(): void
+    {
+        $metadata = $this->cache->get(FromContextKeyRequest::class);
+
+        $this->assertSame(FieldSource::Context, $metadata->properties['userId']->source);
+        $this->assertSame('authUserId', $metadata->properties['userId']->sourceKey);
+    }
+
+    public function testMultipleSourcesThrowsException(): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("class does not exist");
+        $this->expectExceptionMessage('multiple source attributes');
+        $this->cache->get(MultipleSourcesRequest::class);
+    }
 
+    public function testFromBodyStoresPathSegments(): void
+    {
+        $metadata = $this->cache->get(FromBodyNestedRequest::class);
+
+        $this->assertSame(FieldSource::Body, $metadata->properties['customerId']->source);
+        $this->assertSame('customer.id', $metadata->properties['customerId']->sourceKey);
+        $this->assertSame(['customer', 'id'], $metadata->properties['customerId']->pathSegments);
+    }
+
+    public function testFromBodySingleSegmentBehavesLikeFlatKeyRemap(): void
+    {
+        $metadata = $this->cache->get(FromBodyFlatKeyRequest::class);
+
+        $this->assertSame(FieldSource::Body, $metadata->properties['name']->source);
+        $this->assertSame(['display_name'], $metadata->properties['name']->pathSegments);
+    }
+
+    public function testFromBodyCombinedWithFromRouteThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('multiple source attributes');
+        $this->cache->get(FromBodyAndFromRouteRequest::class);
+    }
+
+    public function testFromBodyCombinedWithFromContextThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('multiple source attributes');
+        $this->cache->get(FromBodyAndFromContextRequest::class);
+    }
+
+    public function testMultipleSourcesMessageListsAllDeclaredAttributes(): void
+    {
+        // F7: when all three source attributes are declared, the error must
+        // name all three so the user can fix in one pass.
+        try {
+            $this->cache->get(ThreeSourcesRequest::class);
+            $this->fail('Expected ConfigurationException');
+        } catch (ConfigurationException $e) {
+            $msg = $e->getMessage();
+            $this->assertStringContainsString('#[FromRoute]', $msg);
+            $this->assertStringContainsString('#[FromContext]', $msg);
+            $this->assertStringContainsString('#[FromBody]', $msg);
+        }
+    }
+
+    // ===== F6: ambiguous processor =====
+
+    public function testAmbiguousProcessorThrows(): void
+    {
+        // F6: method name 'trim' shadowed by PHP built-in — fail loudly rather
+        // than silently dispatch to one of them.
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('ambiguous');
+        $this->cache->get(AmbiguousTrimProcessorRequest::class);
+    }
+
+    // ===== F9: abstract Items / Generator rejected at build =====
+
+    public function testAbstractItemsClassRejectedAtBuild(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('abstract');
+        $this->cache->get(AbstractItemsRequest::class);
+    }
+
+    public function testAbstractGeneratorClassRejectedAtBuild(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('abstract');
+        $this->cache->get(AbstractGeneratorRequest::class);
+    }
+
+    // ===== F12: intersection types =====
+
+    public function testIntersectionTypeRecognisedAsNonNullable(): void
+    {
+        $metadata = $this->cache->get(IntersectionTypeRequest::class);
+        $prop = $metadata->properties['thing'];
+        $this->assertSame('Countable&Iterator', $prop->type);
+        $this->assertFalse($prop->isNullable);
+    }
+
+    // ===== conflict guards =====
+
+    public function testNullableRuleWithNonNullableTypeThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("'nullable' in validation rules but type 'string' doesn't allow null");
+        $this->cache->get(InvalidNullableRequest::class);
+    }
+
+    public function testCastTypeMismatchThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("cast type 'string' which is incompatible with property type 'int'");
+        $this->cache->get(InvalidCastRequest::class);
+    }
+
+    public function testRequiredWithDefaultThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("has 'required' in rules but also has a default value");
+        $this->cache->get(InvalidRequiredRequest::class);
+    }
+
+    public function testCastWithClassNameThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('#[Cast');
+        $this->expectExceptionMessage('class name');
+        $this->cache->get(CastWithClassNameRequest::class);
+    }
+
+    public function testCastWithUnknownStringThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('neither a built-in type');
+        $this->cache->get(UnknownCastTypeRequest::class);
+    }
+
+    public function testCasterWithoutInterfaceThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('invalid #[Caster(');
+        $this->cache->get(InvalidCasterClassRequest::class);
+    }
+
+    public function testCastAndCasterTogetherThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('has both #[Cast] and #[Caster]');
+        $this->cache->get(CastAndCasterRequest::class);
+    }
+
+    public function testGeneratorConflictsThrow(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('Generator');
+        $this->expectExceptionMessage('Validate');
+        $this->cache->get(GeneratorWithValidateRequest::class);
+    }
+
+    public function testItemsCastConflictThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('Items');
+        $this->expectExceptionMessage('Cast');
+        $this->cache->get(ItemsCastConflictRequest::class);
+    }
+
+    public function testItemsCasterConflictThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('Items');
+        $this->expectExceptionMessage('Caster');
+        $this->cache->get(ItemsCasterConflictRequest::class);
+    }
+
+    public function testCasterWithNonExistentClassThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('invalid #[Caster(');
+        $this->cache->get(CasterWithNonExistentClassRequest::class);
+    }
+
+    // ===== cast resolution =====
+
+    public function testUnionTypesWithCompatibleCast(): void
+    {
+        $metadata = $this->cache->get(UnionTypeRequest::class);
+
+        $this->assertSame('float', $metadata->properties['price']->castType);
+        $this->assertSame('float', $metadata->properties['price']->effectiveCastType);
+    }
+
+    public function testUnionTypesWithIncompatibleCastThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("cast type 'bool' which is incompatible with property type 'int|float'");
+        $this->cache->get(InvalidUnionTypeRequest::class);
+    }
+
+    public function testDateTimeCastWithDateTimeInterface(): void
+    {
+        $metadata = $this->cache->get(DateTimeInterfaceRequest::class);
+        $this->assertSame('datetime', $metadata->properties['date']->castType);
+        $this->assertSame('datetime', $metadata->properties['date']->effectiveCastType);
+    }
+
+    public function testDateTimeImmutableCast(): void
+    {
+        $metadata = $this->cache->get(DateTimeImmutableInterfaceRequest::class);
+        $this->assertSame('datetime:immutable', $metadata->properties['date']->castType);
+    }
+
+    public function testCustomCasterClassStoredInCustomCasterClass(): void
+    {
+        $metadata = $this->cache->get(CustomCasterRequest::class);
+
+        $this->assertNull($metadata->properties['value']->castType);
+        $this->assertNull($metadata->properties['value']->effectiveCastType);
+        $this->assertSame(DummyCaster::class, $metadata->properties['value']->customCasterClass);
+    }
+
+    public function testTypeDrivenCastDefault(): void
+    {
+        $metadata = $this->cache->get(ValidRequest::class);
+        $this->assertSame('string', $metadata->properties['name']->effectiveCastType);
+    }
+
+    // ===== processors =====
+
+    public function testInvalidPreProcessorThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("invalid preProcess 'nonExistentFunction'");
+        $this->cache->get(InvalidPreProcessorRequest::class);
+    }
+
+    public function testInvalidPostProcessorThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("invalid postProcess 'typoFunction'");
+        $this->cache->get(InvalidPostProcessorRequest::class);
+    }
+
+    public function testProcessorClassWithoutInterfaceThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('invalid preProcess');
+        $this->cache->get(InvalidClassProcessorRequest::class);
+    }
+
+    public function testNonStaticProcessorMethodThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('NON-static method');
+        $this->cache->get(NonStaticProcessorMethodRequest::class);
+    }
+
+    public function testStaticProcessorMethodAccepted(): void
+    {
+        $metadata = $this->cache->get(StaticProcessorMethodRequest::class);
+        $this->assertNotNull($metadata->properties['value']->preProcessor);
+    }
+
+    // ===== generator =====
+
+    public function testGeneratorFieldMetadata(): void
+    {
+        $metadata = $this->cache->get(GeneratorFieldRequest::class);
+
+        $this->assertSame(TestGenerator::class, $metadata->properties['id']->generator);
+        $this->assertSame(['table' => 'users'], $metadata->properties['id']->generatorOptions);
+        $this->assertNull($metadata->properties['name']->generator);
+    }
+
+    public function testInvalidGeneratorThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('invalid generator');
+        $this->cache->get(InvalidGeneratorRequest::class);
+    }
+
+    public function testNonExistentGeneratorThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('class does not exist');
+        $this->cache->get(NonExistentGeneratorRequest::class);
+    }
+
+    // ===== items =====
+
+    public function testItemsMetadata(): void
+    {
+        $metadata = $this->cache->get(ValidItemsRequest::class);
+        $this->assertSame(ItemRequest::class, $metadata->properties['items']->items);
+    }
+
+    public function testInvalidItemsClassThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('class does not exist');
         $this->cache->get(NonExistentItemsRequest::class);
     }
 
-    public function testItemsNotRequestSubclassThrowsException(): void
+    public function testItemsNotRequestSubclassThrows(): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("must extend Request");
-
+        $this->expectExceptionMessage('must extend Request');
         $this->cache->get(NotRequestItemsRequest::class);
     }
 
-    public function testItemsRequiresArrayTypeThrowsException(): void
+    public function testItemsRequiresArrayType(): void
     {
         $this->expectException(ConfigurationException::class);
         $this->expectExceptionMessage("has 'items' but type is 'string'");
-
         $this->cache->get(ItemsNonArrayTypeRequest::class);
     }
-
-    public function testItemsWithGeneratorThrowsException(): void
-    {
-        $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("has both 'items' and 'generator'");
-
-        $this->cache->get(ItemsWithGeneratorRequest::class);
-    }
 }
+
+// ============================================================================
+// Fixtures
+// ============================================================================
 
 final class ValidRequest extends Request
 {
-    #[Field(rules: 'required|string')]
+    #[Validate('required|string')]
     public string $name;
-}
-
-final class GroupedRequest extends Request
-{
-    #[Field(rules: 'nullable|string', group: 'criteria')]
-    public ?string $search = null;
-
-    #[Field(rules: 'nullable|string', group: 'criteria')]
-    public ?string $status = null;
-
-    #[Field(rules: 'integer|min:1', cast: 'int')]
-    public int $page = 1;
 }
 
 final class StaticPropertyRequest extends Request
@@ -295,106 +496,200 @@ final class StaticPropertyRequest extends Request
     public string $name;
 }
 
+final class VisibilityRequest extends Request
+{
+    public string $publicField;
+    protected string $protectedField = 'p';
+    private string $privateField = 'pr';
+
+    /** @return array<string, string> */
+    public function reveal(): array
+    {
+        return ['protected' => $this->protectedField, 'private' => $this->privateField];
+    }
+}
+
+final class GroupedRequest extends Request
+{
+    #[Validate('nullable|string')]
+    #[Group('criteria')]
+    public ?string $search = null;
+
+    #[Validate('nullable|string')]
+    #[Group('criteria')]
+    public ?string $status = null;
+
+    #[Validate('integer|min:1')]
+    #[Cast('int')]
+    public int $page = 1;
+}
+
+final class ExcludeFieldRequest extends Request
+{
+    #[Exclude]
+    public string $excluded = 'default';
+
+    #[Validate('required|string')]
+    public string $normal;
+}
+
+final class RequiredTestRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $required;
+
+    #[Validate('nullable|string')]
+    public ?string $optional = null;
+
+    #[Validate('required|nullable|string')]
+    public ?string $requiredNullable;
+
+    public string $noRules;
+}
+
+final class InRuleWithNullableLiteralRequest extends Request
+{
+    #[Validate('in:nullable,active')]
+    public string $status;
+}
+
+final class RequiredInRuleRequest extends Request
+{
+    #[Validate('required|in:active,nullable')]
+    public string $status;
+}
+
 final class UntypedPropertyRequest extends Request
 {
     /** @var mixed */
     public $data;
 }
 
-final class RequiredTestRequest extends Request
+final class FromRouteImplicitRequest extends Request
 {
-    #[Field(rules: 'required|string')]
-    public string $required;
-
-    #[Field(rules: 'nullable|string')]
-    public ?string $optional = null;
-
-    #[Field(rules: 'required|nullable|string')]
-    public ?string $requiredNullable;  // No default - required fields can't have defaults
-
-    public string $noRules;
+    #[FromRoute]
+    #[Validate('required|integer')]
+    public int $id;
 }
 
-// ❌ INVALID configuration: nullable rule with non-nullable type
+final class FromContextKeyRequest extends Request
+{
+    #[FromContext('authUserId')]
+    public int $userId;
+}
+
+final class MultipleSourcesRequest extends Request
+{
+    #[FromRoute]
+    #[FromContext('value')]
+    public string $value;
+}
+
 final class InvalidNullableRequest extends Request
 {
-    #[Field(rules: 'nullable|email')]
-    public string $email;  // Type doesn't allow null
+    #[Validate('nullable|email')]
+    public string $email;
 }
 
-// ❌ INVALID configuration: cast type mismatch
 final class InvalidCastRequest extends Request
 {
-    #[Field(cast: 'string')]
-    public int $id;  // Casting to string but property is int
+    #[Cast('string')]
+    public int $id;
 }
 
-// ❌ INVALID configuration: required with default
 final class InvalidRequiredRequest extends Request
 {
-    #[Field(rules: 'required|string')]
-    public string $name = 'default';  // Required shouldn't have default
+    #[Validate('required|string')]
+    public string $name = 'default';
 }
 
-// ✅ VALID configuration: nullable type with nullable rule
-final class ValidNullableRequest extends Request
+final class CastWithClassNameRequest extends Request
 {
-    #[Field(rules: 'nullable|email')]
-    public ?string $email = null;  // Correct: type allows null
-}
-
-// ✅ VALID configuration: union types with compatible cast
-final class UnionTypeRequest extends Request
-{
-    #[Field(rules: 'numeric', cast: 'float')]
-    public int|float $price;  // Valid: float cast is compatible with int|float
-}
-
-// ❌ INVALID configuration: union types with incompatible cast
-final class InvalidUnionTypeRequest extends Request
-{
-    #[Field(cast: 'bool')]
-    public int|float $count;  // Invalid: bool is not compatible with int|float
+    #[Cast(DummyCaster::class)]
+    public string $value;
 }
 
 final class UnknownCastTypeRequest extends Request
 {
-    #[Field(cast: 'unknown_type')]
+    #[Cast('unknown_type')]
     public string $value;
+}
+
+final class InvalidCasterClassRequest extends Request
+{
+    /** @phpstan-ignore-next-line — intentional: class does not implement CasterInterface */
+    #[Caster(ClassWithoutInterface::class)]
+    public string $value;
+}
+
+final class CastAndCasterRequest extends Request
+{
+    #[Cast('int')]
+    #[Caster(DummyCaster::class)]
+    public int $value;
+}
+
+final class GeneratorWithValidateRequest extends Request
+{
+    #[Generator(TestGenerator::class)]
+    #[Validate('required|string')]
+    public string $id;
+}
+
+final class ItemsCastConflictRequest extends Request
+{
+    /** @var array<mixed> */
+    #[Items(ItemRequest::class)]
+    #[Cast('array')]
+    public array $items = [];
+}
+
+final class ItemsCasterConflictRequest extends Request
+{
+    /** @var array<mixed> */
+    #[Items(ItemRequest::class)]
+    #[Caster(DummyCaster::class)]
+    public array $items = [];
+}
+
+final class CasterWithNonExistentClassRequest extends Request
+{
+    /** @phpstan-ignore-next-line — intentional: class does not exist */
+    #[Caster('NonExistentCasterClass')]
+    public string $value;
+}
+
+final class UnionTypeRequest extends Request
+{
+    #[Validate('numeric')]
+    #[Cast('float')]
+    public int|float $price;
+}
+
+final class InvalidUnionTypeRequest extends Request
+{
+    #[Cast('bool')]
+    public int|float $count;
 }
 
 final class DateTimeInterfaceRequest extends Request
 {
-    #[Field(cast: 'datetime')]
+    #[Cast('datetime')]
     public \DateTimeInterface $date;
 }
 
 final class DateTimeImmutableInterfaceRequest extends Request
 {
-    #[Field(cast: 'datetime:immutable')]
+    #[Cast('datetime:immutable')]
     public \DateTimeInterface $date;
 }
 
 final class CustomCasterRequest extends Request
 {
-    #[Field(cast: DummyCaster::class)]
+    #[Caster(DummyCaster::class)]
     public string $value;
 }
 
-final class DateTimeRequest extends Request
-{
-    #[Field(cast: 'datetime:Y-m-d H:i:s')]
-    public \DateTime $createdAt;
-}
-
-final class ArrayCastRequest extends Request
-{
-    /** @var array<mixed> */
-    #[Field(cast: 'array')]
-    public array $tags;
-}
-
-// Dummy caster for testing custom caster compatibility
 final class DummyCaster implements \Solo\RequestHandler\Contracts\CasterInterface
 {
     public function cast(mixed $value): mixed
@@ -403,28 +698,24 @@ final class DummyCaster implements \Solo\RequestHandler\Contracts\CasterInterfac
     }
 }
 
-// ❌ INVALID: non-existent preProcessor
 final class InvalidPreProcessorRequest extends Request
 {
-    #[Field(preProcess: 'nonExistentFunction')]
+    #[PreProcess('nonExistentFunction')]
     public string $name;
 }
 
-// ❌ INVALID: non-existent postProcessor
 final class InvalidPostProcessorRequest extends Request
 {
-    #[Field(postProcess: 'typoFunction')]
+    #[PostProcess('typoFunction')]
     public string $value;
 }
 
-// ❌ INVALID: class without interface
 final class InvalidClassProcessorRequest extends Request
 {
-    #[Field(preProcess: ClassWithoutInterface::class)]
+    #[PreProcess(ClassWithoutInterface::class)]
     public string $data;
 }
 
-// Helper class without interface for testing
 final class ClassWithoutInterface
 {
     public function process(mixed $value): mixed
@@ -433,27 +724,48 @@ final class ClassWithoutInterface
     }
 }
 
-// ✅ VALID: generator field
+final class NonStaticProcessorMethodRequest extends Request
+{
+    #[PreProcess('normalize')]
+    public string $value;
+
+    public function normalize(string $v): string  // intentionally non-static
+    {
+        return $v;
+    }
+}
+
+final class StaticProcessorMethodRequest extends Request
+{
+    #[PreProcess('normalize')]
+    public string $value;
+
+    public static function normalize(string $v): string
+    {
+        return $v;
+    }
+}
+
 final class GeneratorFieldRequest extends Request
 {
-    #[Field(generator: TestGenerator::class, generatorOptions: ['table' => 'users'])]
+    #[Generator(TestGenerator::class, options: ['table' => 'users'])]
     public string $id;
 
-    #[Field(rules: 'required|string')]
+    #[Validate('required|string')]
     public string $name;
 }
 
-// ❌ INVALID: generator that doesn't implement GeneratorInterface
 final class InvalidGeneratorRequest extends Request
 {
-    #[Field(generator: NotAGenerator::class)]
+    /** @phpstan-ignore-next-line — intentional: class does not implement GeneratorInterface */
+    #[Generator(NotAGenerator::class)]
     public string $id;
 }
 
-// ❌ INVALID: non-existent generator class
 final class NonExistentGeneratorRequest extends Request
 {
-    #[Field(generator: 'NonExistentGenerator')]
+    /** @phpstan-ignore-next-line — intentional: class does not exist */
+    #[Generator('NonExistentGenerator')]
     public string $id;
 }
 
@@ -473,61 +785,147 @@ final class NotAGenerator
     }
 }
 
-// ✅ VALID: exclude field
-final class ExcludeFieldRequest extends Request
-{
-    #[Field(exclude: true)]
-    public string $excluded = 'default';
-
-    #[Field(rules: 'required|string')]
-    public string $normal;
-}
-
-// Items test helper
 final class ItemRequest extends Request
 {
-    #[Field(rules: 'required|string')]
+    #[Validate('required|string')]
     public string $product;
 }
 
-// ✅ VALID: items field
 final class ValidItemsRequest extends Request
 {
-    #[Field(rules: 'required|string')]
+    #[Validate('required|string')]
     public string $name;
 
     /** @var array<int, array<string, mixed>>|null */
-    #[Field(rules: 'nullable|array', items: ItemRequest::class)]
+    #[Validate('nullable|array')]
+    #[Items(ItemRequest::class)]
     public ?array $items = null;
 }
 
-// ❌ INVALID: items class does not exist
 final class NonExistentItemsRequest extends Request
 {
-    /** @var array<mixed>|null */
-    #[Field(items: 'NonExistentItemClass')] // @phpstan-ignore argument.type
+    /**
+     * @var array<mixed>|null
+     * @phpstan-ignore-next-line — intentional: class does not exist
+     */
+    #[Items('NonExistentItemClass')]
     public ?array $items = null;
 }
 
-// ❌ INVALID: items class does not extend Request
 final class NotRequestItemsRequest extends Request
 {
-    /** @var array<mixed>|null */
-    #[Field(items: NotAGenerator::class)] // @phpstan-ignore argument.type
+    /**
+     * @var array<mixed>|null
+     * @phpstan-ignore-next-line — intentional: class does not extend Request
+     */
+    #[Items(NotAGenerator::class)]
     public ?array $items = null;
 }
 
-// ❌ INVALID: items on non-array type
 final class ItemsNonArrayTypeRequest extends Request
 {
-    #[Field(items: ItemRequest::class)]
+    #[Items(ItemRequest::class)]
     public string $items;
 }
 
-// ❌ INVALID: items + generator
-final class ItemsWithGeneratorRequest extends Request
+final class IgnoredFieldRequest extends Request
 {
-    /** @var array<mixed>|null */
-    #[Field(generator: TestGenerator::class, items: ItemRequest::class)]
+    #[Validate('required|string')]
+    public string $name;
+
+    #[Ignore]
+    public ?object $currentUser = null;
+}
+
+final class IgnoreWithValidateRequest extends Request
+{
+    #[Ignore]
+    #[Validate('required|string')]
+    public string $foo;
+}
+
+final class IgnoreWithFromBodyRequest extends Request
+{
+    #[Ignore]
+    #[FromBody('foo')]
+    public string $foo;
+}
+
+final class FromBodyNestedRequest extends Request
+{
+    #[FromBody('customer.id')]
+    public int $customerId;
+}
+
+final class FromBodyFlatKeyRequest extends Request
+{
+    #[FromBody('display_name')]
+    public string $name;
+}
+
+final class FromBodyAndFromRouteRequest extends Request
+{
+    #[FromBody('foo')]
+    #[FromRoute]
+    public string $foo;
+}
+
+final class FromBodyAndFromContextRequest extends Request
+{
+    #[FromBody('foo')]
+    #[FromContext('foo')]
+    public string $foo;
+}
+
+final class ThreeSourcesRequest extends Request
+{
+    #[FromRoute]
+    #[FromContext('foo')]
+    #[FromBody('foo')]
+    public string $foo;
+}
+
+final class AmbiguousTrimProcessorRequest extends Request
+{
+    #[PreProcess('trim')] // collides with global `trim` AND the static method below
+    public string $value;
+
+    public static function trim(string $v): string
+    {
+        return \trim($v, '/');
+    }
+}
+
+abstract class AbstractItemRequest extends Request
+{
+    public string $product;
+}
+
+final class AbstractItemsRequest extends Request
+{
+    /** @var array<int, array<string, mixed>>|null */
+    #[Items(AbstractItemRequest::class)]
     public ?array $items = null;
+}
+
+abstract class AbstractGenerator implements GeneratorInterface
+{
+}
+
+final class AbstractGeneratorRequest extends Request
+{
+    #[Generator(AbstractGenerator::class)]
+    public string $id;
+}
+
+final class IntersectionTypeRequest extends Request
+{
+    public \Countable&\Iterator $thing;
+}
+
+final class IgnoreWithGeneratorRequest extends Request
+{
+    #[Ignore]
+    #[Generator(TestGenerator::class)]
+    public string $id;
 }

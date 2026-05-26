@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Solo\RequestHandler\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use Solo\RequestHandler\Attributes\Field;
+use Solo\RequestHandler\Attributes\Exclude;
+use Solo\RequestHandler\Attributes\Group;
+use Solo\RequestHandler\Attributes\Ignore;
 use Solo\RequestHandler\Request;
 
 final class RequestTest extends TestCase
@@ -23,24 +25,20 @@ final class RequestTest extends TestCase
         $this->dto->age = 30;
         $this->dto->email = 'john@example.com';
 
-        $expected = [
-            'name' => 'John',
-            'age' => 30,
-            'email' => 'john@example.com',
-        ];
-
-        $this->assertEquals($expected, $this->dto->toArray());
+        $this->assertSame(
+            ['name' => 'John', 'age' => 30, 'email' => 'john@example.com'],
+            $this->dto->toArray()
+        );
     }
 
     public function testToArrayReturnsEmptyArrayWhenNoPropertiesInitialized(): void
     {
-        $this->assertEquals([], $this->dto->toArray());
+        $this->assertSame([], $this->dto->toArray());
     }
 
     public function testHasReturnsTrueForInitializedProperty(): void
     {
         $this->dto->name = 'John';
-
         $this->assertTrue($this->dto->has('name'));
     }
 
@@ -57,18 +55,17 @@ final class RequestTest extends TestCase
     public function testGetReturnsPropertyValue(): void
     {
         $this->dto->name = 'John';
-
-        $this->assertEquals('John', $this->dto->get('name'));
+        $this->assertSame('John', $this->dto->get('name'));
     }
 
     public function testGetReturnsDefaultForUninitializedProperty(): void
     {
-        $this->assertEquals('default', $this->dto->get('name', 'default'));
+        $this->assertSame('default', $this->dto->get('name', 'default'));
     }
 
     public function testGetReturnsDefaultForNonExistingProperty(): void
     {
-        $this->assertEquals('default', $this->dto->get('nonexistent', 'default'));
+        $this->assertSame('default', $this->dto->get('nonexistent', 'default'));
     }
 
     public function testGroupIgnoresStaticProperties(): void
@@ -78,20 +75,24 @@ final class RequestTest extends TestCase
 
         $result = $dto->group('criteria');
 
-        $this->assertEquals(['search' => 'test'], $result);
+        $this->assertSame(['search' => 'test'], $result);
         $this->assertArrayNotHasKey('counter', $result);
     }
 
-    public function testGroupIgnoresPropertiesWithoutFieldAttribute(): void
+    public function testGroupIgnoresPropertiesWithoutGroupAttribute(): void
     {
         $dto = new MixedGroupRequest();
         $dto->search = 'test';
         $dto->noAttribute = 'value';
 
-        $result = $dto->group('criteria');
+        $this->assertSame(['search' => 'test'], $dto->group('criteria'));
+    }
 
-        $this->assertEquals(['search' => 'test'], $result);
-        $this->assertArrayNotHasKey('noAttribute', $result);
+    public function testGroupSkipsNullScalarMembers(): void
+    {
+        $dto = new MixedGroupRequest();
+        // search left null; noAttribute outside the group anyway.
+        $this->assertSame([], $dto->group('criteria'));
     }
 
     public function testToArrayIgnoresStaticProperties(): void
@@ -100,10 +101,7 @@ final class RequestTest extends TestCase
         $dto->search = 'test';
         StaticGroupRequest::$counter = 100;
 
-        $result = $dto->toArray();
-
-        $this->assertEquals(['search' => 'test'], $result);
-        $this->assertArrayNotHasKey('counter', $result);
+        $this->assertSame(['search' => 'test'], $dto->toArray());
     }
 
     public function testGroupReturnsEmptyArrayForNonExistingGroup(): void
@@ -111,104 +109,75 @@ final class RequestTest extends TestCase
         $dto = new StaticGroupRequest();
         $dto->search = 'test';
 
-        $result = $dto->group('nonexistent');
-
-        $this->assertEquals([], $result);
+        $this->assertSame([], $dto->group('nonexistent'));
     }
 
     public function testGroupCachesProperties(): void
     {
         $dto = new StaticGroupRequest();
         $dto->search = 'test1';
+        $this->assertSame(['search' => 'test1'], $dto->group('criteria'));
 
-        // First call - builds cache
-        $result1 = $dto->group('criteria');
-        $this->assertEquals(['search' => 'test1'], $result1);
-
-        // Modify property
         $dto->search = 'test2';
-
-        // Second call - uses cache (same properties list)
-        $result2 = $dto->group('criteria');
-        $this->assertEquals(['search' => 'test2'], $result2);
+        $this->assertSame(['search' => 'test2'], $dto->group('criteria'));
     }
 
     public function testGroupOnlyReturnsInitializedProperties(): void
     {
         $dto = new MultiGroupRequest();
         $dto->search = 'test';
-        // status is not initialized
 
-        $result = $dto->group('criteria');
-
-        $this->assertEquals(['search' => 'test'], $result);
-        $this->assertArrayNotHasKey('status', $result);
+        $this->assertSame(['search' => 'test'], $dto->group('criteria'));
     }
 
     public function testClearGroupCacheAll(): void
     {
         $dto = new StaticGroupRequest();
         $dto->search = 'test';
-
-        // Build cache
         $dto->group('criteria');
 
-        // Verify cache exists
-        $reflection = new \ReflectionClass('Solo\\RequestHandler\\Request');
+        $reflection = new \ReflectionClass(Request::class);
         $cacheProperty = $reflection->getProperty('groupCache');
-        $cache = $cacheProperty->getValue();
-        $this->assertNotEmpty($cache);
+        $this->assertNotEmpty($cacheProperty->getValue());
 
-        // Clear all cache
         Request::clearCache();
 
-        // Verify cache is empty
-        $cache = $cacheProperty->getValue();
-        $this->assertEmpty($cache);
+        $this->assertEmpty($cacheProperty->getValue());
     }
 
     public function testClearGroupCacheSpecificClass(): void
     {
         $dto1 = new StaticGroupRequest();
         $dto1->search = 'test1';
+        $dto1->group('criteria');
 
         $dto2 = new MultiGroupRequest();
         $dto2->search = 'test2';
-
-        // Build cache for both
-        $dto1->group('criteria');
         $dto2->group('criteria');
 
-        // Verify cache exists for both
-        $reflection = new \ReflectionClass('Solo\\RequestHandler\\Request');
+        $reflection = new \ReflectionClass(Request::class);
         $cacheProperty = $reflection->getProperty('groupCache');
         $cache = $cacheProperty->getValue();
         $this->assertArrayHasKey(StaticGroupRequest::class, $cache);
         $this->assertArrayHasKey(MultiGroupRequest::class, $cache);
 
-        // Clear cache only for StaticGroupRequest
         Request::clearCache(StaticGroupRequest::class);
 
-        // Verify only StaticGroupRequest cache is cleared
         $cache = $cacheProperty->getValue();
         $this->assertArrayNotHasKey(StaticGroupRequest::class, $cache);
         $this->assertArrayHasKey(MultiGroupRequest::class, $cache);
     }
 
-    public function testGroupFlattensArrayProperties(): void
+    public function testGroupFlattensAssociativeArrays(): void
     {
         $dto = new ArrayGroupRequest();
         $dto->search = ['name' => ['LIKE', '%Admin%']];
         $dto->deleted = ['deleted_at' => ['!=', null]];
 
-        $result = $dto->group('criteria');
-
-        $expected = [
-            'name' => ['LIKE', '%Admin%'],
-            'deleted_at' => ['!=', null],
-        ];
-
-        $this->assertEquals($expected, $result);
+        $this->assertSame(
+            ['name' => ['LIKE', '%Admin%'], 'deleted_at' => ['!=', null]],
+            $dto->group('criteria')
+        );
     }
 
     public function testGroupMixesArraysAndScalars(): void
@@ -217,14 +186,7 @@ final class RequestTest extends TestCase
         $dto->filters = ['status' => 'active'];
         $dto->limit = 10;
 
-        $result = $dto->group('criteria');
-
-        $expected = [
-            'status' => 'active',
-            'limit' => 10,
-        ];
-
-        $this->assertEquals($expected, $result);
+        $this->assertSame(['status' => 'active', 'limit' => 10], $dto->group('criteria'));
     }
 
     public function testGroupThrowsExceptionOnDuplicateKeyFromArrays(): void
@@ -251,15 +213,12 @@ final class RequestTest extends TestCase
         $dto->group('criteria');
     }
 
-    public function testToArrayExcludesFieldsWithExcludeTrue(): void
+    public function testToArrayExcludesFieldsWithExcludeAttribute(): void
     {
         $dto = new ExcludedFieldToArrayRequest();
         $dto->name = 'John';
 
-        $result = $dto->toArray();
-
-        $this->assertEquals(['name' => 'John'], $result);
-        $this->assertArrayNotHasKey('internal', $result);
+        $this->assertSame(['name' => 'John'], $dto->toArray());
     }
 
     public function testToArrayConvertsNestedRequestObjects(): void
@@ -272,14 +231,10 @@ final class RequestTest extends TestCase
         $parent->name = 'Order #1';
         $parent->items = [$item];
 
-        $result = $parent->toArray();
-
-        $this->assertEquals([
-            'name' => 'Order #1',
-            'items' => [
-                ['product' => 'Widget', 'quantity' => 3],
-            ],
-        ], $result);
+        $this->assertSame(
+            ['name' => 'Order #1', 'items' => [['product' => 'Widget', 'quantity' => 3]]],
+            $parent->toArray()
+        );
     }
 
     public function testToArrayConvertsDirectNestedRequest(): void
@@ -292,12 +247,10 @@ final class RequestTest extends TestCase
         $parent->name = 'Test';
         $parent->child = $child;
 
-        $result = $parent->toArray();
-
-        $this->assertEquals([
-            'name' => 'Test',
-            'child' => ['product' => 'Gadget', 'quantity' => 1],
-        ], $result);
+        $this->assertSame(
+            ['name' => 'Test', 'child' => ['product' => 'Gadget', 'quantity' => 1]],
+            $parent->toArray()
+        );
     }
 
     public function testGroupUsesMapToAsOutputKey(): void
@@ -306,10 +259,7 @@ final class RequestTest extends TestCase
         $dto->position_id = 5;
         $dto->search = 'test';
 
-        $result = $dto->group('criteria');
-
-        $this->assertEquals(['positions.id' => 5, 'search' => 'test'], $result);
-        $this->assertArrayNotHasKey('position_id', $result);
+        $this->assertSame(['positions.id' => 5, 'search' => 'test'], $dto->group('criteria'));
     }
 
     public function testGroupSkipsEmptyArrays(): void
@@ -318,13 +268,7 @@ final class RequestTest extends TestCase
         $dto->search = [];
         $dto->deleted = ['deleted_at' => ['!=', null]];
 
-        $result = $dto->group('criteria');
-
-        $expected = [
-            'deleted_at' => ['!=', null],
-        ];
-
-        $this->assertEquals($expected, $result);
+        $this->assertSame(['deleted_at' => ['!=', null]], $dto->group('criteria'));
     }
 
     public function testGroupStoresSequentialArrayUnderPropertyName(): void
@@ -333,14 +277,10 @@ final class RequestTest extends TestCase
         $dto->statuses = ['pending', 'partially_paid'];
         $dto->search = ['name' => ['LIKE', '%test%']];
 
-        $result = $dto->group('criteria');
-
-        $expected = [
-            'statuses' => ['pending', 'partially_paid'],
-            'name' => ['LIKE', '%test%'],
-        ];
-
-        $this->assertEquals($expected, $result);
+        $this->assertSame(
+            ['statuses' => ['pending', 'partially_paid'], 'name' => ['LIKE', '%test%']],
+            $dto->group('criteria')
+        );
     }
 
     public function testGroupStoresSequentialArrayWithMapTo(): void
@@ -348,12 +288,34 @@ final class RequestTest extends TestCase
         $dto = new SequentialArrayMapToRequest();
         $dto->statuses = ['pending', 'active'];
 
-        $result = $dto->group('criteria');
-
-        $this->assertEquals(['order_status' => ['pending', 'active']], $result);
+        $this->assertSame(['order_status' => ['pending', 'active']], $dto->group('criteria'));
     }
 
+    public function testProtectedPropertiesAreNotInToArray(): void
+    {
+        $dto = new InternalStateRequest();
+        $dto->name = 'X';
+        // protected $internal can't be set from outside (and handler doesn't touch it either).
+
+        $this->assertSame(['name' => 'X'], $dto->toArray());
+    }
+
+    public function testIgnoredPublicPropertyIsHiddenFromAllAccessors(): void
+    {
+        $dto = new IgnoredPropertyRequest();
+        $dto->name = 'X';
+        $dto->computed = 'set-by-controller';
+
+        $this->assertSame(['name' => 'X'], $dto->toArray());
+        $this->assertFalse($dto->has('computed'));
+        $this->assertSame('fallback', $dto->get('computed', 'fallback'));
+        $this->assertSame([], $dto->group('criteria'));
+    }
 }
+
+// ============================================================================
+// Fixtures
+// ============================================================================
 
 final class TestRequest extends Request
 {
@@ -366,13 +328,13 @@ final class StaticGroupRequest extends Request
 {
     public static int $counter = 0;
 
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public ?string $search = null;
 }
 
 final class MixedGroupRequest extends Request
 {
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public ?string $search = null;
 
     public ?string $noAttribute = null;
@@ -380,52 +342,52 @@ final class MixedGroupRequest extends Request
 
 final class MultiGroupRequest extends Request
 {
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public ?string $search = null;
 
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public ?string $status;
 }
 
 final class ArrayGroupRequest extends Request
 {
     /** @var array<string, mixed> */
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public array $search;
 
     /** @var array<string, mixed> */
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public array $deleted;
 }
 
 final class MixedTypeGroupRequest extends Request
 {
     /** @var array<string, mixed> */
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public array $filters;
 
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public int $limit;
 }
 
 final class DuplicateKeyRequest extends Request
 {
     /** @var array<string, mixed> */
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public array $first;
 
     /** @var array<string, mixed> */
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public array $second;
 }
 
 final class ScalarDuplicateRequest extends Request
 {
     /** @var array<string, mixed> */
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public array $filters;
 
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public int $limit;
 }
 
@@ -433,34 +395,34 @@ final class ExcludedFieldToArrayRequest extends Request
 {
     public string $name;
 
-    #[Field(exclude: true)]
+    #[Exclude]
     public string $internal = 'secret';
 }
 
 final class MapToGroupRequest extends Request
 {
-    #[Field(mapTo: 'positions.id', group: 'criteria')]
+    #[Group('criteria', mapTo: 'positions.id')]
     public int $position_id;
 
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public ?string $search = null;
 }
 
 final class SequentialArrayGroupRequest extends Request
 {
     /** @var array<string> */
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public array $statuses;
 
     /** @var array<string, mixed> */
-    #[Field(group: 'criteria')]
+    #[Group('criteria')]
     public array $search;
 }
 
 final class SequentialArrayMapToRequest extends Request
 {
     /** @var array<string> */
-    #[Field(mapTo: 'order_status', group: 'criteria')]
+    #[Group('criteria', mapTo: 'order_status')]
     public array $statuses;
 }
 
@@ -483,3 +445,16 @@ final class ParentWithChildRequest extends Request
     public NestedItemRequest $child;
 }
 
+final class InternalStateRequest extends Request
+{
+    public string $name;
+    protected string $internal = 'private-default';
+}
+
+final class IgnoredPropertyRequest extends Request
+{
+    public string $name;
+
+    #[Ignore]
+    public string $computed = 'default';
+}

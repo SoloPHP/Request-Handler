@@ -6,130 +6,169 @@ namespace Solo\RequestHandler;
 
 use Psr\Http\Message\ServerRequestInterface;
 use Solo\Contracts\Validator\ValidatorInterface;
-use Solo\RequestHandler\Cache\ProcessorKind;
 use Solo\RequestHandler\Cache\PropertyMetadata;
 use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Cache\RequestMetadata;
 use Solo\RequestHandler\Casters\BuiltInCaster;
-use Solo\RequestHandler\Contracts\CasterInterface;
 use Solo\RequestHandler\Contracts\GeneratorInterface;
-use Solo\RequestHandler\Contracts\ProcessorInterface;
 use Solo\RequestHandler\Exceptions\ValidationException;
+use Solo\RequestHandler\Pipeline\ProcessorRegistry;
 
 /**
- * Factory for creating request DTOs from HTTP requests
+ * Factory for creating request DTOs from HTTP requests.
  *
- * Example usage:
+ * Each property's source (body / query / route / context) is decided by its
+ * attributes (`#[FromRoute]`, `#[FromContext]`). Without a source attribute,
+ * the default is determined by the `handle*` method invoked: `handleBody` /
+ * `handleArray` default to body; `handleQuery` defaults to query.
+ *
+ * Example:
  * ```php
- * $data = $requestHandler->handleBody(ProductRequest::class, $request);
- * // $data is now a ProductRequest instance with only present fields
+ * $dto = $requestHandler->handleBody(
+ *     UpdateProductRequest::class,
+ *     $request,
+ *     route:   ['id' => $productId],
+ *     context: ['authenticatedUserId' => $auth->id()],
+ * );
  * ```
  */
 final class RequestHandler
 {
-    private ReflectionCache $cache;
-    private BuiltInCaster $builtInCaster;
-
-    /** @var array<class-string, ProcessorInterface|CasterInterface|GeneratorInterface|object> */
-    private array $processors = [];
+    private readonly ReflectionCache $cache;
+    private readonly BuiltInCaster $builtInCaster;
+    private readonly ProcessorRegistry $processors;
 
     public function __construct(
         private readonly ValidatorInterface $validator,
-        private readonly bool $autoTrim = true
+        private readonly bool $autoTrim = true,
     ) {
         $this->cache = new ReflectionCache();
         $this->builtInCaster = new BuiltInCaster();
+        $this->processors = new ProcessorRegistry();
     }
 
     /**
-     * Register a processor/caster/generator instance for dependency injection
-     *
-     * Use this method when your processor/caster/generator requires constructor dependencies.
-     *
-     * Example:
-     * ```php
-     * $handler->register(SequenceGenerator::class, new SequenceGenerator($connection));
-     * $handler->register(SlugProcessor::class, new SlugProcessor($transliterator));
-     * ```
+     * Register a processor/caster/generator instance for dependency injection.
      *
      * @param class-string $className
      */
     public function register(string $className, object $instance): self
     {
-        $this->processors[$className] = $instance;
+        $this->processors->register($className, $instance);
         return $this;
     }
 
     /**
-     * Create a Request DTO from query parameters (GET requests)
+     * Create a Request DTO from request body (POST/PUT/PATCH requests).
      *
      * @template T of Request
-     * @param class-string<T> $className
-     * @param array<string, mixed> $routeParams
+     * @param class-string<T>      $className
+     * @param array<string, mixed> $route   Consumed by #[FromRoute].
+     * @param array<string, mixed> $context Consumed by #[FromContext].
      * @return T
      */
-    public function handleQuery(string $className, ServerRequestInterface $request, array $routeParams = []): Request
-    {
-        return $this->processRawData($className, $request->getQueryParams(), $routeParams);
+    public function handleBody(
+        string $className,
+        ServerRequestInterface $request,
+        array $route = [],
+        array $context = [],
+    ): Request {
+        return $this->processRawData(
+            $className,
+            FieldSource::Body,
+            InputBags::fromRequest($request, $route, $context),
+        );
     }
 
     /**
-     * Create a Request DTO from request body (POST/PUT/PATCH requests)
+     * Create a Request DTO from query parameters (GET requests).
      *
      * @template T of Request
-     * @param class-string<T> $className
-     * @param array<string, mixed> $routeParams
+     * @param class-string<T>      $className
+     * @param array<string, mixed> $route
+     * @param array<string, mixed> $context
      * @return T
      */
-    public function handleBody(string $className, ServerRequestInterface $request, array $routeParams = []): Request
-    {
-        $body = $request->getParsedBody();
-        return $this->processRawData($className, is_array($body) ? $body : [], $routeParams);
+    public function handleQuery(
+        string $className,
+        ServerRequestInterface $request,
+        array $route = [],
+        array $context = [],
+    ): Request {
+        return $this->processRawData(
+            $className,
+            FieldSource::Query,
+            InputBags::fromRequest($request, $route, $context),
+        );
     }
 
     /**
-     * Create a Request DTO from a raw array (useful for nested items processing)
+     * Create a Request DTO from a raw array. The array plays the role of the
+     * body bag; query is empty.
      *
      * @template T of Request
-     * @param class-string<T> $className
+     * @param class-string<T>      $className
      * @param array<string, mixed> $data
+     * @param array<string, mixed> $route
+     * @param array<string, mixed> $context
      * @return T
      */
-    public function handleArray(string $className, array $data): Request
-    {
-        return $this->processRawData($className, $data, []);
+    public function handleArray(
+        string $className,
+        array $data,
+        array $route = [],
+        array $context = [],
+    ): Request {
+        return $this->processRawData(
+            $className,
+            FieldSource::Body,
+            InputBags::fromArray($data, $route, $context),
+        );
     }
 
     /**
      * @template T of Request
      * @param class-string<T> $className
-     * @param array<string, mixed> $rawData
-     * @param array<string, mixed> $routeParams
      * @return T
      */
-    private function processRawData(string $className, array $rawData, array $routeParams): Request
+    private function processRawData(string $className, FieldSource $defaultSource, InputBags $bags): Request
     {
         $metadata = $this->cache->get($className);
         /** @var T $instance */
         $instance = $metadata->reflection->newInstanceWithoutConstructor();
 
-        /** @var array<string, mixed> $validationData */
+        /** @var array<string, mixed>  $validationData */
         $validationData = [];
         /** @var array<string, string> $validationRules */
         $validationRules = [];
-        /** @var array<string, mixed> $presentFields */
+        /** @var array<string, mixed>  $presentFields */
         $presentFields = [];
 
         foreach ($metadata->properties as $property) {
             if ($property->generator !== null) {
                 /** @var class-string<GeneratorInterface> $generatorClass */
                 $generatorClass = $property->generator;
-                $presentFields[$property->name] = $this->runGenerator($generatorClass, $property->generatorOptions);
+                $presentFields[$property->name] = $this->processors->runGenerator(
+                    $generatorClass,
+                    $property->generatorOptions
+                );
                 continue;
             }
 
             $hasValueInRequest = false;
-            $value = $this->resolveInputValue($rawData, $property->inputPath, $hasValueInRequest);
+            $value = $bags->lookup($property, $defaultSource, $hasValueInRequest);
+
+            // FromBody dot-path resolved to an array but the property is a
+            // plain scalar — user pointed at a sub-object, not a leaf. Throw
+            // a path-pinned error instead of letting it muddle through.
+            if (
+                $hasValueInRequest
+                && $property->pathSegments !== null
+                && is_array($value)
+                && in_array($property->type, ['string', 'int', 'integer', 'float', 'double', 'bool', 'boolean'], true)
+            ) {
+                throw new ValidationException([$property->name => [['rule' => 'scalar']]]);
+            }
 
             if ($this->autoTrim && is_string($value)) {
                 $value = trim($value);
@@ -139,34 +178,37 @@ final class RequestHandler
                 if ($property->hasDefault) {
                     continue;
                 }
+                // Missing key, no default — only enrol into validation for
+                // required-typed properties (so 'required' rule fires). Other
+                // rules are skipped because there's no value to validate.
                 $this->collectValidation($property, null, $validationData, $validationRules);
                 continue;
             }
 
-            if ($value === null) {
-                $presentFields[$property->name] = $property->isNullable
-                    ? null
+            // Explicit null or "" was in the request — always feed validator if
+            // any rules are declared, so 'nullable', 'in:', 'email', etc. fire
+            // (rather than silently passing as they would with collectValidation,
+            // which only enrols when isRequired).
+            if ($value === null || $value === '') {
+                $presentFields[$property->name] = $value === '' || $property->isNullable
+                    ? $value
                     : ($property->hasDefault ? $property->defaultValue : null);
-                $this->collectValidation($property, null, $validationData, $validationRules);
-                continue;
-            }
-
-            if ($value === '') {
-                $presentFields[$property->name] = '';
-                $this->collectValidation($property, '', $validationData, $validationRules);
+                if ($property->validationRules !== null) {
+                    $validationData[$property->name] = $value;
+                    $validationRules[$property->name] = $property->validationRules;
+                }
                 continue;
             }
 
             if ($property->preProcessorKind !== null) {
                 /** @var string $handler */
                 $handler = $property->preProcessor;
-                $value = $this->runProcessor(
+                $value = $this->processors->runProcessor(
                     $handler,
                     $property->preProcessorKind,
                     $value,
                     $className,
-                    [],
-                    $routeParams
+                    new ProcessContext([], $bags->route, $bags->context),
                 );
             }
 
@@ -179,7 +221,6 @@ final class RequestHandler
         }
 
         if (!empty($validationRules)) {
-            $validationRules = $this->replaceRulePlaceholders($validationRules, $routeParams);
             $this->validate($validationData, $validationRules);
         }
 
@@ -193,18 +234,17 @@ final class RequestHandler
             if ($property->postProcessorKind !== null) {
                 /** @var string $handler */
                 $handler = $property->postProcessor;
-                $value = $this->runProcessor(
+                $value = $this->processors->runProcessor(
                     $handler,
                     $property->postProcessorKind,
                     $value,
                     $className,
-                    $property->postProcessConfig,
-                    $routeParams
+                    new ProcessContext($property->postProcessConfig, $bags->route, $bags->context),
                 );
             }
 
-            if ($property->items !== null && is_array($value)) {
-                $value = $this->processItems($property->items, $value, $name, $routeParams);
+            if ($property->items !== null && $value !== null) {
+                $value = $this->processItems($property->items, $value, $name, $bags->context);
             }
 
             $presentFields[$name] = $value;
@@ -216,14 +256,20 @@ final class RequestHandler
     /**
      * Process array items through a Request class.
      *
+     * Non-array values yield a structured validation error rather than a TypeError.
+     * Only the outer context is propagated (see `InputBags::forItem()`).
+     *
      * @param class-string<Request> $itemsClass
-     * @param array<int|string, mixed> $items
-     * @param array<string, mixed> $routeParams
+     * @param array<string, mixed>  $context
      * @return array<int, Request>
      * @throws ValidationException
      */
-    private function processItems(string $itemsClass, array $items, string $fieldName, array $routeParams): array
+    private function processItems(string $itemsClass, mixed $items, string $fieldName, array $context): array
     {
+        if (!is_array($items)) {
+            throw new ValidationException([$fieldName => [['rule' => 'array']]]);
+        }
+
         $allErrors = [];
         $processedItems = [];
 
@@ -234,7 +280,11 @@ final class RequestHandler
             }
 
             try {
-                $processedItems[] = $this->processRawData($itemsClass, $itemData, $routeParams);
+                $processedItems[] = $this->processRawData(
+                    $itemsClass,
+                    FieldSource::Body,
+                    InputBags::forItem($itemData, $context),
+                );
             } catch (ValidationException $e) {
                 foreach ($e->getErrors() as $field => $messages) {
                     $allErrors["{$fieldName}.{$index}.{$field}"] = $messages;
@@ -250,7 +300,8 @@ final class RequestHandler
     }
 
     /**
-     * Add a field to the validation set when its rules dictate validation should run.
+     * Enrol a missing field into validation only when the property is
+     * required — so the 'required' rule fires for absent values.
      *
      * @param array<string, mixed>  $validationData
      * @param array<string, string> $validationRules
@@ -259,82 +310,12 @@ final class RequestHandler
         PropertyMetadata $property,
         mixed $value,
         array &$validationData,
-        array &$validationRules
+        array &$validationRules,
     ): void {
         if ($property->isRequired && $property->validationRules !== null) {
             $validationData[$property->name] = $value;
             $validationRules[$property->name] = $property->validationRules;
         }
-    }
-
-    /**
-     * @param array<string, mixed> $data
-     * @param array<string>        $path
-     */
-    private function resolveInputValue(array $data, array $path, bool &$hasValue): mixed
-    {
-        $current = $data;
-        $hasValue = true;
-
-        foreach ($path as $key) {
-            if (!is_array($current) || !array_key_exists($key, $current)) {
-                $hasValue = false;
-                return null;
-            }
-            $current = $current[$key];
-        }
-
-        return $current;
-    }
-
-    /**
-     * @param class-string $className
-     * @param array<string, mixed> $config
-     * @param array<string, mixed> $routeParams
-     */
-    private function runProcessor(
-        string $handler,
-        ProcessorKind $kind,
-        mixed $value,
-        string $className,
-        array $config,
-        array $routeParams
-    ): mixed {
-        return match ($kind) {
-            ProcessorKind::Func => $handler($value), // @phpstan-ignore-line callable.nonCallable
-            ProcessorKind::ProcessorInterface => $this->invokeProcessor($handler, $value, $config, $routeParams),
-            ProcessorKind::CasterInterface => $this->invokeCaster($handler, $value),
-            ProcessorKind::StaticMethod => $className::$handler($value),
-        };
-    }
-
-    /**
-     * @param array<string, mixed> $config
-     * @param array<string, mixed> $routeParams
-     */
-    private function invokeProcessor(string $handler, mixed $value, array $config, array $routeParams): mixed
-    {
-        /** @var ProcessorInterface $processor */
-        $processor = $this->getOrCreateProcessor($handler);
-        return $processor->process($value, new ProcessContext($config, $routeParams));
-    }
-
-    private function invokeCaster(string $handler, mixed $value): mixed
-    {
-        /** @var CasterInterface $caster */
-        $caster = $this->getOrCreateProcessor($handler);
-        return $caster->cast($value);
-    }
-
-    /**
-     * Look up or instantiate a processor/caster/generator. The class is validated at metadata build time
-     * via ReflectionCache::classifyProcessor/validateGenerator/resolveCast, so callers can trust the string
-     * is a real class name even though PHPStan can't narrow it here.
-     */
-    private function getOrCreateProcessor(string $className): object
-    {
-        /** @var class-string $className */
-        return $this->processors[$className] ??= new $className();
     }
 
     private function castValue(mixed $value, PropertyMetadata $property): mixed
@@ -344,7 +325,7 @@ final class RequestHandler
         }
 
         if ($property->customCasterClass !== null) {
-            return $this->invokeCaster($property->customCasterClass, $value);
+            return $this->processors->invokeCaster($property->customCasterClass, $value);
         }
 
         if ($property->effectiveCastType !== null) {
@@ -355,7 +336,7 @@ final class RequestHandler
     }
 
     /**
-     * @param array<string, mixed> $data
+     * @param array<string, mixed>  $data
      * @param array<string, string> $rules
      * @throws ValidationException
      */
@@ -366,31 +347,6 @@ final class RequestHandler
         if (!empty($errors)) {
             throw new ValidationException($errors);
         }
-    }
-
-    /**
-     * Replace {key} placeholders in rules with values from route params.
-     *
-     * @param array<string, string> $rules
-     * @param array<string, mixed>  $routeParams
-     * @return array<string, string>
-     */
-    private function replaceRulePlaceholders(array $rules, array $routeParams): array
-    {
-        if (empty($routeParams)) {
-            return $rules;
-        }
-
-        $replacements = [];
-        foreach ($routeParams as $key => $value) {
-            $replacements['{' . $key . '}'] = (string) $value;
-        }
-
-        foreach ($rules as $field => $rule) {
-            $rules[$field] = strtr($rule, $replacements);
-        }
-
-        return $rules;
     }
 
     /**
@@ -414,16 +370,5 @@ final class RequestHandler
         }
 
         return $instance;
-    }
-
-    /**
-     * @param class-string<GeneratorInterface> $generatorClass
-     * @param array<string, mixed> $options
-     */
-    private function runGenerator(string $generatorClass, array $options): mixed
-    {
-        /** @var GeneratorInterface $generator */
-        $generator = $this->getOrCreateProcessor($generatorClass);
-        return $generator->generate($options);
     }
 }

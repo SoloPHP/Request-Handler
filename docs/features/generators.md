@@ -1,8 +1,13 @@
 # Generators
 
-Generators automatically create field values. Useful for UUIDs, sequences, and computed IDs.
+Generators automatically create field values. Useful for UUIDs, sequences, and computed IDs. Declared via the `#[Generator]` attribute.
 
 ## Basic Usage
+
+```php
+use Solo\RequestHandler\Attributes\Generator;
+```
+
 
 ```php
 use Solo\RequestHandler\Contracts\GeneratorInterface;
@@ -23,7 +28,7 @@ final class UuidGenerator implements GeneratorInterface
 }
 
 // Usage
-#[Field(generator: UuidGenerator::class)]
+#[Generator(UuidGenerator::class)]
 public string $id;
 ```
 
@@ -44,13 +49,10 @@ interface GeneratorInterface
 
 ## Generator Options
 
-Pass options via `generatorOptions` parameter:
+Pass options via the `options:` named argument:
 
 ```php
-#[Field(
-    generator: SequenceGenerator::class,
-    generatorOptions: ['table' => 'orders', 'prefix' => 'ORD']
-)]
+#[Generator(SequenceGenerator::class, options: ['table' => 'orders', 'prefix' => 'ORD'])]
 public string $orderNumber;
 ```
 
@@ -107,14 +109,14 @@ $handler->register(
 
 ## Behavior
 
-When a field has `generator`:
+When a field has `#[Generator]`:
 
 1. **Any request value is ignored** — A new value is always generated
 2. **No validation** — Generated values bypass validation rules
 3. **Runs before casting** — The generated value is used directly
 
 ```php
-#[Field(generator: UuidGenerator::class)]
+#[Generator(UuidGenerator::class)]
 public string $id;
 
 // Even if request contains {"id": "custom-id"},
@@ -156,7 +158,7 @@ final class PrefixedIdGenerator implements GeneratorInterface
     }
 }
 
-#[Field(generator: PrefixedIdGenerator::class, generatorOptions: ['prefix' => 'ORD'])]
+#[Generator(PrefixedIdGenerator::class, options: ['prefix' => 'ORD'])]
 public string $orderId;
 // "ORD-1705276800-4521"
 ```
@@ -200,7 +202,7 @@ final class TimestampGenerator implements GeneratorInterface
     }
 }
 
-#[Field(generator: TimestampGenerator::class)]
+#[Generator(TimestampGenerator::class)]
 public int $createdAt;
 ```
 
@@ -216,7 +218,7 @@ final class TokenGenerator implements GeneratorInterface
     }
 }
 
-#[Field(generator: TokenGenerator::class, generatorOptions: ['length' => 64])]
+#[Generator(TokenGenerator::class, options: ['length' => 64])]
 public string $apiToken;
 ```
 
@@ -275,10 +277,10 @@ Invalid generators throw `ConfigurationException`:
 
 ```php
 // ❌ Error: class does not exist
-#[Field(generator: 'NonExistentGenerator')]
+#[Generator('NonExistentGenerator')]
 public string $id;
 
 // ❌ Error: must implement GeneratorInterface
-#[Field(generator: SomeClass::class)]
+#[Generator(SomeClass::class)]
 public string $id;
 ```

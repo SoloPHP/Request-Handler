@@ -1,34 +1,35 @@
 # Nested Items
 
-The `items` parameter allows you to validate and process arrays of nested objects through a referenced Request class.
+The `#[Items]` attribute lets you validate and process arrays of nested objects through a referenced Request class.
 
 ## Basic Usage
 
-Define a child Request DTO and reference it via `items`:
+Define a child Request DTO and reference it via `#[Items]`:
 
 ```php
-use Solo\RequestHandler\Attributes\Field;
+use Solo\RequestHandler\Attributes\{Validate, Items};
 use Solo\RequestHandler\Request;
 
 final class OrderItemRequest extends Request
 {
-    #[Field(rules: 'required|string|max:255')]
+    #[Validate('required|string|max:255')]
     public string $product;
 
-    #[Field(rules: 'required|integer|min:1')]
+    #[Validate('required|integer|min:1')]
     public int $quantity;
 
-    #[Field(rules: 'required|numeric|min:0')]
+    #[Validate('required|numeric|min:0')]
     public float $price;
 }
 
 final class CreateOrderRequest extends Request
 {
-    #[Field(rules: 'required|string')]
+    #[Validate('required|string')]
     public string $customer;
 
     /** @var OrderItemRequest[]|null */
-    #[Field(rules: 'required|array|min:1', items: OrderItemRequest::class)]
+    #[Validate('required|array|min:1')]
+    #[Items(OrderItemRequest::class)]
     public ?array $items = null;
 }
 ```
@@ -36,8 +37,6 @@ final class CreateOrderRequest extends Request
 Each element in the `items` array goes through the full processing pipeline of the referenced Request class: validation, type casting, pre/post-processing.
 
 ## Input Format
-
-The input data should contain an array of objects:
 
 ```json
 {
@@ -59,15 +58,12 @@ $dto->items[0]->quantity; // 3
 $dto->items[0]->price;    // 9.99
 $dto->items[1]->product;  // 'Gadget'
 
-// Convert to arrays when needed
 $dto->toArray();
 // ['customer' => 'John Doe', 'items' => [
 //     ['product' => 'Widget', 'quantity' => 3, 'price' => 9.99],
 //     ['product' => 'Gadget', 'quantity' => 1, 'price' => 24.50],
 // ]]
 ```
-
-Each item is returned as a Request object with full access to `has()`, `get()`, `group()`, and `toArray()`. The parent's `toArray()` recursively converts nested Request objects back to arrays.
 
 ## Validation Errors
 
@@ -100,53 +96,59 @@ $e->getErrors();
 
 ## Nested Features
 
-Child Request classes support the full feature set:
+Child Request classes support the full attribute set:
 
 ```php
+use Solo\RequestHandler\Attributes\{Validate, Cast, PostProcess, Generator, Group};
+use Solo\RequestHandler\Attributes\Source\FromContext;
+
 final class OrderItemRequest extends Request
 {
-    // Generators
-    #[Field(generator: UuidGenerator::class)]
+    #[Generator(UuidGenerator::class)]
     public string $id;
 
-    // Validation + Type casting
-    #[Field(rules: 'required|string|max:255')]
+    #[Validate('required|string|max:255')]
     public string $product;
 
-    #[Field(rules: 'required|integer|min:1')]
+    #[Validate('required|integer|min:1')]
     public int $quantity;
 
-    // Pre/Post processing
-    #[Field(rules: 'required|numeric|min:0', postProcess: RoundCents::class)]
+    #[Validate('required|numeric|min:0')]
+    #[PostProcess(RoundCents::class)]
     public float $price;
 
-    // Nested mapping
-    #[Field(mapFrom: 'meta.sku')]
-    public ?string $sku = null;
+    #[FromContext('tenantId')]
+    public int $tenantId;
 
-    // Groups
-    #[Field(group: 'pricing')]
+    #[Group('pricing')]
     public ?float $discount = null;
-
 }
 ```
 
-## Route Parameters
+## Route and context in nested items
 
-Route parameters are propagated to nested items. This allows placeholder replacement in child validation rules:
+Route params are **NOT propagated to nested items**. They describe the outer resource (e.g. an order id), not each item. Merging them into item data would silently overwrite item-level fields whose name happened to match a route key (e.g. each item's `id` becoming the outer route's `id`).
+
+`$context` IS propagated, so items can read it via `#[FromContext]` and item processors can access `ProcessContext::$context`.
 
 ```php
 final class LineItemRequest extends Request
 {
-    #[Field(rules: 'required|integer|exists:products,id,tenant_id,{tenantId}')]
+    #[FromContext('tenantId')]
+    public int $tenantId;
+
+    #[Validate('required|integer|exists:products,id')]
     public int $productId;
+
+    #[Validate('required|integer|min:1')]
+    public int $quantity;
 }
 
-// Route params are passed through to nested items
 $dto = $handler->handleBody(
     OrderRequest::class,
     $request,
-    ['tenantId' => 42]
+    route:   ['orderId' => 7],          // not visible inside items
+    context: ['tenantId' => 42],        // each item picks it up via #[FromContext]
 );
 ```
 
@@ -168,20 +170,20 @@ $item->price;    // 9.99 (float)
 
 ## Processing Pipeline
 
-For fields with `items`, the processing order is:
+For fields with `#[Items]`, the processing order is:
 
 1. Parent field is validated (e.g., `required|array|min:1`)
 2. Auto-casting is **skipped** — the array is passed directly to items processing
 3. Each element goes through the child Request pipeline:
-   - Generate values (generators)
-   - Pre-process
-   - Validate
+   - Generate values (`#[Generator]`)
+   - Pre-process (`#[PreProcess]`)
+   - Validate (`#[Validate]`)
    - Cast types
-   - Post-process
+   - Post-process (`#[PostProcess]`)
 4. Each processed item is returned as a Request object
 
 ::: warning
-Auto-casting is intentionally skipped for `items` fields. The `BuiltInCaster` won't process the array before items are handled. This prevents data corruption when the array contains structured objects.
+Auto-casting is intentionally skipped for `#[Items]` fields. The `BuiltInCaster` won't process the array before items are handled. This prevents data corruption when the array contains structured objects.
 :::
 
 ## Configuration Validation
@@ -190,10 +192,10 @@ Invalid configurations throw `ConfigurationException` at build time:
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| Class does not exist | `items: 'NonExistent'` | Check class name and imports |
-| Must extend Request | `items: SomeClass::class` (not a Request) | Extend `Request` base class |
-| Requires array type | `items` on `string` property | Use `array` or `?array` type |
-| Items with generator | Both `items` and `generator` set | Remove one — they are mutually exclusive |
+| Class does not exist | `#[Items('NonExistent')]` | Check class name and imports |
+| Must extend Request | `#[Items(SomeClass::class)]` (not a Request) | Extend `Request` base class |
+| Requires array type | `#[Items]` on `string` property | Use `array` or `?array` type |
+| Items with generator | Both `#[Items]` and `#[Generator]` on the same property | Remove one — they are mutually exclusive |
 
 ## Practical Examples
 
@@ -202,40 +204,42 @@ Invalid configurations throw `ConfigurationException` at build time:
 ```php
 final class AddressRequest extends Request
 {
-    #[Field(rules: 'required|string|max:255')]
+    #[Validate('required|string|max:255')]
     public string $street;
 
-    #[Field(rules: 'required|string|max:100')]
+    #[Validate('required|string|max:100')]
     public string $city;
 
-    #[Field(rules: 'required|string|size:2')]
+    #[Validate('required|string|size:2')]
     public string $country;
 
-    #[Field(rules: 'required|string|max:20')]
+    #[Validate('required|string|max:20')]
     public string $zip;
 }
 
 final class OrderItemRequest extends Request
 {
-    #[Field(rules: 'required|integer|exists:products,id')]
+    #[Validate('required|integer|exists:products,id')]
     public int $productId;
 
-    #[Field(rules: 'required|integer|min:1|max:99')]
+    #[Validate('required|integer|min:1|max:99')]
     public int $quantity;
 }
 
 final class CreateOrderRequest extends Request
 {
-    #[Field(generator: UuidGenerator::class)]
+    #[Generator(UuidGenerator::class)]
     public string $id;
 
-    #[Field(rules: 'required|array|min:1', items: OrderItemRequest::class)]
+    #[Validate('required|array|min:1')]
+    #[Items(OrderItemRequest::class)]
     public ?array $items = null;
 
-    #[Field(rules: 'required|array', items: AddressRequest::class)]
+    #[Validate('required|array')]
+    #[Items(AddressRequest::class)]
     public ?array $addresses = null;
 
-    #[Field(rules: 'nullable|string|max:500')]
+    #[Validate('nullable|string|max:500')]
     public ?string $notes = null;
 }
 ```
@@ -245,19 +249,20 @@ final class CreateOrderRequest extends Request
 ```php
 final class AnswerRequest extends Request
 {
-    #[Field(rules: 'required|integer|exists:questions,id')]
+    #[Validate('required|integer|exists:questions,id')]
     public int $questionId;
 
-    #[Field(rules: 'required|string|max:1000')]
+    #[Validate('required|string|max:1000')]
     public string $value;
 }
 
 final class SubmitSurveyRequest extends Request
 {
-    #[Field(rules: 'required|integer|exists:surveys,id')]
+    #[Validate('required|integer|exists:surveys,id')]
     public int $surveyId;
 
-    #[Field(rules: 'required|array|min:1', items: AnswerRequest::class)]
+    #[Validate('required|array|min:1')]
+    #[Items(AnswerRequest::class)]
     public ?array $answers = null;
 }
 ```

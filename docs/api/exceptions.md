@@ -78,160 +78,250 @@ class UserController
 
 ## ConfigurationException
 
-Thrown when a Request class has invalid configuration. This is a **developer error** caught at build time.
+Thrown when a Request class has invalid configuration. This is a **developer error** caught at metadata-build time — before any input is processed — so misconfigurations surface in dev/test, not on a live request.
 
 ```php
 namespace Solo\RequestHandler\Exceptions;
 
-final class ConfigurationException extends Exception
-{
-    public static function nullableRuleWithNonNullableType(
-        string $className,
-        string $propertyName,
-        string $propertyType
-    ): self;
-
-    public static function castTypeMismatch(
-        string $className,
-        string $propertyName,
-        string $castType,
-        string $propertyType
-    ): self;
-
-    public static function requiredWithDefault(
-        string $className,
-        string $propertyName
-    ): self;
-
-    public static function invalidProcessor(
-        string $className,
-        string $propertyName,
-        string $processorType,
-        string $processorName
-    ): self;
-
-    public static function invalidGenerator(
-        string $className,
-        string $propertyName,
-        string $generatorClass,
-        string $reason
-    ): self;
-
-    public static function invalidItems(
-        string $className,
-        string $propertyName,
-        string $itemsClass,
-        string $reason
-    ): self;
-
-    public static function itemsRequiresArrayType(
-        string $className,
-        string $propertyName,
-        string $propertyType
-    ): self;
-
-    public static function itemsWithGenerator(
-        string $className,
-        string $propertyName
-    ): self;
-}
+final class ConfigurationException extends Exception { /* 18 named factories */ }
 ```
 
-### Error Types
+### Error types
+
+Each factory below corresponds to one diagnosable misconfiguration. The message always names the offending `Class::$property` and points at the fix.
 
 #### nullableRuleWithNonNullableType
 
 ```php
-// ❌ Wrong: 'nullable' rule on non-nullable type
-#[Field(rules: 'nullable|email')]
+// ❌ 'nullable' rule on non-nullable type
+#[Validate('nullable|email')]
 public string $email;
 
-// ✅ Correct: type allows null
-#[Field(rules: 'nullable|email')]
+// ✅ Make the type nullable
+#[Validate('nullable|email')]
 public ?string $email = null;
 ```
 
 #### castTypeMismatch
 
 ```php
-// ❌ Wrong: casting to string but property is int
-#[Field(cast: 'string')]
+// ❌ Cast produces a different type than the property accepts
+#[Cast('string')]
 public int $id;
 
-// ✅ Correct: types match
-#[Field(cast: 'int')]
+// ✅
+#[Cast('int')]
 public int $id;
 ```
 
 #### requiredWithDefault
 
 ```php
-// ❌ Wrong: required with default value
-#[Field(rules: 'required|string')]
+// ❌ 'required' and a default contradict each other
+#[Validate('required|string')]
 public string $name = 'default';
 
-// ✅ Correct: no default for required
-#[Field(rules: 'required|string')]
+// ✅
+#[Validate('required|string')]
 public string $name;
+```
+
+#### castAndCasterConflict
+
+```php
+// ❌ Both #[Cast] and #[Caster] on one property
+#[Cast('int')]
+#[Caster(MyCaster::class)]
+public int $value;
+
+// ✅ Pick one
+#[Caster(MyCaster::class)]
+public int $value;
+```
+
+#### unknownCastType
+
+```php
+// ❌ Not a recognised built-in
+#[Cast('unknown_type')]
+public string $value;
+
+// ✅
+#[Cast('string')]
+public string $value;
+```
+
+#### castExpectsBuiltInType
+
+```php
+// ❌ #[Cast] received a class name
+#[Cast(MyCaster::class)]
+public string $value;
+
+// ✅ For custom casters, use #[Caster]
+#[Caster(MyCaster::class)]
+public string $value;
+```
+
+#### invalidCaster
+
+```php
+// ❌ Class missing or not a CasterInterface
+#[Caster(NotACaster::class)]
+public string $value;
+
+// ✅
+#[Caster(MyCaster::class)]
+public string $value;
 ```
 
 #### invalidProcessor
 
 ```php
-// ❌ Wrong: function doesn't exist
-#[Field(preProcess: 'nonExistentFunction')]
+// ❌ Handler is not a function, class, or static method
+#[PreProcess('nonExistentFunction')]
 public string $name;
 
-// ✅ Correct: valid function or class
-#[Field(preProcess: 'trim')]
+// ✅
+#[PreProcess('trim')]
 public string $name;
 ```
 
-#### invalidGenerator
+#### ambiguousProcessor
+
+Handler name resolves both as a global function AND as a static method on the Request — dispatch is undefined.
 
 ```php
-// ❌ Wrong: class doesn't implement GeneratorInterface
-#[Field(generator: NotAGenerator::class)]
-public string $id;
+// ❌ 'trim' is a built-in AND a static method on this class
+final class MyRequest extends Request
+{
+    #[PreProcess('trim')]
+    public string $value;
 
-// ✅ Correct: implements GeneratorInterface
-#[Field(generator: UuidGenerator::class)]
-public string $id;
+    public static function trim(string $v): string { return \trim($v, '/'); }
+}
+
+// ✅ Rename the method (or pass the class-string of a ProcessorInterface)
+```
+
+#### processorMethodNotStatic
+
+```php
+// ❌ Handler is an instance method
+#[PreProcess('normalize')]
+public string $value;
+
+public function normalize(string $v): string { /* ... */ }
+
+// ✅ Make it static (or extract to a ProcessorInterface)
+public static function normalize(string $v): string { /* ... */ }
 ```
 
 #### invalidItems
 
 ```php
-// ❌ Wrong: class doesn't exist or doesn't extend Request
-#[Field(items: 'NonExistentClass')]
+// ❌ Class missing or not a subclass of Request
+#[Items('NonExistentClass')]
 public ?array $items = null;
 
-// ✅ Correct: valid Request subclass
-#[Field(items: OrderItemRequest::class)]
+// ✅
+#[Items(OrderItemRequest::class)]
 public ?array $items = null;
 ```
 
 #### itemsRequiresArrayType
 
 ```php
-// ❌ Wrong: items on non-array type
-#[Field(items: OrderItemRequest::class)]
+// ❌ #[Items] on a non-array property
+#[Items(OrderItemRequest::class)]
 public string $items;
 
-// ✅ Correct: array type
-#[Field(items: OrderItemRequest::class)]
+// ✅
+#[Items(OrderItemRequest::class)]
 public ?array $items = null;
 ```
 
-#### itemsWithGenerator
+#### itemsCastConflict
+
+`#[Items]` skips automatic casting (each element is processed through its own DTO), so `#[Cast]` / `#[Caster]` would have no effect.
 
 ```php
-// ❌ Wrong: items and generator are mutually exclusive
-#[Field(generator: UuidGenerator::class, items: OrderItemRequest::class)]
+// ❌
+#[Items(OrderItemRequest::class)]
+#[Cast('array')]
+public array $items;
+
+// ✅
+#[Items(OrderItemRequest::class)]
+public array $items = [];
+```
+
+#### invalidGenerator
+
+```php
+// ❌ Class missing or not a GeneratorInterface
+#[Generator(NotAGenerator::class)]
+public string $id;
+
+// ✅
+#[Generator(UuidGenerator::class)]
+public string $id;
+```
+
+#### generatorConflict
+
+Generated values bypass the input/validation pipeline, so any companion attribute (`#[Validate]`, `#[Cast]`, `#[FromX]`, `#[Items]`, …) would never run.
+
+```php
+// ❌
+#[Generator(UuidGenerator::class)]
+#[Validate('required|string')]
+public string $id;
+
+// ✅ Use one or the other
+#[Generator(UuidGenerator::class)]
+public string $id;
+```
+
+#### multipleSources
+
+```php
+// ❌ Two source attributes on one property
+#[FromRoute]
+#[FromContext('value')]
+public string $value;
+
+// ✅ Pick one
+#[FromRoute]
+public string $value;
+```
+
+#### ignoreConflict
+
+`#[Ignore]` removes the property from the pipeline entirely, so any other RequestHandler attribute on the same property would silently never run.
+
+```php
+// ❌
+#[Ignore]
+#[Validate('required|string')]
+public string $value;
+
+// ✅ Pick one
+#[Validate('required|string')]
+public string $value;
+```
+
+#### abstractClass
+
+`#[Items]` and `#[Generator]` need a concrete instantiable class.
+
+```php
+// ❌
+#[Items(AbstractItemRequest::class)]
 public ?array $items = null;
 
-// ✅ Correct: use one or the other
-#[Field(items: OrderItemRequest::class)]
+// ✅ Pass a concrete subclass
+#[Items(OrderItemRequest::class)]
 public ?array $items = null;
 ```
 
@@ -274,7 +364,7 @@ final class AuthorizationException extends Exception
 ```php
 final class DeleteUserRequest extends Request
 {
-    #[Field(rules: 'required|integer')]
+    #[Validate('required|integer')]
     public int $userId;
 
     public function authorize(User $currentUser): void
