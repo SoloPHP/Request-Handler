@@ -27,6 +27,7 @@ use Solo\RequestHandler\Contracts\ProcessorInterface;
 use Solo\RequestHandler\Exceptions\ConfigurationException;
 use Solo\RequestHandler\FieldSource;
 use Solo\RequestHandler\Request;
+use Solo\RequestHandler\RuleParser;
 
 /**
  * Caches reflection metadata for request classes.
@@ -352,23 +353,13 @@ final class ReflectionCache
     /**
      * Whether `$rules` (pipe-separated) contains a rule whose name equals `$ruleName`.
      *
-     * Splits on `|` first to avoid false matches inside value lists
-     * (e.g. `in:nullable,active` must NOT match `nullable`).
+     * Delegates to the shared {@see RuleParser}, which splits on `|` first to
+     * avoid false matches inside value lists (e.g. `in:nullable,active` must NOT
+     * match `nullable`).
      */
     private function hasRule(?string $rules, string $ruleName): bool
     {
-        if ($rules === null || $rules === '') {
-            return false;
-        }
-        foreach (explode('|', $rules) as $rule) {
-            $rule = trim($rule);
-            $colonAt = strpos($rule, ':');
-            $name = $colonAt === false ? $rule : substr($rule, 0, $colonAt);
-            if ($name === $ruleName) {
-                return true;
-            }
-        }
-        return false;
+        return RuleParser::has($rules, $ruleName);
     }
 
     /**

@@ -76,6 +76,8 @@ Registered (and lazily-created) instances are reused across all subsequent `hand
 
 All three accept the same optional `$route` and `$context` arrays. The "default source" is what un-attributed properties read from; properties with `#[FromRoute]` or `#[FromContext]` always use that source instead.
 
+A fourth method, `schema(class)`, is read-only — it reflects a request class into a JSON-serializable validation contract without processing any input. See [Schema Export](/features/schema).
+
 ### handleBody()
 
 POST/PUT/PATCH requests. Reads body via `$request->getParsedBody()`:

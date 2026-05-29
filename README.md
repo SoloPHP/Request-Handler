@@ -17,6 +17,7 @@ Type-safe Request DTOs for PHP 8.2+ with focused per-property attributes, declar
 - **Pre/post processing** — `#[PreProcess]` / `#[PostProcess]` for transformation
 - **Nested items** — `#[Items]` validates arrays of nested Request DTOs with dot-notation error paths
 - **Fail-fast** — every misconfiguration throws `ConfigurationException` at metadata-build time, not at first request
+- **Schema export** — `schema()` emits JSON-serializable per-field metadata (type, nullability, requiredness incl. conditional `required_if`, normalized rules) so the frontend can treat the backend as the single source of truth
 
 ## Installation
 
@@ -97,6 +98,42 @@ $dto->toArray();   // ['id'=>…, 'name'=>…, 'price'=>…, 'stock'=>…, 'tena
 Properties without a source attribute read from the default-source bag (Body for `handleBody`/`handleArray`, Query for `handleQuery`) by name. For values that don't fit the four bags (Body, Query, Route, Context) — request headers, cookies, file uploads — extract them in the controller and pass them via `route: [...]` or `context: [...]`.
 
 To opt a public property out of input processing entirely, mark it with `#[Ignore]` — the handler skips it and `toArray()`/`has()`/`get()`/`group()` will not see it either. Or change its visibility to `protected`/`private` — the handler only touches public properties.
+
+## Schema introspection
+
+`schema()` reflects a request class into a JSON-serializable description of its input contract — without touching any HTTP input. Hand it to the frontend so validation rules live in exactly one place.
+
+```php
+$schema = $requestHandler->schema(UpdateProductRequest::class);
+
+// [
+//   'id' => [
+//     'type' => 'int', 'nullable' => false, 'required' => true,
+//     'requiredIf' => null, 'hasDefault' => false, 'exclude' => false,
+//     'source' => 'route',
+//     'rules' => [['name' => 'required', 'args' => []], ['name' => 'integer', 'args' => []]],
+//   ],
+//   'name' => [
+//     'type' => 'string', 'nullable' => false, 'required' => true,
+//     'requiredIf' => null, 'hasDefault' => false, 'exclude' => false, 'source' => null,
+//     'rules' => [['name' => 'required', 'args' => []], ['name' => 'string', 'args' => []], ['name' => 'max', 'args' => ['255']]],
+//   ],
+//   'slug' => [
+//     'type' => 'string', 'nullable' => true, 'required' => false,
+//     'requiredIf' => ['field' => 'status', 'value' => 'published'],
+//     'hasDefault' => true, 'exclude' => false, 'source' => null,
+//     'rules' => [/* … incl. ['name' => 'required_if', 'args' => ['status', 'published']] */],
+//   ],
+// ]
+
+echo json_encode($schema); // round-trips losslessly — scalars and arrays only
+```
+
+Every managed property is emitted (excluded/`#[FromRoute]`/`#[FromContext]` fields included) — `exclude` and `source` are reported as flags so the consumer decides what to render. Notes:
+
+- `required` reflects the **literal** `required` rule only. Conditional requiredness lives in `requiredIf` (the first well-formed `required_if`, as `{field, value}`), and the rule itself is still present in `rules`.
+- `source` is `'body' | 'query' | 'route' | 'context'`, or `null` when the field uses the handle method's default bag.
+- `rules` is the full normalized rule list, split with the same semantics the handler uses internally: `name` is the part before the first `:`, `args` is the comma-split remainder.
 
 ## Documentation
 

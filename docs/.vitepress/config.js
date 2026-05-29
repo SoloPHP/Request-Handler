@@ -20,7 +20,7 @@ export default defineConfig({
       { text: 'Guide', link: '/guide/installation' },
       { text: 'Features', link: '/features/field-attribute' },
       { text: 'API', link: '/api/request-class' },
-      { text: 'v3.0.0', link: 'https://github.com/solophp/request-handler/releases' },
+      { text: 'v3.1.0', link: 'https://github.com/solophp/request-handler/releases' },
       {
         text: 'Links',
         items: [
@@ -49,7 +49,8 @@ export default defineConfig({
           { text: 'Generators', link: '/features/generators' },
           { text: 'Nested Items', link: '/features/nested-items' },
           { text: 'Field Grouping', link: '/features/grouping' },
-          { text: 'Validation', link: '/features/validation' }
+          { text: 'Validation', link: '/features/validation' },
+          { text: 'Schema Export', link: '/features/schema' }
         ]
       },
       {

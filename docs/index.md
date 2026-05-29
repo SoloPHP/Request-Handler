@@ -41,6 +41,9 @@ features:
   - icon: 🛡️
     title: Fail-fast
     details: Every misconfiguration throws ConfigurationException at metadata-build time, not at first request.
+  - icon: 📐
+    title: Schema export
+    details: schema() emits JSON-serializable per-field metadata (type, nullability, requiredness incl. required_if, normalized rules) — the backend as a single source of truth for the frontend.
 ---
 
 <style>

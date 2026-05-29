@@ -13,6 +13,7 @@ use Solo\RequestHandler\Casters\BuiltInCaster;
 use Solo\RequestHandler\Contracts\GeneratorInterface;
 use Solo\RequestHandler\Exceptions\ValidationException;
 use Solo\RequestHandler\Pipeline\ProcessorRegistry;
+use Solo\RequestHandler\Schema\SchemaBuilder;
 
 /**
  * Factory for creating request DTOs from HTTP requests.
@@ -124,6 +125,31 @@ final class RequestHandler
             FieldSource::Body,
             InputBags::fromArray($data, $route, $context),
         );
+    }
+
+    /**
+     * Build a JSON-serializable validation schema for a request class.
+     *
+     * Exposes normalized per-field validation metadata (type, nullability,
+     * requiredness — including conditional `required_if` — and the full
+     * normalized rule list) so a frontend can treat the backend as the single
+     * source of truth. Read-only: it does not process any HTTP input.
+     *
+     * @param  class-string $className
+     * @return array<string, array{
+     *     type: ?string,
+     *     nullable: bool,
+     *     required: bool,
+     *     requiredIf: array{field: string, value: string}|null,
+     *     hasDefault: bool,
+     *     exclude: bool,
+     *     source: ?string,
+     *     rules: list<array{name: string, args: list<string>}>
+     * }>
+     */
+    public function schema(string $className): array
+    {
+        return (new SchemaBuilder())->build($this->cache->get($className));
     }
 
     /**
