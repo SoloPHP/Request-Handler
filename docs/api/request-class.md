@@ -122,7 +122,8 @@ public function group(string $groupName): array
 - Associative array properties: contents are merged into result
 - Scalar properties and sequential arrays: added by property name, or by `mapTo` if specified
 - Empty arrays are skipped
-- Throws `LogicException` on duplicate keys
+- Duplicate `AND`/`OR` keys fold into integer-keyed list entries so multiple logical groups coexist
+- Throws `LogicException` on any other duplicate key
 
 **Example:**
 

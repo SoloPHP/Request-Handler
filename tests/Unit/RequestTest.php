@@ -201,6 +201,38 @@ final class RequestTest extends TestCase
         $dto->group('criteria');
     }
 
+    public function testGroupFoldsDuplicateConnectorKeysIntoListEntries(): void
+    {
+        // Two grouped props both emitting ['AND' => X] must not throw; the second
+        // folds into a list entry so the criteria builder AND-combines both.
+        $dto = new DuplicateKeyRequest();
+        $dto->first = ['AND' => [['OR' => ['a' => 1]]]];
+        $dto->second = ['AND' => [['OR' => ['b' => 1]]]];
+
+        $this->assertSame(
+            [
+                'AND' => [['OR' => ['a' => 1]]],
+                0 => ['AND' => [['OR' => ['b' => 1]]]],
+            ],
+            $dto->group('criteria')
+        );
+    }
+
+    public function testGroupFoldsDuplicateOrKeysIntoListEntries(): void
+    {
+        $dto = new DuplicateKeyRequest();
+        $dto->first = ['OR' => ['a' => 1]];
+        $dto->second = ['OR' => ['b' => 1]];
+
+        $this->assertSame(
+            [
+                'OR' => ['a' => 1],
+                0 => ['OR' => ['b' => 1]],
+            ],
+            $dto->group('criteria')
+        );
+    }
+
     public function testGroupThrowsExceptionOnDuplicateKeyFromScalar(): void
     {
         $dto = new ScalarDuplicateRequest();

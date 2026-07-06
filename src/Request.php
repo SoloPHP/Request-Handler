@@ -38,6 +38,14 @@ use Solo\RequestHandler\Attributes\Ignore;
 abstract class Request
 {
     /**
+     * Logical group wrappers that more than one grouped property may legitimately
+     * contribute (e.g. a multi-word search and a stock filter both emitting an
+     * 'AND' group). On a key collision in group() these fold into a list entry
+     * instead of erroring; a duplicate leaf/column key is still a real conflict.
+     */
+    private const array GROUP_KEYS = ['AND', 'OR'];
+
+    /**
      * Per-class property metadata used by toArray/has/get/group.
      *
      * @var array<string, array<string, PropertyEntry>>
@@ -140,8 +148,10 @@ abstract class Request
      * - Associative array properties: contents are merged by their own keys.
      * - Scalar properties and sequential arrays: added under property name (or `mapTo`).
      * - Empty arrays AND null scalars are skipped — they carry no group info.
+     * - Duplicate 'AND'/'OR' keys fold into integer-keyed list entries so
+     *   multiple logical groups coexist (the criteria builder AND-combines them).
      *
-     * @throws \LogicException When duplicate keys are detected.
+     * @throws \LogicException When duplicate non-connector keys are detected.
      * @return array<string, mixed>
      */
     public function group(string $groupName): array
@@ -178,6 +188,10 @@ abstract class Request
 
             foreach ($entries as $key => $v) {
                 if (array_key_exists($key, $result)) {
+                    if (in_array($key, self::GROUP_KEYS, true)) {
+                        $result[] = [$key => $v];
+                        continue;
+                    }
                     throw new \LogicException(
                         "Duplicate key '$key' in group '$groupName' from property '{$property->getName()}'"
                     );

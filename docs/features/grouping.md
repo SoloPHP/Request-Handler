@@ -128,6 +128,27 @@ $dto->group('data');
 // LogicException: Duplicate key 'name' in group 'data' from property 'second'
 ```
 
+### Logical Connector Keys (`AND` / `OR`)
+
+The keys `AND` and `OR` are exempt from duplicate protection — they are logical
+group wrappers in the criteria DSL, and more than one grouped property may
+legitimately contribute one (e.g. a multi-word search and a stock filter both
+emitting an `AND` group). On a collision the second group folds into an
+integer-keyed list entry, so the criteria builder AND-combines both:
+
+```php
+$dto->search = ['AND' => [['OR' => ['name' => ['LIKE', '%foo%']]]]];
+$dto->inStock = ['AND' => [['OR' => ['stock' => ['>', 0]]]]];
+
+$dto->group('criteria');
+// [
+//     'AND' => [['OR' => ['name' => ['LIKE', '%foo%']]]],
+//     0 => ['AND' => [['OR' => ['stock' => ['>', 0]]]]],
+// ]
+```
+
+Duplicate leaf/column keys still throw — that remains a real conflict.
+
 ---
 
 ## Uninitialized Properties

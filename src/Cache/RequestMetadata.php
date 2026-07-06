@@ -12,9 +12,9 @@ use ReflectionClass;
 final readonly class RequestMetadata
 {
     /**
-     * @param class-string                    $className
-     * @param array<string, PropertyMetadata> $properties
-     * @param ReflectionClass<object>         $reflection
+     * @param class-string                      $className
+     * @param array<string, PropertyMetadata>   $properties
+     * @param ReflectionClass<covariant object> $reflection
      */
     public function __construct(
         public string $className,
