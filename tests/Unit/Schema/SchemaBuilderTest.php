@@ -143,6 +143,7 @@ final class SchemaBuilderTest extends TestCase
                 postProcessConfig: [],
                 group: null,
                 isRequired: false,
+                validatesWhenAbsent: false,
                 reflection: new ReflectionProperty(SchemaFixtureRequest::class, 'name'),
             )],
             reflection: new ReflectionClass(SchemaFixtureRequest::class),

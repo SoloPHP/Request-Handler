@@ -122,4 +122,34 @@ final class RuleParserTest extends TestCase
     {
         $this->assertFalse(RuleParser::has(null, 'required'));
     }
+
+    // ===== hasNamePrefix() =====
+
+    public function testHasNamePrefixMatchesExactName(): void
+    {
+        $this->assertTrue(RuleParser::hasNamePrefix('required|string', 'required'));
+    }
+
+    public function testHasNamePrefixMatchesConditionalVariants(): void
+    {
+        $this->assertTrue(RuleParser::hasNamePrefix('nullable|required_if:company_type,company', 'required'));
+        $this->assertTrue(RuleParser::hasNamePrefix('required_with:field', 'required'));
+        $this->assertTrue(RuleParser::hasNamePrefix('required_without_all:a,b', 'required'));
+    }
+
+    public function testHasNamePrefixReturnsFalseWhenNoRuleMatches(): void
+    {
+        $this->assertFalse(RuleParser::hasNamePrefix('nullable|string|max:255', 'required'));
+    }
+
+    public function testHasNamePrefixDoesNotMatchInsideValueList(): void
+    {
+        // `in:required,optional` must NOT be read as a presence rule.
+        $this->assertFalse(RuleParser::hasNamePrefix('in:required,optional', 'required'));
+    }
+
+    public function testHasNamePrefixReturnsFalseForNullRules(): void
+    {
+        $this->assertFalse(RuleParser::hasNamePrefix(null, 'required'));
+    }
 }

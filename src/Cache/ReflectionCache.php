@@ -162,6 +162,7 @@ final class ReflectionCache
         [$phpType, $isNullable] = $this->resolvePropertyType($property->getType());
 
         $isRequired = $this->hasRule($rules, 'required');
+        $validatesWhenAbsent = RuleParser::hasNamePrefix($rules, 'required');
 
         if ($this->hasRule($rules, 'nullable') && !$isNullable && $phpType !== null) {
             throw ConfigurationException::nullableRuleWithNonNullableType($className, $name, $phpType);
@@ -226,6 +227,7 @@ final class ReflectionCache
             postProcessConfig: $postProcess !== null ? $postProcess->config : [],
             group: $group?->name,
             isRequired: $isRequired,
+            validatesWhenAbsent: $validatesWhenAbsent,
             reflection: $property,
             generator: $generator?->class,
             generatorOptions: $generator !== null ? $generator->options : [],

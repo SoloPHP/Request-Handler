@@ -119,6 +119,33 @@ final class ReflectionCacheTest extends TestCase
         $this->assertFalse($metadata->properties['noRules']->isRequired);
     }
 
+    public function testValidatesWhenAbsentCalculation(): void
+    {
+        $metadata = $this->cache->get(ConditionalPresenceRequest::class);
+
+        // Literal 'required' sets both flags.
+        $this->assertTrue($metadata->properties['plainRequired']->isRequired);
+        $this->assertTrue($metadata->properties['plainRequired']->validatesWhenAbsent);
+
+        // 'required_if' is NOT literal required — but it does validate when absent.
+        $this->assertFalse($metadata->properties['conditionallyRequired']->isRequired);
+        $this->assertTrue($metadata->properties['conditionallyRequired']->validatesWhenAbsent);
+
+        // No presence rule at all — neither flag.
+        $this->assertFalse($metadata->properties['plainOptional']->isRequired);
+        $this->assertFalse($metadata->properties['plainOptional']->validatesWhenAbsent);
+    }
+
+    public function testRequiredIfWithDefaultDoesNotThrow(): void
+    {
+        // requiredWithDefault guards LITERAL 'required' only; a conditional
+        // required_if with a default is the intended usage pattern.
+        $metadata = $this->cache->get(ConditionalPresenceRequest::class);
+
+        $this->assertTrue($metadata->properties['conditionallyRequired']->hasDefault);
+        $this->assertTrue($metadata->properties['conditionallyRequired']->validatesWhenAbsent);
+    }
+
     public function testHasRuleDoesNotMatchInsideValueList(): void
     {
         // 'in:nullable,active' must NOT trigger nullable-rule detection.
@@ -545,6 +572,18 @@ final class RequiredTestRequest extends Request
     public ?string $requiredNullable;
 
     public string $noRules;
+}
+
+final class ConditionalPresenceRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $plainRequired;
+
+    #[Validate('nullable|string|required_if:company_type,company')]
+    public ?string $conditionallyRequired = null;
+
+    #[Validate('nullable|string')]
+    public ?string $plainOptional = null;
 }
 
 final class InRuleWithNullableLiteralRequest extends Request

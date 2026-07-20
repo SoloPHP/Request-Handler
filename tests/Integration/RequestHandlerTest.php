@@ -854,6 +854,91 @@ final class RequestHandlerTest extends TestCase
         $this->assertNull($dto->email);
     }
 
+    // ===== conditional presence: required_* fires for absent fields =====
+
+    public function testAbsentFieldWithRequiredIfIsHandedToValidator(): void
+    {
+        // Regression: `{"company_type":"company"}` with no `name` key must
+        // enrol `name` (default null) into validation so `required_if` can
+        // fire — previously the default caused the field to be skipped
+        // entirely and the request passed with no name at all.
+        $request = $this->makeRequest(body: ['company_type' => 'company']);
+
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(
+                ['company_type' => 'company', 'name' => null],
+                [
+                    'company_type' => 'in:individual,company',
+                    'name'         => 'nullable|string|max:255|required_if:company_type,company',
+                ]
+            )
+            ->willReturn(['name' => [['rule' => 'required_if', 'params' => ['company_type', 'company']]]]);
+
+        $this->expectException(ValidationException::class);
+        $this->handler->handleBody(ConditionalCompanyRequest::class, $request);
+    }
+
+    public function testAbsentFieldWithRequiredIfConditionNotMetPasses(): void
+    {
+        // The handler always enrols the field; deciding whether the condition
+        // holds is the validator's job. When it reports no errors, the DTO
+        // keeps its declared defaults.
+        $request = $this->makeRequest(body: ['company_type' => 'individual']);
+
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(
+                ['company_type' => 'individual', 'name' => null],
+                [
+                    'company_type' => 'in:individual,company',
+                    'name'         => 'nullable|string|max:255|required_if:company_type,company',
+                ]
+            )
+            ->willReturn([]);
+
+        $dto = $this->handler->handleBody(ConditionalCompanyRequest::class, $request);
+
+        $this->assertSame('individual', $dto->company_type);
+        $this->assertNull($dto->name);
+    }
+
+    public function testAbsentFieldsWithRequiredIfEnrolDefaultsOnEmptyBody(): void
+    {
+        // Fully-absent body: only the required_* field is enrolled (with its
+        // default as the value); plain defaulted fields stay out of validation.
+        $request = $this->makeRequest(body: []);
+
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(
+                ['name' => null],
+                ['name' => 'nullable|string|max:255|required_if:company_type,company']
+            )
+            ->willReturn([]);
+
+        $dto = $this->handler->handleBody(ConditionalCompanyRequest::class, $request);
+
+        $this->assertSame('individual', $dto->company_type);
+        $this->assertNull($dto->name);
+        $this->assertSame(1, $dto->page);
+    }
+
+    public function testAbsentDefaultedFieldsWithoutPresenceRulesSkipValidation(): void
+    {
+        // Hot path guard: a field with a default and NO required_* rule must
+        // never be enrolled when absent — with nothing enrolled the validator
+        // is not invoked at all.
+        $request = $this->makeRequest(body: []);
+
+        $this->validator->expects($this->never())->method('validate');
+
+        $dto = $this->handler->handleBody(DefaultsOnlyRequest::class, $request);
+
+        $this->assertSame('individual', $dto->company_type);
+        $this->assertSame(1, $dto->page);
+    }
+
     // ===== F8: generator-conflict wins over rule-related checks =====
 
     public function testGeneratorWithRequiredRuleAndDefaultReportsGeneratorConflict(): void
@@ -1306,6 +1391,27 @@ final class ConflictTestGenerator implements GeneratorInterface
     {
         return 'generated';
     }
+}
+
+final class ConditionalCompanyRequest extends Request
+{
+    #[Validate('in:individual,company')]
+    public string $company_type = 'individual';
+
+    #[Validate('nullable|string|max:255|required_if:company_type,company')]
+    public ?string $name = null;
+
+    #[Validate('integer|min:1')]
+    public int $page = 1;
+}
+
+final class DefaultsOnlyRequest extends Request
+{
+    #[Validate('in:individual,company')]
+    public string $company_type = 'individual';
+
+    #[Validate('integer|min:1')]
+    public int $page = 1;
 }
 
 final class OptionalNoRulesRequest extends Request

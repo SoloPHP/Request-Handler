@@ -201,13 +201,23 @@ final class RequestHandler
             }
 
             if (!$hasValueInRequest) {
-                if ($property->hasDefault) {
+                // A default normally means "absent is fine, nothing to check".
+                // Conditional-presence rules are the exception: `?string $x = null`
+                // carrying `required_if:kind,company` says the field may be
+                // omitted in general but not for that kind, so the absence itself
+                // is what has to be validated.
+                if ($property->hasDefault && !$property->validatesWhenAbsent) {
                     continue;
                 }
-                // Missing key, no default — only enrol into validation for
-                // required-typed properties (so 'required' rule fires). Other
-                // rules are skipped because there's no value to validate.
-                $this->collectValidation($property, null, $validationData, $validationRules);
+                // Missing key — enrol into validation only for properties whose
+                // rules can fire without a value ('required' and the
+                // required_* family). Other rules have nothing to validate.
+                $this->collectValidation(
+                    $property,
+                    $property->hasDefault ? $property->defaultValue : null,
+                    $validationData,
+                    $validationRules
+                );
                 continue;
             }
 
@@ -326,8 +336,9 @@ final class RequestHandler
     }
 
     /**
-     * Enrol a missing field into validation only when the property is
-     * required — so the 'required' rule fires for absent values.
+     * Enrol a missing field into validation only when its rules can fire
+     * without a value — literal 'required' or any conditional-presence
+     * (required_*) rule.
      *
      * @param array<string, mixed>  $validationData
      * @param array<string, string> $validationRules
@@ -338,7 +349,7 @@ final class RequestHandler
         array &$validationData,
         array &$validationRules,
     ): void {
-        if ($property->isRequired && $property->validationRules !== null) {
+        if (($property->isRequired || $property->validatesWhenAbsent) && $property->validationRules !== null) {
             $validationData[$property->name] = $value;
             $validationRules[$property->name] = $property->validationRules;
         }
