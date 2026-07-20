@@ -15,6 +15,13 @@ use Solo\RequestHandler\Request;
  * `handle*` method (Body for `handleBody`/`handleArray`, Query for `handleQuery`).
  * `sourceKey` is always populated.
  *
+ * `validatesWhenAbsent` marks a field whose rule chain can produce an error
+ * even when the key is missing from the payload — the literal `required` rule
+ * and the whole conditional-presence family (`required_if`, `required_with`,
+ * `required_without_all`, ...). `isRequired` stays literal-`required` only,
+ * because it also drives the "required field cannot have a default" check and
+ * the exported schema.
+ *
  * `pathSegments` is non-null only when the property is sourced via
  * `#[FromBody('a.b.c')]` — in that case `InputBags::lookup` walks the body
  * bag segment by segment instead of doing a flat array_key_exists lookup.
@@ -46,6 +53,7 @@ final readonly class PropertyMetadata
         public array $postProcessConfig,
         public ?string $group,
         public bool $isRequired,
+        public bool $validatesWhenAbsent,
         public ReflectionProperty $reflection,
         public ?string $generator = null,
         public array $generatorOptions = [],

@@ -43,12 +43,29 @@ The handler distinguishes three states for each field:
 
 | What frontend sends | Meaning | Behavior |
 |---------------------|---------|----------|
-| Field absent | Don't touch | Use default value or trigger required validation |
+| Field absent | Don't touch | Use default value or trigger `required` / `required_*` validation |
 | `"name": null` | Clear (null) | Set `null` for nullable types, default for non-nullable |
 | `"name": ""` | Clear (empty string) | Preserve `""`, then cast per type |
 | `"name": "hello"` | Set value | Normal processing pipeline |
 
 This distinction is important for PATCH-style updates where absent fields should not be modified, `null` explicitly clears a nullable field, and `""` sets an empty string.
+
+### Conditional presence for absent fields
+
+An absent field with a default is normally skipped entirely — nothing to validate. The exception is the conditional-presence family (`required_if`, `required_with`, `required_without_all`, ...): those rules decide whether the field is *allowed to be missing*, so the absence itself is what has to be validated.
+
+```php
+#[Validate('in:individual,company')]
+public string $company_type = 'individual';
+
+// May be omitted in general — but not when company_type is 'company'.
+#[Validate('nullable|string|max:255|required_if:company_type,company')]
+public ?string $name = null;
+```
+
+When `name` is absent from the payload, the handler still enrols it into validation (with its default — here `null` — as the value), so the validator can fire `required_if` when the condition is met. Fields with a default and **no** `required_*` rule are skipped when absent, exactly as before.
+
+Note that unlike literal `required`, a `required_*` rule combined with a default value is legal — it is the intended usage pattern.
 
 ---
 
@@ -227,7 +244,7 @@ final class CreateProductRequest extends Request
     #[Validate('nullable|url')]
     public ?string $imageUrl = null;
 
-    #[Validate('required|in:draft,published')]
+    #[Validate('in:draft,published')]
     public string $status = 'draft';
 }
 ```

@@ -58,6 +58,25 @@ final class RuleParser
     }
 
     /**
+     * Whether `$rules` contains a rule whose name starts with `$prefix`.
+     *
+     * Exists for the conditional-presence family (`required_if`,
+     * `required_with`, `required_without_all`, ...): `has()` matches names
+     * exactly, so a caller asking "does this field have any presence rule"
+     * cannot use it without enumerating every variant.
+     */
+    public static function hasNamePrefix(?string $rules, string $prefix): bool
+    {
+        foreach (self::parse($rules) as $rule) {
+            if (str_starts_with($rule['name'], $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Whether `$rules` contains a rule whose name equals `$ruleName`.
      */
     public static function has(?string $rules, string $ruleName): bool
