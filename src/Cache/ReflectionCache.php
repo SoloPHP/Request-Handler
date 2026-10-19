@@ -407,14 +407,19 @@ final class ReflectionCache
             throw ConfigurationException::unproducibleType($className, $name, (string) $phpType);
         }
 
-        [$typeGuard, $unionCasts, $unionFailure] = $type instanceof \ReflectionUnionType
+        // A union, or a standalone `true` / `false`, is cast member by member.
+        [$typeGuard, $unionCasts, $unionFailure] = [null, [], null];
+        if (
+            $type !== null
+            && ($type instanceof \ReflectionUnionType || $members === ['true'] || $members === ['false'])
             && $holdsInput
             && $effectiveCastType === null
             && $enumClass === null
             && $dateClass === null
             && $resolvedCasterClass === null
-            ? $this->unionCast($type, (array) $members)
-            : [null, [], null];
+        ) {
+            [$typeGuard, $unionCasts, $unionFailure] = $this->unionCast($type, (array) $members);
+        }
 
         return new PropertyMetadata(
             name: $name,
@@ -490,9 +495,11 @@ final class ReflectionCache
     }
 
     /**
-     * A union no cast applies to (`int|float`, `int|string`): the guard that
-     * keeps a value of a member type, the scalar members another value is
-     * converted to, and the error when none fits.
+     * A union no cast applies to (`int|float`, `int|string`) — or a standalone
+     * `true` / `false`: the guard that keeps a value of a member type, the
+     * scalar members another value is converted to, and the error when none
+     * fits. A literal `true` / `false` member is reached through the bool
+     * cast; the guard then keeps only the literal's own value.
      *
      * @param list<string> $members From typeMembers().
      * @return array{0: ?ParameterTypeGuard, 1: list<string>, 2: array{rule: string}|null}
@@ -507,11 +514,12 @@ final class ReflectionCache
             }
         }
 
-        return [
-            ParameterTypeGuard::fromType($type),
-            array_values(array_intersect(self::UNION_CASTS, $members)),
-            $failure,
-        ];
+        $casts = array_values(array_intersect(self::UNION_CASTS, $members));
+        if (!in_array('bool', $casts, true) && array_intersect(['true', 'false'], $members) !== []) {
+            $casts[] = 'bool';
+        }
+
+        return [ParameterTypeGuard::fromType($type), $casts, $failure];
     }
 
     /**
