@@ -735,6 +735,19 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(['provided' => 'yes'], $dto->toArray(onlyProvided: true));
     }
 
+    public function testProvidedIsNotPartOfTheDtosOwnProperties(): void
+    {
+        $dto = $this->handler->handleArray(PatchAddressRequest::class, ['city' => 'Kyiv']);
+
+        $this->assertSame(['city' => 'Kyiv', 'zip' => null], (array) $dto);
+        $this->assertSame(['city'], $dto->provided());
+
+        // The side table does not keep a DTO alive.
+        $reference = \WeakReference::create($dto);
+        unset($dto);
+        $this->assertNull($reference->get());
+    }
+
     public function testDtoBuiltByHandHasNothingProvided(): void
     {
         $dto = new PatchAddressRequest();

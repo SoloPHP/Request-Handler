@@ -6,7 +6,6 @@ namespace Solo\RequestHandler;
 
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use ReflectionProperty;
 use Solo\Contracts\Validator\ValidatorInterface;
 use Solo\RequestHandler\Cache\ProcessorKind;
 use Solo\RequestHandler\Cache\PropertyMetadata;
@@ -17,6 +16,7 @@ use Solo\RequestHandler\Contracts\GeneratorInterface;
 use Solo\RequestHandler\Exceptions\ValidationException;
 use Solo\RequestHandler\Pipeline\ParameterTypeGuard;
 use Solo\RequestHandler\Pipeline\ProcessorRegistry;
+use Solo\RequestHandler\Pipeline\ProvidedFields;
 use Solo\RequestHandler\Pipeline\ResolvedRequest;
 use Solo\RequestHandler\Schema\SchemaBuilder;
 
@@ -46,8 +46,6 @@ final class RequestHandler
     private readonly ReflectionCache $cache;
     private readonly BuiltInCaster $builtInCaster;
     private readonly ProcessorRegistry $processors;
-    /** `Request::$provided`, written when a DTO is populated. */
-    private readonly ReflectionProperty $provided;
 
     /**
      * @param ContainerInterface|null $container Resolves processor, caster and
@@ -62,7 +60,6 @@ final class RequestHandler
         $this->cache = ReflectionCache::shared();
         $this->builtInCaster = new BuiltInCaster();
         $this->processors = new ProcessorRegistry($container);
-        $this->provided = new ReflectionProperty(Request::class, 'provided');
     }
 
     /**
@@ -818,7 +815,7 @@ final class RequestHandler
             $provided[$name] = true;
         }
 
-        $this->provided->setValue($instance, $provided);
+        ProvidedFields::record($instance, $provided);
 
         return $instance;
     }
