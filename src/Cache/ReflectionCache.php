@@ -449,6 +449,9 @@ final class ReflectionCache
                 && ($noTrim !== null || $classNoTrim || $source === FieldSource::Context),
             typeGuard: $typeGuard,
             unionCasts: $unionCasts,
+            trustedGuard: $source === FieldSource::Context || $generator !== null
+                ? ParameterTypeGuard::fromType($property->getType())
+                : null,
         );
     }
 

@@ -55,6 +55,10 @@ use Solo\RequestHandler\Request;
  * of a member type is kept, another one is converted to the first of
  * `unionCasts` it fits without loss — or fails with `castFailure`.
  *
+ * `trustedGuard` is set for a value the application supplies (context,
+ * generator) to a typed property: after the cast, one that still does not
+ * fit throws UnexpectedValueException instead of a TypeError.
+ *
  * @internal
  */
 final readonly class PropertyMetadata
@@ -107,6 +111,7 @@ final readonly class PropertyMetadata
         public bool $noTrim = false,
         public ?ParameterTypeGuard $typeGuard = null,
         public array $unionCasts = [],
+        public ?ParameterTypeGuard $trustedGuard = null,
     ) {
     }
 }
