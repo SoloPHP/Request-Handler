@@ -2046,6 +2046,14 @@ final class RequestHandlerTest extends TestCase
         $this->assertNull($dto->optional);
     }
 
+    public function testIntBackedEnumReadsAWholeFloatLikeAnIntProperty(): void
+    {
+        // JavaScript and some JSON encoders write 2 as 2.0.
+        $dto = $this->handler->handleArray(EnumRequest::class, ['status' => 'draft', 'priority' => 2.0]);
+
+        $this->assertSame(TestPriority::High, $dto->priority);
+    }
+
     public function testUnknownEnumValueIsValidationError(): void
     {
         try {
