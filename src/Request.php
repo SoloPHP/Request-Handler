@@ -6,6 +6,7 @@ namespace Solo\RequestHandler;
 
 use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Cache\RequestMetadata;
+use Solo\RequestHandler\Pipeline\ProvidedFields;
 
 /**
  * Base class for request DTOs with explicit typed properties.
@@ -37,13 +38,6 @@ abstract class Request
     private const array GROUP_KEYS = ['AND', 'OR'];
 
     /**
-     * The properties the request supplied — set by `RequestHandler`.
-     *
-     * @var array<string, true>
-     */
-    private array $provided = [];
-
-    /**
      * Returns all initialized properties as array (skips uninitialized and #[Exclude]-marked).
      *
      * With `$onlyProvided`, only the properties the request supplied
@@ -55,12 +49,13 @@ abstract class Request
     public function toArray(bool $onlyProvided = false): array
     {
         $result = [];
+        $provided = $onlyProvided ? ProvidedFields::of($this) : [];
 
         foreach ($this->metadata()->properties as $name => $property) {
             if ($property->exclude || !$property->reflection->isInitialized($this)) {
                 continue;
             }
-            if ($onlyProvided && !isset($this->provided[$name])) {
+            if ($onlyProvided && !isset($provided[$name])) {
                 continue;
             }
 
@@ -97,13 +92,13 @@ abstract class Request
      * or context) — an explicit `null` or `""` included — and the generated
      * ones. A property left at its default because the key was absent is not
      * listed, nor one left uninitialised. Empty for a DTO not built by
-     * `RequestHandler`.
+     * `RequestHandler` — a clone or an unserialized copy included.
      *
      * @return list<string>
      */
     public function provided(): array
     {
-        return array_keys($this->provided);
+        return array_keys(ProvidedFields::of($this));
     }
 
     /**
@@ -112,7 +107,7 @@ abstract class Request
      */
     public function isProvided(string $name): bool
     {
-        return isset($this->provided[$name]);
+        return array_key_exists($name, ProvidedFields::of($this));
     }
 
     /**
