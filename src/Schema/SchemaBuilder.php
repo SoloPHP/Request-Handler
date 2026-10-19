@@ -20,7 +20,8 @@ use UnitEnum;
  * the client sends: generated properties and `#[FromContext]` values are left
  * out. Nested DTOs (`fields`) and `#[Items]` classes (`items`) are described
  * inline; a class that recurs on its own nesting path is referenced as
- * `['$ref' => ClassName]` instead.
+ * `['$ref' => ClassName]` instead. When several properties read one input
+ * key, the first describes it and the others follow under `also`.
  *
  * Every value emitted is composed solely of scalars and arrays: no
  * `ReflectionProperty`, enums, objects, or closures leak through, so the
@@ -45,6 +46,7 @@ use UnitEnum;
  *     cases?: list<int|string>,
  *     fields?: array<string, mixed>,
  *     items?: array<string, mixed>,
+ *     also?: list<array<string, mixed>>,
  * }
  *
  * @internal Use `RequestHandler::schema()`.
@@ -80,7 +82,16 @@ final readonly class SchemaBuilder
             if ($property->generator !== null || $property->source === FieldSource::Context) {
                 continue;
             }
-            $schema[$property->sourceKey] = $this->describeField($property, $inputKeys, $path);
+
+            $field = $this->describeField($property, $inputKeys, $path);
+
+            // Several properties may read one input key — the client has to
+            // satisfy them all, so none is dropped.
+            if (isset($schema[$property->sourceKey])) {
+                $schema[$property->sourceKey]['also'][] = $field;
+            } else {
+                $schema[$property->sourceKey] = $field;
+            }
         }
 
         return $schema;

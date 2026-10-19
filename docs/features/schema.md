@@ -123,6 +123,7 @@ $schema = $handler->schema(UpdateProductRequest::class);
 | `cases` | `list<int\|string>` | Only for `BackedEnum` properties: the allowed values |
 | `fields` | field schemas | Only for a nested DTO property |
 | `items` | field schemas | Only for an `#[Items]` property: the schema of one element |
+| `also` | `list<field schema>` | Only when several properties read this input key: the others, in declaration order |
 
 ## Notes
 
@@ -133,6 +134,10 @@ Generated (`#[Generator]`) and `#[FromContext]` properties are left out — the 
 ### `required` vs `requiredIf`
 
 `required` reflects the **literal** `required` rule only. Conditional requiredness lives in `requiredIf` — the first well-formed `required_if`, as `{field, value}` — and the rule itself is still present in `rules`. A `required_if` missing an argument is treated as absent.
+
+### Shared input keys
+
+Two properties may read the same input — `#[FromRoute]` on `$id` and `#[FromRoute('id')]` on `$productId`, say. The field is described by the first one in declaration order; the others follow under `also`, each with its own `property`, `rules` and the rest. The client has to satisfy all of them, as validation errors for the key are merged too.
 
 ### Nested schemas and recursion
 
