@@ -15,8 +15,9 @@ use Attribute;
  * Without it a blank string is kept for string properties, so one column
  * ends up with two shapes of "not filled in" (`''` and `NULL`).
  *
- * On a class, it applies to every property of the class and its subclasses.
- * Only strings are blank here — `[]` is still an array.
+ * On a class, it applies to every property of the class and its subclasses
+ * that the client sends — not to `#[FromContext]` or generated ones. Only
+ * strings are blank here — `[]` is still an array.
  *
  * Example:
  * ```php

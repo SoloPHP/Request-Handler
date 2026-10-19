@@ -158,6 +158,22 @@ final class ReflectionCacheTest extends TestCase
         $this->assertTrue($this->cache->get(EmptyToNullChildRequest::class)->properties['extra']->emptyToNull);
     }
 
+    public function testClassLevelInputAttributesSkipContextProperties(): void
+    {
+        $properties = $this->cache->get(ClientInputClassRequest::class)->properties;
+
+        $this->assertTrue($properties['note']->emptyToNull);
+        $this->assertTrue($properties['note']->noTrim);
+        $this->assertFalse($properties['tenant']->emptyToNull);
+        $this->assertFalse($properties['tenant']->noTrim);
+        $this->assertTrue($properties['explicit']->emptyToNull, 'on the property itself it still applies');
+    }
+
+    public function testRequestTypedContextPropertyIsNotNested(): void
+    {
+        $this->assertNull($this->cache->get(ContextDtoRequest::class)->properties['address']->nested);
+    }
+
     public function testEmptyToNullWithGeneratorThrows(): void
     {
         $this->expectException(ConfigurationException::class);
@@ -1581,4 +1597,24 @@ final class UnionCastRequest extends Request
 
     /** @var iterable<mixed> */
     public iterable $list = [];
+}
+
+#[EmptyToNull]
+#[NoTrim]
+final class ClientInputClassRequest extends Request
+{
+    public ?string $note = null;
+
+    #[FromContext('tenant')]
+    public string $tenant;
+
+    #[FromContext('explicit')]
+    #[EmptyToNull]
+    public ?string $explicit = null;
+}
+
+final class ContextDtoRequest extends Request
+{
+    #[FromContext('address')]
+    public ValidRequest $address;
 }

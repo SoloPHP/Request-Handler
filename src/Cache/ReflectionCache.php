@@ -368,12 +368,14 @@ final class ReflectionCache
         );
 
         // A property typed with a Request subclass is a nested DTO — unless a
-        // caster or generator produces the object itself.
+        // caster or generator produces the object itself, or the application
+        // passes it through context.
         $nested = null;
         if (
             $classType !== null
             && $caster === null
             && $generator === null
+            && $source !== FieldSource::Context
             && is_subclass_of($classType, Request::class)
         ) {
             $this->validateChildClass($classType, $className, $name, 'nested');
@@ -438,8 +440,12 @@ final class ReflectionCache
             dateClass: $dateClass,
             dateFormat: $dateFormat?->format,
             nested: $nested,
-            emptyToNull: $generator === null && ($classEmptyToNull || $emptyToNull !== null),
-            noTrim: $generator === null && ($classNoTrim || $noTrim !== null),
+            // On a class, the client-input attributes leave out what the
+            // application supplies: generated and #[FromContext] values.
+            emptyToNull: $generator === null
+                && ($emptyToNull !== null || ($classEmptyToNull && $source !== FieldSource::Context)),
+            noTrim: $generator === null
+                && ($noTrim !== null || ($classNoTrim && $source !== FieldSource::Context)),
             typeGuard: $typeGuard,
             unionCasts: $unionCasts,
         );

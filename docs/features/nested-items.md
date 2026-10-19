@@ -39,6 +39,8 @@ Errors use the property path: `address.zip` for a field of the nested object, `a
 
 The nested class must be concrete; it is validated together with its parent when metadata is built.
 
+A `#[FromContext]` property typed with a Request subclass is not built from input: it receives the object the application passes in `context`, as it is.
+
 ## Item Lists
 
 `#[Items]` validates and processes arrays of nested objects through a referenced Request class.

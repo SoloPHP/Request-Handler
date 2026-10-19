@@ -16,6 +16,7 @@ Most applications need only the checklist below. The sections after it explain e
 | Clients reading errors of `#[FromBody('path')]`, `#[FromRoute('key')]`, `#[FromContext('key')]` properties | Read them under the input key ([Error keys](#error-keys-follow-the-input)) |
 | `$handler->schema(...)` consumers | Read fields by input key; `exclude` is gone ([Schema](#schema-v2)) |
 | A property typed with a class that is not a Request subclass, enum or date — or with `object`, an intersection, a union of classes | Give it a `#[Caster]`, processor, `#[Generator]` or `#[FromContext]` ([Class types](#class-typed-properties)) |
+| A `#[FromContext]` or generated value that may be `null` for a non-nullable property without a default | Make the property nullable or give it a default — `null` now throws `UnexpectedValueException` ([Values the application supplies](#values-the-application-supplies)) |
 | `toArray()` overridden in a Request subclass | Declare `toArray(bool $onlyProvided = false): array` |
 | `AuthorizationException` | Remove — it was never thrown |
 | `Solo\RequestHandler\Cache\*`, `Casters\BuiltInCaster`, `Pipeline\*`, `Schema\SchemaBuilder`, `RuleParser`, `InputBags` used directly | Use the public API — these classes are now `@internal` |
@@ -126,6 +127,14 @@ A **union with a scalar member** and no `#[Cast]` (`int|float`, `int|string`) re
 - `requiredIf.field` is the referenced field's input key.
 
 See [Schema Export](https://solophp.github.io/Request-Handler/features/schema).
+
+## Values the application supplies
+
+`#[FromContext]` values and generator results are the application's, not the client's:
+
+- `null` for a property that is neither nullable nor has a default throws `UnexpectedValueException` — 3.x left the property uninitialised, to fail later on first read;
+- a `#[FromContext]` property typed with a Request subclass receives the object passed in `context` as it is — it is not built from input like a nested DTO;
+- `#[EmptyToNull]` and `#[NoTrim]` on a class leave them alone.
 
 ## Request API
 
