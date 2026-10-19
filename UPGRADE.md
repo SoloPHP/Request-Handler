@@ -1,0 +1,148 @@
+# Upgrading from 3.x to 4.0
+
+4.0 makes the request contract stricter and easier to consume: values that cannot become the declared type are validation errors instead of silent coercions, errors and `schema()` are keyed by the input the client actually sends, and dates, nested objects and enums follow the property type.
+
+Most applications need only the checklist below. The sections after it explain each change with before/after examples.
+
+## Checklist
+
+| Look for | Do |
+|---|---|
+| PHP 8.2 | Upgrade to PHP 8.3+ |
+| `#[Cast('datetime…')]` | Remove it — the class follows the property type; move a format into `#[DateFormat('…')]` ([Dates](#dates-dateformat-replaces-the-datetime-cast-specs)) |
+| `#[Cast('integer')]`, `'double'`, `'boolean'` | Use `'int'`, `'float'`, `'bool'` |
+| A `string` property that receives arrays or objects (a JSON column) | Add `#[Cast('json')]` ([Casts](#casts-are-lossless)) |
+| Tests or clients expecting `['rule' => 'scalar']` | Expect the type's rule: `integer`, `numeric`, `boolean` or `string` |
+| Clients reading errors of `#[FromBody('path')]`, `#[FromRoute('key')]`, `#[FromContext('key')]` properties | Read them under the input key ([Error keys](#error-keys-follow-the-input)) |
+| `$handler->schema(...)` consumers | Read fields by input key; `exclude` is gone ([Schema](#schema-v2)) |
+| A property typed with a class that is not a Request subclass, enum or date | Give it a `#[Caster]`, processor, `#[Generator]` or `#[FromContext]` ([Class types](#class-typed-properties)) |
+| `toArray()` overridden in a Request subclass | Declare `toArray(bool $onlyProvided = false): array` |
+| `AuthorizationException` | Remove — it was never thrown |
+| `Solo\RequestHandler\Cache\*`, `Casters\BuiltInCaster`, `Pipeline\*`, `Schema\SchemaBuilder`, `RuleParser`, `InputBags` used directly | Use the public API — these classes are now `@internal` |
+
+Optional, but worth doing while you are there:
+
+| Look for | Consider |
+|---|---|
+| A post-processor that only turns `""` into `null` | `#[EmptyToNull]` ([New features](#new-features)) |
+| `$handler->register(X::class, $container->get(X::class))` | `new RequestHandler($validator, container: $container)` |
+| PATCH endpoints reading the raw body to know what was sent | `$dto->provided()` / `$dto->toArray(onlyProvided: true)` |
+| `#[PreProcess('trim')]` everywhere because auto-trim is off for one field | `#[NoTrim]` on that field, auto-trim back on |
+
+---
+
+## Requirements
+
+- PHP **8.3** or newer (3.x: 8.2).
+- `psr/container ^2.0` is now a direct dependency. It already came with `solophp/contracts`, so nothing new is installed.
+
+## Casts are lossless
+
+The type-driven casts used PHP's own coercion, so the declared type silently rewrote what the client sent. Now a value is converted only when nothing is lost; anything else is a validation error named like the validator rule for that type.
+
+| Property | Input | 3.x | 4.0 |
+|---|---|---|---|
+| `int` | `"12abc"` | `12` | `['rule' => 'integer']` |
+| `int` | `"1.5"` | `1` | `['rule' => 'integer']` |
+| `int` | `[5]` | `['rule' => 'scalar']` | `['rule' => 'integer']` |
+| `float` | `"abc"` | `0.0` | `['rule' => 'numeric']` |
+| `bool` | `"maybe"`, `2` | `true` | `['rule' => 'boolean']` |
+| `bool` | `""` | `false` | no value — `null`, the default, or `required` |
+| `string` | `true` | `"1"` | `['rule' => 'string']` |
+| `string` | `["a"]` | `'["a"]'` | `['rule' => 'string']` |
+
+The accepted forms are exactly those of solophp/validator's `integer`, `numeric` and `boolean` rules: `"42"`, `"-5"`, `"9.99"`, `"1e3"`, `"true"`, `"off"`, `1`, `0` and so on still convert. A field whose `#[Validate]` already checks its type sees no difference — the validator reports first.
+
+Watch for properties whose type contradicts their rule: an `int` property validated as `boolean` used to turn `"true"` into `0` without a word; now it reports `integer`. Fix the type (`bool`).
+
+To store structured input in a string property — a JSON column — say so:
+
+```php
+// 3.x: arrays were JSON-encoded into any string property
+public ?string $settings = null;
+
+// 4.0
+#[Cast('json')]
+public ?string $settings = null;   // ['theme' => 'dark'] → '{"theme":"dark"}'
+```
+
+## Error keys follow the input
+
+`ValidationException` keys were property names, so a field read from `display_name` reported its error under `name` — a key the client never sent. Errors are now keyed by the property's **input key**:
+
+```php
+#[FromBody('display_name')]
+#[Validate('required|string')]
+public string $name;
+
+#[FromRoute('product_id')]
+#[Validate('required|integer')]
+public int $id;
+
+// 3.x: ['name' => [...], 'id' => [...]]
+// 4.0: ['display_name' => [...], 'product_id' => [...]]
+```
+
+Properties read by their own name — the default case — keep their keys. Nested objects and items build their paths from the parent's input key (`order.lines.0.quantity`). Rule strings and the validation payload still use property names (`same:password`, `{id}`).
+
+## Dates: `#[DateFormat]` replaces the datetime cast specs
+
+The class now comes from the property type, so the `datetime[:immutable][:format]` mini-language is gone. `#[Cast('datetime…')]` throws `ConfigurationException::castDateTimeRemoved` with a hint.
+
+| 3.x | 4.0 |
+|---|---|
+| `#[Cast('datetime')] public DateTime $at;` | `public DateTime $at;` |
+| `#[Cast('datetime:immutable')] public DateTimeImmutable $at;` | `public DateTimeImmutable $at;` |
+| `#[Cast('datetime:Y-m-d')] public DateTime $day;` | `#[DateFormat('Y-m-d')] public DateTime $day;` |
+| `#[Cast('datetime:immutable:Y-m-d')] public DateTimeImmutable $day;` | `#[DateFormat('Y-m-d')] public DateTimeImmutable $day;` |
+
+A `DateTimeInterface` property now holds a `DateTimeImmutable` (3.x: `DateTime`). An untyped or `mixed` property with `#[DateFormat]` gets a `DateTimeImmutable`.
+
+`#[Cast]` takes `int`, `float`, `bool`, `string`, `array` and `json`; the aliases `integer`, `double` and `boolean` are gone.
+
+## Class-typed properties
+
+A property typed with a **Request subclass** is a nested object now: the input object runs the child's whole pipeline and errors come back under its path (`address.zip`). In 3.x the same property ended in a `TypeError` — a 500 the client could trigger.
+
+```php
+public AddressRequest $address;           // required: null → ['address' => [['rule' => 'required']]]
+public ?AddressRequest $billing = null;
+```
+
+Any **other class type** needs something that produces it — `#[Caster]`, a pre/post-processor, `#[Generator]` or `#[FromContext]` (backed enums and DateTime classes are produced by their type). Otherwise building the metadata throws `ConfigurationException::unproducibleType` — at the first use of the class, not at the first request carrying the field. This includes pure (non-backed) enums. An object passed for such a property in the `handleArray()` data belongs in `context`, read with `#[FromContext]`.
+
+## Schema v2
+
+`schema()` now describes what the client sends:
+
+- fields are keyed by **input key** (3.x: property name) and name their `property`;
+- generated and `#[FromContext]` properties are left out;
+- the `exclude` flag is gone — it describes output, not input;
+- new keys: `default`, `format` (`#[DateFormat]`), `cases` (backed enums), `fields` (nested DTO), `items` (`#[Items]`), with `['$ref' => Class]` for a class recurring on its own path;
+- `requiredIf.field` is the referenced field's input key.
+
+See [Schema Export](https://solophp.github.io/Request-Handler/features/schema).
+
+## Request API
+
+- `toArray()` takes `bool $onlyProvided = false`. A subclass overriding it must declare the parameter.
+- `toArray()`, `has()`, `get()` and `group()` read the same metadata as the handler, so a misconfigured class throws `ConfigurationException` from them too.
+- `AuthorizationException` is removed (the library never threw it).
+- `FieldSource` is string-backed (`'body'`, `'query'`, `'route'`, `'context'`); its cases are unchanged.
+
+## Internal classes
+
+`Cache\*`, `Casters\BuiltInCaster`, `Pipeline\*`, `Schema\SchemaBuilder`, `RuleParser` and `InputBags` are marked `@internal` and may change in any release. The public API is `RequestHandler`, `Request`, the attributes, the contracts, `ProcessContext`, `FieldSource` and the exceptions.
+
+---
+
+## New features
+
+None of these require changes; they are listed so the upgrade can drop workarounds.
+
+- **`#[EmptyToNull]`** — on a property or a class: a blank string is no value (`null`, the default, or `required`), before pre-processing and validation. Replaces `''`→`null` post-processors, which also switched the field's cast off.
+- **`#[NoTrim]`** — on a property or a class: auto-trim skips it.
+- **`#[Cast('json')]`** — JSON-encodes structured input into a string property.
+- **`provided()` / `isProvided()`** — which properties the request supplied, an explicit `null` included; `toArray(onlyProvided: true)` is the change set of a PATCH, nested DTOs and items included.
+- **PSR-11 container** — `new RequestHandler($validator, container: $container)`: processors, casters and generators resolve to a registered instance, else the container's entry, else a no-argument instance.
+- **Nested DTOs by type** and **schema v2**, described above.
