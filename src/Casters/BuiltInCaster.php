@@ -49,9 +49,9 @@ final class BuiltInCaster
 
     /**
      * Convert `$value` to `$type` without losing information — or return null
-     * when it cannot be: `'12abc'` is no int, `['5']` no float, `'maybe'` no
-     * bool. `""` means "no value" for int / float / bool (null); a string
-     * keeps it, an array reads it as `[]`.
+     * when it cannot be: `'12abc'` is no int, `['5']` no float, `true` no
+     * number, `'maybe'` no bool. `""` means "no value" for int / float / bool
+     * (null); a string keeps it, an array reads it as `[]`.
      */
     public function cast(string $type, mixed $value): mixed
     {
@@ -157,7 +157,6 @@ final class BuiltInCaster
     {
         return match (true) {
             is_int($value) => $value,
-            is_bool($value) => (int) $value,
             // Whole floats only, inside the range a float can hold exactly.
             is_float($value) => $value === floor($value) && abs($value) < 9.0E15 ? (int) $value : null,
             is_string($value) => ($int = filter_var($value, FILTER_VALIDATE_INT)) === false ? null : $int,
@@ -168,7 +167,7 @@ final class BuiltInCaster
     private function toFloat(mixed $value): ?float
     {
         return match (true) {
-            is_float($value), is_int($value), is_bool($value) => (float) $value,
+            is_float($value), is_int($value) => (float) $value,
             is_string($value) && is_numeric($value) => (float) $value,
             default => null,
         };

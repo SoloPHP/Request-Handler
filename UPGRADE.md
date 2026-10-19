@@ -46,15 +46,17 @@ The type-driven casts used PHP's own coercion, so the declared type silently rew
 | `int` | `"12abc"` | `12` | `['rule' => 'integer']` |
 | `int` | `"1.5"` | `1` | `['rule' => 'integer']` |
 | `int` | `[5]` | `['rule' => 'scalar']` | `['rule' => 'integer']` |
+| `int` | `true` | `1` | `['rule' => 'integer']` |
 | `float` | `"abc"` | `0.0` | `['rule' => 'numeric']` |
+| `float` | `false` | `0.0` | `['rule' => 'numeric']` |
 | `bool` | `"maybe"`, `2` | `true` | `['rule' => 'boolean']` |
 | `bool` | `""` | `false` | no value — `null`, the default, or `required` |
 | `string` | `true` | `"1"` | `['rule' => 'string']` |
 | `string` | `["a"]` | `'["a"]'` | `['rule' => 'string']` |
 
-The accepted forms are exactly those of solophp/validator's `integer`, `numeric` and `boolean` rules: `"42"`, `"-5"`, `"9.99"`, `"1e3"`, `"true"`, `"off"`, `1`, `0` and so on still convert. A field whose `#[Validate]` already checks its type sees no difference — the validator reports first.
+The accepted forms are those of solophp/validator's `integer`, `numeric` and `boolean` rules — `"42"`, `"-5"`, `"9.99"`, `"1e3"`, `"true"`, `"off"`, `1`, `0` and so on still convert — except that a JSON `true` / `false` is never a number. A field whose `#[Validate]` already checks its type sees no difference — the validator reports first.
 
-Watch for properties whose type contradicts their rule: an `int` property validated as `boolean` used to turn `"true"` into `0` without a word; now it reports `integer`. Fix the type (`bool`).
+Watch for properties whose type contradicts their rule: an `int` property validated as `boolean` used to turn `"true"` into `0` without a word, and a JSON `true` into `1`; now both report `integer`. Fix the type (`bool`).
 
 To store structured input in a string property — a JSON column — say so:
 

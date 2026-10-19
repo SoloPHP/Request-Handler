@@ -49,7 +49,7 @@ A value that cannot become the declared type is reported in the `ValidationExcep
 | Value matching no enum case | `['rule' => 'in', 'params' => [...backing values]]` |
 | `""` or `null` for a non-nullable property without a default | `['rule' => 'required']` |
 
-The `int`, `float` and `bool` casts accept exactly what the `integer`, `numeric` and `boolean` rules of [solophp/validator](https://github.com/solophp/validator) accept, and report the same error codes — so the type alone already rejects `"12abc"`; a matching rule in `#[Validate]` stays harmless.
+The `int`, `float` and `bool` casts accept the forms the `integer`, `numeric` and `boolean` rules of [solophp/validator](https://github.com/solophp/validator) accept — except that a JSON `true` / `false` is never a number — and report the same error codes. So the type alone already rejects `"12abc"`; a matching rule in `#[Validate]` stays harmless.
 
 An empty string keeps its meaning "no value": it becomes `null` for `int`, `float`, `bool`, DateTime and enum properties — `null` on a nullable property, the default on one that has a default, and the `required` error otherwise. A field that already failed validation is not cast, so it reports the validator's error only.
 
@@ -83,9 +83,8 @@ public ?string $settings = null;   // ['theme' => 'dark'] → '{"theme":"dark"}'
 | Input | Result |
 |-------|--------|
 | `123`, `"123"`, `"-5"`, `"+7"` | `123`, `123`, `-5`, `7` |
-| `true` / `false` | `1` / `0` |
 | A whole float (`2.0`) | `2` |
-| `"12abc"`, `"1.5"`, `"1e3"`, `"05"`, `2.5`, an array | `integer` error |
+| `"12abc"`, `"1.5"`, `"1e3"`, `"05"`, `2.5`, `true`, an array | `integer` error |
 
 Strings follow `FILTER_VALIDATE_INT`: digits with an optional sign — no fraction, exponent or leading zero.
 
@@ -94,8 +93,8 @@ Strings follow `FILTER_VALIDATE_INT`: digits with an optional sign — no fracti
 | Input | Result |
 |-------|--------|
 | `12.34`, `"12.34"`, `"1e3"` | `12.34`, `12.34`, `1000.0` |
-| `5`, `true` | `5.0`, `1.0` |
-| `"9,99"`, `"abc"`, an array | `numeric` error |
+| `5` | `5.0` |
+| `"9,99"`, `"abc"`, `true`, an array | `numeric` error |
 
 ### Boolean
 

@@ -35,11 +35,10 @@ final class BuiltInCasterTest extends TestCase
         $this->assertSame(-5, $this->caster->cast('int', '-5'));
         $this->assertSame(7, $this->caster->cast('int', 7));
         $this->assertSame(2, $this->caster->cast('int', 2.0));
-        $this->assertSame(1, $this->caster->cast('int', true));
-        $this->assertSame(0, $this->caster->cast('int', false));
 
         // Cannot be converted without loss → null (the handler reports `integer`).
-        foreach (['abc', '12abc', '1.5', '1e3', 'true', [5], 2.5, 1.0E20] as $input) {
+        // A boolean is no number either.
+        foreach (['abc', '12abc', '1.5', '1e3', 'true', [5], 2.5, 1.0E20, true, false] as $input) {
             $this->assertNull($this->caster->cast('int', $input), var_export($input, true));
         }
     }
@@ -49,9 +48,8 @@ final class BuiltInCasterTest extends TestCase
         $this->assertSame(12.34, $this->caster->cast('float', '12.34'));
         $this->assertSame(1000.0, $this->caster->cast('float', '1e3'));
         $this->assertSame(5.0, $this->caster->cast('float', 5));
-        $this->assertSame(1.0, $this->caster->cast('float', true));
 
-        foreach (['abc', '1,5', [1.5], 'NaN'] as $input) {
+        foreach (['abc', '1,5', [1.5], 'NaN', true, false] as $input) {
             $this->assertNull($this->caster->cast('float', $input), var_export($input, true));
         }
     }

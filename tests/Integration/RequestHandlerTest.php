@@ -2027,6 +2027,20 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
+    public function testBooleanIsNotANumber(): void
+    {
+        // 3.x and early 4.0 stored true as 1 / 1.0 — a JSON boolean sent for a number.
+        try {
+            $this->handler->handleArray(StrictScalarsRequest::class, ['qty' => true, 'price' => false]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame([
+                'qty'   => [['rule' => 'integer']],
+                'price' => [['rule' => 'numeric']],
+            ], $e->getErrors());
+        }
+    }
+
     public function testEmptyStringForOptionalBoolMeansNoValue(): void
     {
         $dto = $this->handler->handleArray(StrictScalarsRequest::class, ['enabled' => '']);
