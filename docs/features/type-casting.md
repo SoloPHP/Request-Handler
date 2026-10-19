@@ -193,7 +193,7 @@ A number is read in the format like a string — `20240115` for `#[DateFormat('Y
 
 ## Enums
 
-A property typed with a `BackedEnum` is resolved through its backing value — no attribute needed. Int-backed enums also accept numeric strings, since query strings carry no ints:
+A property typed with a `BackedEnum` is resolved through its backing value — no attribute needed. An int-backed enum reads the value like an `int` property: integer strings too, since query strings carry no ints, and whole floats such as `2.0`:
 
 ```php
 enum Status: string { case Draft = 'draft'; case Published = 'published'; }

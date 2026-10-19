@@ -149,8 +149,9 @@ final class BuiltInCaster
     }
 
     /**
-     * Resolve a BackedEnum case from its backing value. Numeric strings are
-     * accepted for int-backed enums (query strings carry no ints).
+     * Resolve a BackedEnum case from its backing value. An int-backed enum
+     * reads the value like an int property — integer strings (query strings
+     * carry no ints) and whole floats (`2.0` from a JSON encoder) too.
      *
      * @template TEnum of BackedEnum
      * @param class-string<TEnum> $enumClass
@@ -166,8 +167,8 @@ final class BuiltInCaster
             ??= (string) (new ReflectionEnum($enumClass))->getBackingType() === 'int';
 
         if ($intBacked) {
-            $int = is_string($value) ? filter_var($value, FILTER_VALIDATE_INT) : $value;
-            return is_int($int) ? $enumClass::tryFrom($int) : null;
+            $int = $this->toInt($value);
+            return $int === null ? null : $enumClass::tryFrom($int);
         }
 
         return is_string($value) || is_int($value) ? $enumClass::tryFrom((string) $value) : null;

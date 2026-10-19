@@ -312,6 +312,9 @@ final class BuiltInCasterTest extends TestCase
     {
         $this->assertSame(CasterTestLevel::High, $this->caster->castEnum(CasterTestLevel::class, '2'));
         $this->assertSame(CasterTestLevel::High, $this->caster->castEnum(CasterTestLevel::class, 2));
+        // Like an int property: a whole float is the int, a fraction is not.
+        $this->assertSame(CasterTestLevel::High, $this->caster->castEnum(CasterTestLevel::class, 2.0));
+        $this->assertNull($this->caster->castEnum(CasterTestLevel::class, 2.5));
         $this->assertNull($this->caster->castEnum(CasterTestLevel::class, '2.5'));
         $this->assertNull($this->caster->castEnum(CasterTestLevel::class, true));
     }
