@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Tests\Unit\Casters;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Solo\RequestHandler\Casters\BuiltInCaster;
 use DateTime;
@@ -203,4 +204,140 @@ final class BuiltInCasterTest extends TestCase
         $this->expectExceptionMessage('Unknown cast type: unknown');
         $this->caster->cast('unknown', 'value');
     }
+
+    // ===== datetime specs =====
+
+    #[DataProvider('dateTimeSpecProvider')]
+    public function testParseDateTimeSpec(string $spec, bool $immutable, ?string $format): void
+    {
+        $this->assertSame(['immutable' => $immutable, 'format' => $format], BuiltInCaster::parseDateTimeSpec($spec));
+    }
+
+    /** @return array<string, array{0: string, 1: bool, 2: ?string}> */
+    public static function dateTimeSpecProvider(): array
+    {
+        return [
+            'bare'                => ['datetime', false, null],
+            'immutable'           => ['datetime:immutable', true, null],
+            'format'              => ['datetime:Y-m-d', false, 'Y-m-d'],
+            'format with colons'  => ['datetime:Y-m-d H:i:s', false, 'Y-m-d H:i:s'],
+            'immutable + format'  => ['datetime:immutable:Y-m-d H:i:s', true, 'Y-m-d H:i:s'],
+            'format + immutable'  => ['datetime:H:i:immutable', true, 'H:i'],
+        ];
+    }
+
+    public function testDateTimeSpecNeedsColonAfterPrefix(): void
+    {
+        $this->assertTrue(BuiltInCaster::isDateTime('datetime'));
+        $this->assertTrue(BuiltInCaster::isDateTime('datetime:Y-m-d'));
+        $this->assertFalse(BuiltInCaster::isDateTime('datetimeX'));
+        $this->assertFalse(BuiltInCaster::isBuiltIn('datetime_immutable'));
+    }
+
+    public function testCastDateTimeFormatContainingColons(): void
+    {
+        // Regression: the spec used to be split on ':' and the format collapsed to 's'.
+        $casted = $this->caster->cast('datetime:immutable:Y-m-d H:i:s', '2024-01-15 10:30:45');
+        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
+        $this->assertSame('2024-01-15 10:30:45', $casted->format('Y-m-d H:i:s'));
+
+        $casted = $this->caster->cast('datetime:Y-m-d H:i:s', '2024-01-15 10:30:45');
+        $this->assertInstanceOf(DateTime::class, $casted);
+        $this->assertSame('2024-01-15 10:30:45', $casted->format('Y-m-d H:i:s'));
+    }
+
+    public function testDateOnlyFormatYieldsMidnight(): void
+    {
+        // Regression: createFromFormat() filled the time of day from "now".
+        $casted = $this->caster->cast('datetime:Y-m-d', '2024-01-15');
+        $this->assertInstanceOf(DateTime::class, $casted);
+        $this->assertSame('2024-01-15 00:00:00', $casted->format('Y-m-d H:i:s'));
+
+        $casted = $this->caster->cast('datetime:immutable:d.m.Y', '15.01.2024');
+        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
+        $this->assertSame('2024-01-15 00:00:00', $casted->format('Y-m-d H:i:s'));
+    }
+
+    public function testPartialDateFormatsResetOnlyTheTime(): void
+    {
+        // Review #2: fields the format does not parse keep PHP's semantics
+        // (current year for `m-d`) — only the time of day is reset.
+        $currentYear = date('Y');
+        $casted = $this->caster->cast('datetime:immutable:m-d', '05-17');
+        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
+        $this->assertSame($currentYear . '-05-17 00:00:00', $casted->format('Y-m-d H:i:s'));
+
+        $casted = $this->caster->cast('datetime:immutable:Y-m', '2024-01');
+        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
+        $this->assertSame('2024-01', $casted->format('Y-m'));
+        $this->assertSame('00:00:00', $casted->format('H:i:s'));
+
+        $casted = $this->caster->cast('datetime:immutable:!Y-m', '2024-01');
+        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
+        $this->assertSame('2024-01-01 00:00:00', $casted->format('Y-m-d H:i:s'));
+    }
+
+    public function testImmutableSpecConvertsMutableInstance(): void
+    {
+        $mutable = new DateTime('2024-01-15 10:30:00');
+
+        $casted = $this->caster->cast('datetime:immutable', $mutable);
+
+        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
+        $this->assertSame($mutable->getTimestamp(), $casted->getTimestamp());
+    }
+
+    public function testNumericStringIsReadAsTimestamp(): void
+    {
+        $casted = $this->caster->cast('datetime', '1700000000');
+
+        $this->assertInstanceOf(DateTime::class, $casted);
+        $this->assertSame(1700000000, $casted->getTimestamp());
+    }
+
+    // ===== arrays into scalars =====
+
+    public function testRejectsArray(): void
+    {
+        foreach (['int', 'integer', 'float', 'double', 'bool', 'boolean', 'INT'] as $type) {
+            $this->assertTrue(BuiltInCaster::rejectsArray($type), $type);
+        }
+        foreach (['string', 'array', 'datetime'] as $type) {
+            $this->assertFalse(BuiltInCaster::rejectsArray($type), $type);
+        }
+    }
+
+    // ===== enums =====
+
+    public function testCastStringBackedEnum(): void
+    {
+        $this->assertSame(CasterTestStatus::Draft, $this->caster->castEnum(CasterTestStatus::class, 'draft'));
+        $this->assertNull($this->caster->castEnum(CasterTestStatus::class, 'archived'));
+        $this->assertNull($this->caster->castEnum(CasterTestStatus::class, ['draft']));
+    }
+
+    public function testCastIntBackedEnumAcceptsNumericStrings(): void
+    {
+        $this->assertSame(CasterTestLevel::High, $this->caster->castEnum(CasterTestLevel::class, '2'));
+        $this->assertSame(CasterTestLevel::High, $this->caster->castEnum(CasterTestLevel::class, 2));
+        $this->assertNull($this->caster->castEnum(CasterTestLevel::class, '2.5'));
+        $this->assertNull($this->caster->castEnum(CasterTestLevel::class, true));
+    }
+
+    public function testCastEnumPassesInstanceThrough(): void
+    {
+        $this->assertSame(CasterTestLevel::Low, $this->caster->castEnum(CasterTestLevel::class, CasterTestLevel::Low));
+    }
+}
+
+enum CasterTestStatus: string
+{
+    case Draft = 'draft';
+    case Published = 'published';
+}
+
+enum CasterTestLevel: int
+{
+    case Low = 1;
+    case High = 2;
 }

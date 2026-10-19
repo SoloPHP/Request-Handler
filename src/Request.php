@@ -43,7 +43,7 @@ abstract class Request
      * 'AND' group). On a key collision in group() these fold into a list entry
      * instead of erroring; a duplicate leaf/column key is still a real conflict.
      */
-    private const array GROUP_KEYS = ['AND', 'OR'];
+    private const GROUP_KEYS = ['AND', 'OR'];
 
     /**
      * Per-class property metadata used by toArray/has/get/group.

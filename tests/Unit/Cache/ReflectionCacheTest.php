@@ -19,10 +19,13 @@ use Solo\RequestHandler\Attributes\Source\FromBody;
 use Solo\RequestHandler\Attributes\Source\FromContext;
 use Solo\RequestHandler\Attributes\Source\FromRoute;
 use Solo\RequestHandler\Attributes\Validate;
+use Solo\RequestHandler\Cache\ProcessorKind;
 use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Contracts\GeneratorInterface;
+use Solo\RequestHandler\Contracts\ProcessorInterface;
 use Solo\RequestHandler\Exceptions\ConfigurationException;
 use Solo\RequestHandler\FieldSource;
+use Solo\RequestHandler\ProcessContext;
 use Solo\RequestHandler\Request;
 
 final class ReflectionCacheTest extends TestCase
@@ -505,6 +508,149 @@ final class ReflectionCacheTest extends TestCase
         $this->expectExceptionMessage("has 'items' but type is 'string'");
         $this->cache->get(ItemsNonArrayTypeRequest::class);
     }
+
+    public function testBrokenItemsClassFailsTheParentBuild(): void
+    {
+        // Fail fast: the item class is validated with its parent, not when a
+        // request first carries items.
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('BrokenItemRequest::$qty');
+        $this->cache->get(ParentOfBrokenItemRequest::class);
+    }
+
+    public function testSelfReferencingItemsClassBuilds(): void
+    {
+        $metadata = $this->cache->get(TreeNodeRequest::class);
+
+        $this->assertSame(TreeNodeRequest::class, $metadata->properties['children']->items);
+    }
+
+    // ===== datetime specs & cast compatibility =====
+
+    public function testMutableDateTimeCastIsAdaptedToImmutableProperty(): void
+    {
+        $property = $this->cache->get(AdaptedDateTimeRequest::class)->properties['date'];
+
+        $this->assertSame('datetime:Y-m-d H:i:s', $property->castType);
+        $this->assertSame('datetime:immutable:Y-m-d H:i:s', $property->effectiveCastType);
+    }
+
+    public function testImmutableDateTimeCastOnMutablePropertyThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage(
+            "cast type 'datetime:immutable' which is incompatible with property type 'DateTime'"
+        );
+        $this->cache->get(ImmutableCastOnMutableRequest::class);
+    }
+
+    public function testDatetimePrefixWithoutColonIsRejected(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('neither a built-in type');
+        $this->cache->get(DatetimeTypoCastRequest::class);
+    }
+
+    #[DataProvider('typeDrivenDateTimeProvider')]
+    public function testDateTimeTypesGetTypeDrivenCast(string $property, string $expectedCast): void
+    {
+        $metadata = $this->cache->get(TypeDrivenDateTimeRequest::class);
+
+        $this->assertSame($expectedCast, $metadata->properties[$property]->effectiveCastType);
+    }
+
+    /** @return array<string, array{0: string, 1: string}> */
+    public static function typeDrivenDateTimeProvider(): array
+    {
+        return [
+            'DateTimeImmutable'  => ['immutable', 'datetime:immutable'],
+            '?DateTimeImmutable' => ['maybe', 'datetime:immutable'],
+            'DateTime'           => ['mutable', 'datetime'],
+            'DateTimeInterface'  => ['either', 'datetime'],
+        ];
+    }
+
+    public function testBackedEnumPropertyResolvesToEnumClass(): void
+    {
+        $property = $this->cache->get(EnumPropertyRequest::class)->properties['status'];
+
+        $this->assertSame(CacheTestStatus::class, $property->enumClass);
+        $this->assertNull($property->effectiveCastType);
+    }
+
+    public function testNonClassTypesDoNotProbeTheAutoloader(): void
+    {
+        // Review #10: enum detection must not ask the autoloader for 'mixed',
+        // unions or intersections on every metadata build.
+        $requested = [];
+        $spy = static function (string $class) use (&$requested): void {
+            $requested[] = $class;
+        };
+        spl_autoload_register($spy);
+
+        try {
+            $this->cache->get(NonClassTypesRequest::class);
+        } finally {
+            spl_autoload_unregister($spy);
+        }
+
+        $this->assertSame([], array_values(array_intersect($requested, ['mixed', 'int|string', 'Countable&Iterator'])));
+    }
+
+    public function testFloatCastOnIntPropertyThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("cast type 'float' which is incompatible with property type 'int'");
+        $this->cache->get(FloatCastOnIntRequest::class);
+    }
+
+    public function testIntCastOnFloatAndAnyCastOnMixedAreAccepted(): void
+    {
+        $metadata = $this->cache->get(WideningCastRequest::class);
+
+        $this->assertSame('int', $metadata->properties['amount']->effectiveCastType);
+        $this->assertSame('array', $metadata->properties['payload']->effectiveCastType);
+    }
+
+    // ===== processor checks =====
+
+    public function testNonPublicStaticProcessorMethodThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('NON-public method');
+        $this->cache->get(ProtectedStaticProcessorRequest::class);
+    }
+
+    public function testProcessorNeedingTwoArgumentsThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("'explode' that cannot be called with a single argument");
+        $this->cache->get(TwoArgumentProcessorRequest::class);
+    }
+
+    public function testInternalFunctionTakingNoArgumentThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("'time' that cannot be called with a single argument");
+        $this->cache->get(NoArgumentProcessorRequest::class);
+    }
+
+    public function testStaticProcessorIsResolvedOnTheConcreteClass(): void
+    {
+        // The property lives on an abstract base, the hook on the subclass.
+        $property = $this->cache->get(ConcreteHookRequest::class)->properties['value'];
+
+        $this->assertSame(ProcessorKind::StaticMethod, $property->preProcessorKind);
+    }
+
+    public function testTypedCallableProcessorsGetAGuard(): void
+    {
+        $metadata = $this->cache->get(GuardedProcessorRequest::class);
+
+        $this->assertNotNull($metadata->properties['typed']->preProcessorGuard);
+        $this->assertNull($metadata->properties['mixed']->preProcessorGuard);
+        $this->assertNull($metadata->properties['object']->preProcessorGuard);
+    }
 }
 
 // ============================================================================
@@ -967,4 +1113,143 @@ final class IgnoreWithGeneratorRequest extends Request
     #[Ignore]
     #[Generator(TestGenerator::class)]
     public string $id;
+}
+
+final class BrokenItemRequest extends Request
+{
+    #[Validate('nullable|integer')]
+    public int $qty;
+}
+
+final class ParentOfBrokenItemRequest extends Request
+{
+    /** @var array<int, array<string, mixed>>|null */
+    #[Items(BrokenItemRequest::class)]
+    public ?array $lines = null;
+}
+
+final class TreeNodeRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $name;
+
+    /** @var array<int, array<string, mixed>>|null */
+    #[Validate('nullable|array')]
+    #[Items(TreeNodeRequest::class)]
+    public ?array $children = null;
+}
+
+final class AdaptedDateTimeRequest extends Request
+{
+    #[Cast('datetime:Y-m-d H:i:s')]
+    public \DateTimeImmutable $date;
+}
+
+final class ImmutableCastOnMutableRequest extends Request
+{
+    #[Cast('datetime:immutable')]
+    public \DateTime $date;
+}
+
+final class DatetimeTypoCastRequest extends Request
+{
+    #[Cast('datetime_immutable')]
+    public \DateTimeImmutable $date;
+}
+
+final class TypeDrivenDateTimeRequest extends Request
+{
+    public \DateTimeImmutable $immutable;
+    public ?\DateTimeImmutable $maybe = null;
+    public \DateTime $mutable;
+    public \DateTimeInterface $either;
+}
+
+enum CacheTestStatus: string
+{
+    case Draft = 'draft';
+}
+
+final class EnumPropertyRequest extends Request
+{
+    public CacheTestStatus $status;
+}
+
+final class FloatCastOnIntRequest extends Request
+{
+    #[Cast('float')]
+    public int $qty;
+}
+
+final class WideningCastRequest extends Request
+{
+    #[Cast('int')]
+    public float $amount;
+
+    #[Cast('array')]
+    public mixed $payload = null;
+}
+
+final class ProtectedStaticProcessorRequest extends Request
+{
+    #[PreProcess('normalize')]
+    public string $value;
+
+    protected static function normalize(string $v): string  // intentionally non-public
+    {
+        return $v;
+    }
+}
+
+final class TwoArgumentProcessorRequest extends Request
+{
+    #[PreProcess('explode')]
+    public string $value;
+}
+
+final class NoArgumentProcessorRequest extends Request
+{
+    #[PreProcess('time')]
+    public string $value;
+}
+
+abstract class AbstractHookRequest extends Request
+{
+    #[PreProcess('normalizeValue')]
+    public string $value;
+}
+
+final class ConcreteHookRequest extends AbstractHookRequest
+{
+    public static function normalizeValue(string $value): string
+    {
+        return strtolower($value);
+    }
+}
+
+final class GuardTestProcessor implements ProcessorInterface
+{
+    public function process(mixed $value, ProcessContext $context): mixed
+    {
+        return $value;
+    }
+}
+
+final class GuardedProcessorRequest extends Request
+{
+    #[PreProcess('strtolower')]
+    public string $typed;
+
+    #[PreProcess('intval')]
+    public int $mixed;
+
+    #[PreProcess(GuardTestProcessor::class)]
+    public string $object;
+}
+
+final class NonClassTypesRequest extends Request
+{
+    public mixed $anything = null;
+    public int|string $either = 0;
+    public \Countable&\Iterator $both;
 }

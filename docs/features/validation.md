@@ -13,7 +13,7 @@ public string $name;
 #[Validate('required|email')]
 public string $email;
 
-#[Validate('required|integer|min:0')]
+#[Validate('required|integer|min_value:0')]
 public int $quantity;
 ```
 
@@ -28,8 +28,8 @@ public string $username;
 #[Validate('string')]
 public ?string $bio = null;
 
-// Required Nullable: must be present but can be null
-#[Validate('required|nullable|string')]
+// Nullable without a default: may be null, absent leaves it uninitialized
+#[Validate('nullable|string')]
 public ?string $reason;
 
 // Optional with default
@@ -85,14 +85,17 @@ Available rules depend on your `ValidatorInterface` implementation. The examples
 | `email` | Must be valid email | `'email'` |
 | `boolean` | Must be boolean-like | `'boolean'` |
 | `array` | Must be an array | `'array'` |
-| `date` | Must be valid date | `'date'` |
+| `date` | Must be valid date (optionally in a format) | `'date'`, `'date:Y-m-d'` |
 | `min:n` | Minimum length | `'min:3'` |
 | `max:n` | Maximum length | `'max:255'` |
 | `min_value:n` | Minimum numeric value | `'min_value:0'` |
 | `max_value:n` | Maximum numeric value | `'max_value:100'` |
 | `in:a,b,c` | Must be in list | `'in:active,inactive'` |
 | `length:n` | Exact length | `'length:10'` |
-| `date_format:f` | Must match date format | `'date_format:Y-m-d'` |
+
+::: warning Unknown rules are skipped
+solophp/validator silently skips rule names it does not know. Rules such as `unique`, `exists`, `same`, `accepted`, `after` or `url` in the examples on this page are application rules — register them with `addCustomRule()` / `addRule()`, or they validate nothing.
+:::
 
 ---
 
@@ -100,7 +103,7 @@ Available rules depend on your `ValidatorInterface` implementation. The examples
 
 The handler passes rule strings to `ValidatorInterface::validate()` verbatim — it does not substitute placeholders or otherwise transform them.
 
-Cross-field references in rules (`unique:users,email,{id}`, `exists:…,scope_col,{field}`, `required_if:type,manual`) are the validator's concern. A typical implementation resolves `{id}` / sibling-field references against the validation payload, which contains every DTO field — including those declared with `#[FromRoute]` and `#[FromContext]`.
+Cross-field references in rules (`unique:users,email,{id}`, `exists:…,scope_col,{field}`, `required_if:type,manual`) are the validator's concern. A typical implementation resolves `{id}` / sibling-field references against the validation payload, which contains every field present in the request — including those declared with `#[FromRoute]` and `#[FromContext]`, and those without a `#[Validate]` of their own.
 
 So declare the referenced field as a real property:
 
@@ -136,7 +139,7 @@ If your validator (or custom rule) needs a different convention, that's a valida
 
 ## Handling Validation Errors
 
-Catch `ValidationException` to handle errors:
+All errors of a request come back in one `ValidationException`: the validator's errors, cast failures (see [Type Casting](/features/type-casting#cast-failures-are-validation-errors)) and the errors of every nested item, in declaration order. Catch it to handle them:
 
 ```php
 use Solo\RequestHandler\Exceptions\ValidationException;
@@ -229,7 +232,7 @@ final class CreateProductRequest extends Request
     #[Validate('required|string|max:255')]
     public string $name;
 
-    #[Validate('required|numeric|min:0')]
+    #[Validate('required|numeric|min_value:0')]
     public float $price;
 
     #[Validate('nullable|string|max:1000')]
@@ -239,7 +242,7 @@ final class CreateProductRequest extends Request
     public int $categoryId;
 
     #[Validate('nullable|array')]
-    public array $tags = [];
+    public ?array $tags = null;
 
     #[Validate('nullable|url')]
     public ?string $imageUrl = null;
@@ -263,16 +266,16 @@ final class SearchRequest extends Request
     #[Validate('nullable|in:asc,desc')]
     public ?string $sortDir = null;
 
-    #[Validate('integer|min:1|max:100')]
+    #[Validate('integer|min_value:1|max_value:100')]
     public int $limit = 20;
 
-    #[Validate('integer|min:1')]
+    #[Validate('integer|min_value:1')]
     public int $page = 1;
 
-    #[Validate('nullable|date_format:Y-m-d')]
+    #[Validate('nullable|date:Y-m-d')]
     public ?string $dateFrom = null;
 
-    #[Validate('nullable|date_format:Y-m-d|after:dateFrom')]
+    #[Validate('nullable|date:Y-m-d|after:dateFrom')]
     public ?string $dateTo = null;
 }
 ```

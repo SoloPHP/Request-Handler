@@ -46,7 +46,7 @@ final class FromBody
 
 Reads from the body bag via a dot-path (`'customer.id'`, `'address.city'`). A single-segment path acts as a flat key remap (`#[FromBody('display_name')]` on `public string $name`).
 
-Malformed paths (leading/trailing dot, empty segment like `'a..b'`) throw `InvalidArgumentException`. Resolving the dot-path to an array while the property is a scalar yields a `ValidationException` with `['field' => [['rule' => 'scalar']]]`.
+Malformed paths (leading/trailing dot, empty segment like `'a..b'`) throw `InvalidArgumentException`. Resolving the dot-path to an array while the property is a scalar (string included) yields a `ValidationException` with `['field' => [['rule' => 'scalar']]]` — unless a pre/post-processor or custom caster converts the array; when the field has rules, the validator's error (e.g. `integer`) is reported instead.
 
 ---
 
@@ -64,7 +64,7 @@ final class Validate
 }
 ```
 
-Rules are passed verbatim to `ValidatorInterface::validate()`. The handler does not transform rule strings; cross-field references (e.g. `unique:users,email,{id}`) are the validator's concern, and a typical implementation resolves `{id}` against the validation payload — which contains every DTO field, including those marked `#[FromRoute]` / `#[FromContext]`. Empty rules throw `InvalidArgumentException`.
+Rules are passed verbatim to `ValidatorInterface::validate()`. The handler does not transform rule strings; cross-field references (e.g. `unique:users,email,{id}`) are the validator's concern, and a typical implementation resolves `{id}` against the validation payload — which contains every field present in the request, including those marked `#[FromRoute]` / `#[FromContext]` and those without rules of their own. Empty rules throw `InvalidArgumentException`.
 
 ### `#[Cast(string $type)]`
 
@@ -210,7 +210,7 @@ use Solo\RequestHandler\Attributes\Source\{FromRoute, FromContext};
 #[Validate('required|integer|exists:products,id')]
 public int $id;
 
-#[Validate('required|integer|min:1')]
+#[Validate('required|integer|min_value:1')]
 #[Cast('int')]
 public int $quantity;
 

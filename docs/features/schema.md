@@ -36,7 +36,7 @@ final class UpdateProductRequest extends Request
     #[Validate('nullable|string|required_if:status,published')]
     public ?string $slug = null;
 
-    #[Validate('integer|min:1')]
+    #[Validate('integer|min_value:1')]
     public int $page = 1;
 }
 
@@ -111,7 +111,7 @@ $schema = $handler->schema(UpdateProductRequest::class);
         'source'     => null,
         'rules'      => [
             ['name' => 'integer', 'args' => []],
-            ['name' => 'min', 'args' => ['1']],
+            ['name' => 'min_value', 'args' => ['1']],
         ],
     ],
 ]

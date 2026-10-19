@@ -6,10 +6,13 @@ namespace Solo\RequestHandler\Exceptions;
 
 use Exception;
 
+/**
+ * @phpstan-type ValidationErrors array<string, list<array{rule: string, params?: string[]}>>
+ */
 final class ValidationException extends Exception
 {
     /**
-     * @param array<string, list<array{rule: string, params?: string[]}>> $errors
+     * @param ValidationErrors $errors
      */
     public function __construct(
         private readonly array $errors = [],
@@ -24,7 +27,7 @@ final class ValidationException extends Exception
     }
 
     /**
-     * @return array<string, list<array{rule: string, params?: string[]}>>
+     * @return ValidationErrors
      */
     public function getErrors(): array
     {

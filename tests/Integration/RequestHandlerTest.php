@@ -46,6 +46,25 @@ final class RequestHandlerTest extends TestCase
     }
 
     /**
+     * Validator fake: a field whose rules start with `required` fails with
+     * `required` when it is missing (or null) in the payload.
+     */
+    private function requireWhenMissing(): void
+    {
+        $this->validator->method('validate')->willReturnCallback(
+            static function (array $data, array $rules): array {
+                $errors = [];
+                foreach ($rules as $field => $ruleSet) {
+                    if (str_starts_with($ruleSet, 'required') && !isset($data[$field])) {
+                        $errors[$field] = [['rule' => 'required']];
+                    }
+                }
+                return $errors;
+            }
+        );
+    }
+
+    /**
      * @param array<string, mixed>|null $body
      * @param array<string, mixed>      $query
      */
@@ -632,9 +651,11 @@ final class RequestHandlerTest extends TestCase
     {
         $request = $this->makeRequest(body: ['name' => 'John', 'email' => 'john@example.com']);
 
+        // `email` declares no rules, so none are passed for it — but its value
+        // is still part of the payload for cross-field rules to reference.
         $this->validator->expects($this->once())
             ->method('validate')
-            ->with(['name' => 'John'], ['name' => 'required|string'])
+            ->with(['name' => 'John', 'email' => 'john@example.com'], ['name' => 'required|string'])
             ->willReturn([]);
 
         $dto = $this->handler->handleBody(NoAttributeRequest::class, $request);
@@ -1122,6 +1143,422 @@ final class RequestHandlerTest extends TestCase
         $dto = $this->handler->handleArray(UntypedPassThroughRequest::class, $payload);
 
         $this->assertSame(['nested' => 'object', 'n' => 1], $dto->anything);
+    }
+
+    // ===== validation payload =====
+
+    public function testValidationPayloadCarriesFieldsWithoutRules(): void
+    {
+        // Documented contract: the payload holds every field, so a rule like
+        // unique:users,email,{id},tenant_id,{tenantId} can resolve {tenantId}
+        // although tenantId declares no rules of its own.
+        $request = $this->makeRequest(body: ['email' => 'a@b.c']);
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(
+                ['id' => 123, 'tenantId' => 99, 'email' => 'a@b.c'],
+                ['id' => 'required|integer', 'email' => 'required|email']
+            )
+            ->willReturn([]);
+
+        $dto = $this->handler->handleBody(
+            TenantScopedRequest::class,
+            $request,
+            route: ['id' => 123],
+            context: ['tenantId' => 99],
+        );
+
+        $this->assertSame(99, $dto->tenantId);
+    }
+
+    // ===== error aggregation =====
+
+    public function testParentAndItemErrorsAreReportedTogether(): void
+    {
+        $this->requireWhenMissing();
+
+        try {
+            $this->handler->handleArray(OrderWithTwoItemListsRequest::class, [
+                'items'  => [['quantity' => '1']],
+                'extras' => [['product' => 'ok', 'quantity' => null]],
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['name', 'items.0.product', 'extras.0.quantity'], array_keys($e->getErrors()));
+        }
+    }
+
+    public function testFromBodyScalarErrorDoesNotHideOtherErrors(): void
+    {
+        // Errors also come back in declaration order: `name` precedes `customerId`.
+        $this->validator->method('validate')->willReturn(['name' => [['rule' => 'required']]]);
+
+        try {
+            $this->handler->handleArray(FromBodyCustomerRequest::class, ['customer' => ['id' => ['nested' => 1]]]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame([
+                'name'       => [['rule' => 'required']],
+                'customerId' => [['rule' => 'scalar']],
+            ], $e->getErrors());
+        }
+    }
+
+    public function testArrayForScalarPropertyIsValidationError(): void
+    {
+        // `?page[]=5` used to become page = 1, `?active[]=1` active = true.
+        try {
+            $this->handler->handleQuery(
+                PaginationRequest::class,
+                $this->makeRequest(query: ['page' => ['5'], 'active' => ['1']])
+            );
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame([
+                'page'   => [['rule' => 'scalar']],
+                'active' => [['rule' => 'scalar']],
+            ], $e->getErrors());
+        }
+    }
+
+    // ===== generators run after validation =====
+
+    public function testGeneratorRunsOnlyForValidInput(): void
+    {
+        CountingGenerator::$calls = 0;
+        $this->requireWhenMissing();
+
+        try {
+            $this->handler->handleArray(CountedGeneratorRequest::class, []);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('name', $e->getErrors());
+        }
+        $this->assertSame(0, CountingGenerator::$calls);
+
+        $dto = $this->handler->handleArray(CountedGeneratorRequest::class, ['name' => 'x']);
+
+        $this->assertSame(1, CountingGenerator::$calls);
+        $this->assertSame(1, $dto->id);
+    }
+
+    public function testItemGeneratorsWaitForTheWholeTree(): void
+    {
+        CountingGenerator::$calls = 0;
+        $this->requireWhenMissing();
+
+        try {
+            $this->handler->handleArray(GeneratedLinesRequest::class, ['lines' => [['sku' => 'A'], ['sku' => 'B']]]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['title'], array_keys($e->getErrors()));
+        }
+
+        $this->assertSame(0, CountingGenerator::$calls);
+    }
+
+    // ===== processors =====
+
+    public function testPreProcessorIsSkippedForValueOfWrongType(): void
+    {
+        // A client sending a number where a string is expected gets a
+        // validation error, not a TypeError from strtolower(int).
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(['email' => 42], ['email' => 'required|email'])
+            ->willReturn(['email' => [['rule' => 'email']]]);
+
+        $this->expectException(ValidationException::class);
+        $this->handler->handleArray(LowercaseEmailRequest::class, ['email' => 42]);
+    }
+
+    public function testPreProcessorStillRunsForAcceptedType(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleArray(LowercaseEmailRequest::class, ['email' => 'A@B.C']);
+
+        $this->assertSame('a@b.c', $dto->email);
+    }
+
+    public function testPostProcessorIsSkippedForNull(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+
+        $this->assertNull($this->handler->handleArray(UppercaseCodeRequest::class, ['code' => null])->code);
+        $this->assertSame('ABC', $this->handler->handleArray(UppercaseCodeRequest::class, ['code' => 'abc'])->code);
+    }
+
+    public function testStaticProcessorMayLiveOnSubclass(): void
+    {
+        $dto = $this->handler->handleArray(ConcreteSlugRequest::class, ['slug' => 'Hello World']);
+
+        $this->assertSame('hello-world', $dto->slug);
+    }
+
+    public function testItemsPostProcessorOutputIsResolvedAsItems(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleArray(JsonItemsRequest::class, [
+            'items' => '[{"product":"Widget","quantity":"2"}]',
+        ]);
+
+        $this->assertIsArray($dto->items);
+        $this->assertInstanceOf(OrderItemRequest::class, $dto->items[0]);
+        $this->assertSame(2, $dto->items[0]->quantity);
+    }
+
+    public function testUnregisteredHandlerWithDependenciesFailsClearly(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('Register an instance');
+        $this->handler->handleArray(RegisteredGeneratorRequest::class, ['name' => 'x']);
+    }
+
+    // ===== datetime =====
+
+    public function testDateTimeFormatsAreCast(): void
+    {
+        $dto = $this->handler->handleArray(DateTimeFormatsRequest::class, [
+            'eventTime' => '2024-01-15 10:30:00',
+            'day'       => '2024-01-15',
+        ]);
+
+        $this->assertSame('2024-01-15 10:30:00', $dto->eventTime->format('Y-m-d H:i:s'));
+        $this->assertNotNull($dto->day);
+        $this->assertSame('2024-01-15 00:00:00', $dto->day->format('Y-m-d H:i:s'));
+    }
+
+    public function testUnparseableDateIsReportedInsteadOfDropped(): void
+    {
+        try {
+            $this->handler->handleArray(DateTimeFormatsRequest::class, ['eventTime' => '15/01/2024', 'day' => 'soon']);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame([
+                'eventTime' => [['rule' => 'date_format', 'params' => ['Y-m-d H:i:s']]],
+                'day'       => [['rule' => 'date_format', 'params' => ['Y-m-d']]],
+            ], $e->getErrors());
+        }
+    }
+
+    public function testDateTimePropertiesAreCastByType(): void
+    {
+        $dto = $this->handler->handleArray(TypeDrivenDateTimeRequest::class, [
+            'immutable' => '2024-01-15',
+            'mutable'   => '2024-01-15 10:00',
+            'either'    => '2024-01-15',
+            'adapted'   => '2024-01-15',
+        ]);
+
+        $this->assertInstanceOf(\DateTimeImmutable::class, $dto->immutable);
+        $this->assertInstanceOf(\DateTime::class, $dto->mutable);
+        $this->assertInstanceOf(\DateTime::class, $dto->either);
+        $this->assertInstanceOf(\DateTimeImmutable::class, $dto->adapted);
+    }
+
+    public function testMutableDateTimeFromContextIsConvertedForImmutableProperty(): void
+    {
+        $dto = $this->handler->handleArray(
+            ContextClockRequest::class,
+            [],
+            context: ['now' => new \DateTime('2024-01-15 10:00:00')],
+        );
+
+        $this->assertSame('2024-01-15 10:00:00', $dto->now->format('Y-m-d H:i:s'));
+    }
+
+    // ===== enums =====
+
+    public function testBackedEnumPropertiesAreResolved(): void
+    {
+        $dto = $this->handler->handleArray(EnumRequest::class, [
+            'status'   => 'published',
+            'priority' => '2',
+            'optional' => '',
+        ]);
+
+        $this->assertSame(TestStatus::Published, $dto->status);
+        $this->assertSame(TestPriority::High, $dto->priority);
+        $this->assertNull($dto->optional);
+    }
+
+    public function testUnknownEnumValueIsValidationError(): void
+    {
+        try {
+            $this->handler->handleArray(EnumRequest::class, ['status' => 'archived', 'priority' => 7]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame([
+                'status'   => [['rule' => 'in', 'params' => ['draft', 'published']]],
+                'priority' => [['rule' => 'in', 'params' => ['1', '2']]],
+            ], $e->getErrors());
+        }
+    }
+
+    // ===== handler-thrown validation errors =====
+
+    public function testHandlerValidationErrorsInsideItemsKeepTheItemPath(): void
+    {
+        // Review #1: a caster rejecting an item's value must report it under
+        // `lines.N.`, aggregated across items, and before any generator runs.
+        CountingGenerator::$calls = 0;
+
+        try {
+            $this->handler->handleArray(MoneyOrderRequest::class, [
+                'lines' => [['amount' => '1.00'], ['amount' => 'abc'], ['amount' => 'x']],
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame([
+                'lines.1.amount' => [['rule' => 'money']],
+                'lines.2.amount' => [['rule' => 'money']],
+            ], $e->getErrors());
+        }
+
+        $this->assertSame(0, CountingGenerator::$calls);
+    }
+
+    public function testPreProcessorValidationErrorsAreAggregatedWithValidatorErrors(): void
+    {
+        $this->requireWhenMissing();
+
+        try {
+            $this->handler->handleArray(SkuOrderRequest::class, [
+                'lines' => [['sku' => 'abc', 'qty' => '1'], ['sku' => 'OK']],
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame([
+                'title'       => [['rule' => 'required']],
+                'lines.0.sku' => [['rule' => 'sku']],
+                'lines.1.qty' => [['rule' => 'required']],
+            ], $e->getErrors());
+        }
+    }
+
+    public function testPostProcessorValidationErrorsOfAllFieldsAreReported(): void
+    {
+        try {
+            $this->handler->handleArray(TwoRejectingFieldsRequest::class, ['first' => 'a', 'second' => 'b']);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame([
+                'first'  => [['rule' => 'rejected']],
+                'second' => [['rule' => 'rejected']],
+            ], $e->getErrors());
+        }
+    }
+
+    // ===== post-processed items =====
+
+    public function testItemsPostProcessorWaitsForTheRestOfTheInput(): void
+    {
+        // Review #3: a post-processor never runs while other fields are invalid.
+        CountingJsonItemsProcessor::$calls = 0;
+        $this->requireWhenMissing();
+
+        try {
+            $this->handler->handleArray(TitledJsonItemsRequest::class, [
+                'items' => '[{"product":"Widget","quantity":"2"}]',
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['title'], array_keys($e->getErrors()));
+        }
+
+        $this->assertSame(0, CountingJsonItemsProcessor::$calls);
+    }
+
+    public function testItemsProducedByPostProcessorAreValidated(): void
+    {
+        $this->requireWhenMissing();
+
+        try {
+            $this->handler->handleArray(TitledJsonItemsRequest::class, [
+                'title' => 'Order',
+                'items' => '[{"product":"Widget"}]',
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['items.0.quantity' => [['rule' => 'required']]], $e->getErrors());
+        }
+    }
+
+    // ===== array guard =====
+
+    public function testFromBodyArrayIsHandedToPostProcessor(): void
+    {
+        // Review #4: a processor may turn the array a dot-path points at into
+        // the declared type; the array guard only applies to built-in casts.
+        $dto = $this->handler->handleArray(FromBodyTagsRequest::class, ['meta' => ['tags' => ['a', 'b']]]);
+
+        $this->assertSame('a,b', $dto->tags);
+    }
+
+    public function testFromBodyArrayLeafReachesTheValidator(): void
+    {
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(['customerId' => ['nested' => 1]], ['customerId' => 'required|integer'])
+            ->willReturn(['customerId' => [['rule' => 'integer']]]);
+
+        try {
+            $this->handler->handleArray(FromBodyOrderRequest::class, ['customer' => ['id' => ['nested' => 1]]]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['customerId' => [['rule' => 'integer']]], $e->getErrors());
+        }
+    }
+
+    public function testArrayForStringPropertyFromFlatKeyIsJsonEncoded(): void
+    {
+        $dto = $this->handler->handleArray(SortRequest::class, ['sort' => ['x']]);
+
+        $this->assertSame('["x"]', $dto->sort);
+    }
+
+    // ===== application-supplied values =====
+
+    public function testContextValueOfWrongTypeIsAProgrammingError(): void
+    {
+        // Review #5: not a 422 for data the client never sent.
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Context value 'authUserId'");
+        $this->handler->handleBody(
+            ContextRequest::class,
+            $this->makeRequest(body: ['name' => 'X']),
+            context: ['authUserId' => [17]],
+        );
+    }
+
+    public function testGeneratedValueOfWrongTypeIsAProgrammingError(): void
+    {
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage('ArrayGenerator');
+        $this->handler->handleArray(BrokenGeneratorRequest::class, []);
+    }
+
+    // ===== explicit empty values =====
+
+    public function testEmptyValueForPropertyThatNeedsOneIsRequiredError(): void
+    {
+        // Review #6: "" or null for a non-nullable property without a default
+        // used to leave it silently uninitialised.
+        try {
+            $this->handler->handleArray(RequiredByTypeRequest::class, [
+                'status'   => '',
+                'qty'      => null,
+                'optional' => null,
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame([
+                'status' => [['rule' => 'required']],
+                'qty'    => [['rule' => 'required']],
+            ], $e->getErrors());
+        }
     }
 }
 
@@ -1685,4 +2122,307 @@ final class MultipleSourcesRequest extends Request
     #[FromRoute]
     #[FromContext('value')]
     public string $value;
+}
+
+final class TenantScopedRequest extends Request
+{
+    #[FromRoute]
+    #[Validate('required|integer')]
+    public int $id;
+
+    #[FromContext('tenantId')]
+    public int $tenantId;
+
+    #[Validate('required|email')]
+    public string $email;
+}
+
+final class OrderWithTwoItemListsRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $name;
+
+    /** @var OrderItemRequest[]|null */
+    #[Validate('nullable|array')]
+    #[Items(OrderItemRequest::class)]
+    public ?array $items = null;
+
+    /** @var OrderItemRequest[]|null */
+    #[Validate('nullable|array')]
+    #[Items(OrderItemRequest::class)]
+    public ?array $extras = null;
+}
+
+final class FromBodyCustomerRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $name;
+
+    #[FromBody('customer.id')]
+    public int $customerId;
+}
+
+final class PaginationRequest extends Request
+{
+    public int $page = 1;
+    public bool $active = false;
+}
+
+final class CountingGenerator implements GeneratorInterface
+{
+    public static int $calls = 0;
+
+    public function generate(array $options = []): int
+    {
+        return ++self::$calls;
+    }
+}
+
+final class CountedGeneratorRequest extends Request
+{
+    #[Generator(CountingGenerator::class)]
+    public int $id;
+
+    #[Validate('required|string')]
+    public string $name;
+}
+
+final class GeneratedLineRequest extends Request
+{
+    #[Generator(CountingGenerator::class)]
+    public int $id;
+
+    #[Validate('required|string')]
+    public string $sku;
+}
+
+final class GeneratedLinesRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $title;
+
+    /** @var GeneratedLineRequest[] */
+    #[Validate('required|array')]
+    #[Items(GeneratedLineRequest::class)]
+    public array $lines;
+}
+
+final class LowercaseEmailRequest extends Request
+{
+    #[PreProcess('strtolower')]
+    #[Validate('required|email')]
+    public string $email;
+}
+
+final class UppercaseCodeRequest extends Request
+{
+    #[Validate('nullable|string')]
+    #[PostProcess('strtoupper')]
+    public ?string $code = null;
+}
+
+abstract class BaseSlugRequest extends Request
+{
+    #[PostProcess('normalizeSlug')]
+    public string $slug;
+}
+
+final class ConcreteSlugRequest extends BaseSlugRequest
+{
+    public static function normalizeSlug(string $value): string
+    {
+        return str_replace(' ', '-', strtolower($value));
+    }
+}
+
+final class JsonItemsRequest extends Request
+{
+    /** @var OrderItemRequest[]|null */
+    #[PostProcess(JsonToArrayProcessor::class)]
+    #[Items(OrderItemRequest::class)]
+    public ?array $items = null;
+}
+
+final class DateTimeFormatsRequest extends Request
+{
+    #[Cast('datetime:Y-m-d H:i:s')]
+    public \DateTime $eventTime;
+
+    #[Cast('datetime:immutable:Y-m-d')]
+    public ?\DateTimeImmutable $day = null;
+}
+
+final class TypeDrivenDateTimeRequest extends Request
+{
+    public \DateTimeImmutable $immutable;
+    public \DateTime $mutable;
+    public \DateTimeInterface $either;
+
+    #[Cast('datetime')] // mutable spec, adapted to the immutable property type
+    public \DateTimeImmutable $adapted;
+}
+
+final class ContextClockRequest extends Request
+{
+    #[FromContext('now')]
+    #[Cast('datetime:immutable')]
+    public \DateTimeImmutable $now;
+}
+
+enum TestStatus: string
+{
+    case Draft = 'draft';
+    case Published = 'published';
+}
+
+enum TestPriority: int
+{
+    case Low = 1;
+    case High = 2;
+}
+
+final class EnumRequest extends Request
+{
+    public TestStatus $status;
+    public TestPriority $priority = TestPriority::Low;
+    public ?TestStatus $optional = null;
+}
+
+final class RejectingMoneyCaster implements \Solo\RequestHandler\Contracts\CasterInterface
+{
+    public function cast(mixed $value): int
+    {
+        if (!is_numeric($value)) {
+            throw new ValidationException(['amount' => [['rule' => 'money']]]);
+        }
+        return (int) round((float) $value * 100);
+    }
+}
+
+final class MoneyLineRequest extends Request
+{
+    #[Generator(CountingGenerator::class)]
+    public int $id;
+
+    #[Caster(RejectingMoneyCaster::class)]
+    public int $amount;
+}
+
+final class MoneyOrderRequest extends Request
+{
+    /** @var MoneyLineRequest[] */
+    #[Items(MoneyLineRequest::class)]
+    public array $lines = [];
+}
+
+final class StrictSkuProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
+{
+    public function process(mixed $value, ProcessContext $context): mixed
+    {
+        if (!is_string($value) || preg_match('/^[A-Z]+$/', $value) !== 1) {
+            throw new ValidationException(['sku' => [['rule' => 'sku']]]);
+        }
+        return $value;
+    }
+}
+
+final class SkuLineRequest extends Request
+{
+    #[PreProcess(StrictSkuProcessor::class)]
+    public string $sku;
+
+    #[Validate('required|integer')]
+    public int $qty;
+}
+
+final class SkuOrderRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $title;
+
+    /** @var SkuLineRequest[] */
+    #[Items(SkuLineRequest::class)]
+    public array $lines = [];
+}
+
+final class RejectingProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
+{
+    public function process(mixed $value, ProcessContext $context): mixed
+    {
+        $field = $context->config['field'] ?? null;
+        throw new ValidationException([is_string($field) ? $field : 'value' => [['rule' => 'rejected']]]);
+    }
+}
+
+final class TwoRejectingFieldsRequest extends Request
+{
+    #[PostProcess(RejectingProcessor::class, config: ['field' => 'first'])]
+    public string $first;
+
+    #[PostProcess(RejectingProcessor::class, config: ['field' => 'second'])]
+    public string $second;
+}
+
+final class CountingJsonItemsProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
+{
+    public static int $calls = 0;
+
+    public function process(mixed $value, ProcessContext $context): mixed
+    {
+        self::$calls++;
+        return is_string($value) ? json_decode($value, true) : $value;
+    }
+}
+
+final class TitledJsonItemsRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $title;
+
+    /** @var OrderItemRequest[]|null */
+    #[PostProcess(CountingJsonItemsProcessor::class)]
+    #[Items(OrderItemRequest::class)]
+    public ?array $items = null;
+}
+
+final class ImplodeProcessor implements \Solo\RequestHandler\Contracts\ProcessorInterface
+{
+    public function process(mixed $value, ProcessContext $context): mixed
+    {
+        return is_array($value) ? implode(',', $value) : $value;
+    }
+}
+
+final class FromBodyTagsRequest extends Request
+{
+    #[FromBody('meta.tags')]
+    #[PostProcess(ImplodeProcessor::class)]
+    public string $tags;
+}
+
+final class SortRequest extends Request
+{
+    public string $sort = 'id';
+}
+
+final class ArrayGenerator implements GeneratorInterface
+{
+    /** @return list<string> */
+    public function generate(array $options = []): array
+    {
+        return ['oops'];
+    }
+}
+
+final class BrokenGeneratorRequest extends Request
+{
+    #[Generator(ArrayGenerator::class)]
+    public int $id;
+}
+
+final class RequiredByTypeRequest extends Request
+{
+    public TestStatus $status;
+    public int $qty;
+    public ?int $optional;
 }

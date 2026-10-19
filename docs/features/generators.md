@@ -113,7 +113,8 @@ When a field has `#[Generator]`:
 
 1. **Any request value is ignored** — A new value is always generated
 2. **No validation** — Generated values bypass validation rules
-3. **Runs before casting** — The generated value is used directly
+3. **Runs after validation** — Generators fire only once the whole input, nested items included, is valid; a rejected request never consumes a sequence value
+4. **Type-driven cast** — The value is cast to the declared property type (an int becomes `'42'` for a `string` property)
 
 ```php
 #[Generator(UuidGenerator::class)]

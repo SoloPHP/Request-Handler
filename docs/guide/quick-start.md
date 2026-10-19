@@ -19,10 +19,10 @@ final class CreateProductRequest extends Request
     #[Validate('required|string|max:255')]
     public string $name;
 
-    #[Validate('required|numeric|min:0')]
+    #[Validate('required|numeric|min_value:0')]
     public float $price;
 
-    #[Validate('nullable|integer|min:0')]
+    #[Validate('integer|min_value:0')]
     public int $stock = 0;
 
     #[Validate('nullable|string')]

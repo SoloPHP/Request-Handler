@@ -217,6 +217,34 @@ public function normalize(string $v): string { /* ... */ }
 public static function normalize(string $v): string { /* ... */ }
 ```
 
+#### processorMethodNotPublic
+
+The handler calls the method from outside the class, so it must be `public`.
+
+```php
+// ❌ private/protected static
+private static function normalize(string $v): string { /* ... */ }
+
+// ✅
+public static function normalize(string $v): string { /* ... */ }
+```
+
+#### invalidProcessorSignature
+
+Function and static-method handlers are called with exactly one argument — the value.
+
+```php
+// ❌ explode() needs a separator AND a string
+#[PreProcess('explode')]
+public array $tags;
+
+// ✅ Wrap it
+#[PreProcess('splitTags')]
+public array $tags;
+
+public static function splitTags(string $v): array { return explode(',', $v); }
+```
+
 #### invalidItems
 
 ```php
@@ -323,6 +351,19 @@ public ?array $items = null;
 // ✅ Pass a concrete subclass
 #[Items(OrderItemRequest::class)]
 public ?array $items = null;
+```
+
+#### handlerNotInstantiable
+
+Thrown on first use — not at build time — because a processor, caster or generator class that is abstract or needs constructor arguments is valid configuration once an instance is registered for it.
+
+```php
+// ❌ CurrencyCaster requires a CurrencyConverter, nothing registered
+#[Caster(CurrencyCaster::class)]
+public Money $price;
+
+// ✅
+$handler->register(CurrencyCaster::class, new CurrencyCaster($converter));
 ```
 
 ### Usage Pattern

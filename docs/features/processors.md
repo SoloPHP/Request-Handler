@@ -1,6 +1,6 @@
 # Processors
 
-Processors transform data before validation (`#[PreProcess]`) or after casting (`#[PostProcess]`).
+Processors transform data before validation (`#[PreProcess]`) or after it (`#[PostProcess]`).
 
 ## `#[PreProcess]`
 
@@ -34,6 +34,40 @@ public string $email;
 When `#[PostProcess]` is defined, automatic type casting is skipped. The postProcessor receives the raw validated value and must return the correctly typed result.
 :::
 
+Post-processors run only once the **whole** input — nested items included — has passed validation, so an expensive handler (password hashing, image processing) never runs for a rejected request.
+
+## Type Guard for Functions and Static Methods
+
+A pre-processor sees raw client input, before validation had a chance to reject it. For a global function or static method, the handler checks the declared type of its first parameter and **skips** the handler when the value does not fit, instead of letting PHP throw a `TypeError` (a 500):
+
+```php
+#[PreProcess('strtolower')]          // strtolower(string $string)
+#[Validate('required|email')]
+public string $email;
+
+// {"email": "John@Example.COM"} → "john@example.com"
+// {"email": 42}                 → strtolower is skipped, the validator reports 'email' (422)
+```
+
+The same guard applies to post-processors: `#[PostProcess('strtoupper')]` on a `?string` leaves an explicit `null` as `null`. `ProcessorInterface` / `CasterInterface` handlers take `mixed` and are always called.
+
+## Rejecting Input From a Handler
+
+A pre-processor, post-processor or custom caster may throw `ValidationException` itself. Its errors are merged with the others of the same pass instead of aborting it, and inside `#[Items]` they are reported under the item path (`lines.1.amount`):
+
+```php
+final class MoneyCaster implements CasterInterface
+{
+    public function cast(mixed $value): Money
+    {
+        if (!is_numeric($value)) {
+            throw new ValidationException(['amount' => [['rule' => 'money']]]);
+        }
+        return Money::fromDecimal((string) $value);
+    }
+}
+```
+
 ---
 
 ## Handler Types
@@ -47,8 +81,8 @@ public string $name;
 #[PostProcess('strtolower')]
 public string $email;
 
-#[PostProcess('json_decode')]
-public array $data;
+#[PostProcess('ucfirst')]
+public string $title;
 ```
 
 ### `ProcessorInterface` Class
@@ -112,6 +146,8 @@ final class ContactRequest extends Request
 }
 ```
 
+The method must be `public static`. It is looked up on the class being handled, so a property declared on an abstract base request can use a hook defined by each subclass.
+
 ---
 
 ## PostProcess `config`
@@ -163,6 +199,8 @@ $handler->register(
     new TransliteratorProcessor($transliterator)
 );
 ```
+
+A handler class that is abstract or needs constructor arguments and has no registered instance fails on first use with `ConfigurationException::handlerNotInstantiable`, which names the `register()` call to add.
 
 ---
 
@@ -314,9 +352,18 @@ public string $value;
 // ❌ Error: class doesn't implement required interface
 #[PreProcess(SomeClass::class)]
 public string $value;
+
+// ❌ Error: explode() cannot be called with the value alone
+#[PreProcess('explode')]
+public array $value;
+
+// ❌ Error: the static method is private/protected
+#[PreProcess('normalize')]
+public string $value;
+private static function normalize(string $v): string { /* ... */ }
 ```
 
 Valid processors must be:
-- Global function
+- Global function callable with a single argument
 - Class implementing `ProcessorInterface` or `CasterInterface`
-- Static method on the Request class
+- `public static` method on the Request class
