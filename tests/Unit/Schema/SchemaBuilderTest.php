@@ -133,7 +133,6 @@ final class SchemaBuilderTest extends TestCase
                 hasDefault: false,
                 defaultValue: null,
                 validationRules: null,
-                castType: null,
                 effectiveCastType: null,
                 customCasterClass: null,
                 preProcessor: null,

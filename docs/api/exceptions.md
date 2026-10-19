@@ -1,6 +1,6 @@
 # Exceptions
 
-The library provides three exception types for different error scenarios.
+The library provides two exception types: one for invalid client input, one for a misconfigured request class.
 
 ## ValidationException
 
@@ -383,58 +383,12 @@ try {
 
 ---
 
-## AuthorizationException
-
-Available for custom authorization logic. Not thrown by the library itself.
-
-```php
-namespace Solo\RequestHandler\Exceptions;
-
-final class AuthorizationException extends Exception
-{
-    public function __construct(
-        string $message = "Access denied",
-        int $code = 403,
-        ?Exception $previous = null
-    );
-}
-```
-
-### Usage Example
-
-```php
-final class DeleteUserRequest extends Request
-{
-    #[Validate('required|integer')]
-    public int $userId;
-
-    public function authorize(User $currentUser): void
-    {
-        if (!$currentUser->isAdmin()) {
-            throw new AuthorizationException('Only admins can delete users');
-        }
-    }
-}
-
-// In controller
-try {
-    $dto = $handler->handleBody(DeleteUserRequest::class, $request);
-    $dto->authorize($currentUser);
-    // ...
-} catch (AuthorizationException $e) {
-    return $this->json(['error' => $e->getMessage()], 403);
-}
-```
-
----
-
 ## Exception Hierarchy
 
 ```
 Exception
 ├── ValidationException      (422 - Client error, invalid input)
-├── ConfigurationException   (500 - Developer error, fix DTO)
-└── AuthorizationException   (403 - Access denied)
+└── ConfigurationException   (500 - Developer error, fix DTO)
 ```
 
 ---

@@ -46,6 +46,23 @@ final class ReflectionCacheTest extends TestCase
         $this->assertSame($a, $b);
     }
 
+    public function testSharedRegistryIsOneInstanceAndClearable(): void
+    {
+        $this->assertSame(ReflectionCache::shared(), ReflectionCache::shared());
+
+        $before = ReflectionCache::shared()->get(ValidRequest::class);
+        ReflectionCache::shared()->clear(ValidRequest::class);
+
+        $this->assertNotSame($before, ReflectionCache::shared()->get(ValidRequest::class));
+    }
+
+    public function testGroupMembershipIsPrecomputed(): void
+    {
+        $metadata = $this->cache->get(GroupedRequest::class);
+
+        $this->assertSame(['criteria' => ['search', 'status']], $metadata->groups);
+    }
+
     // ===== property metadata =====
 
     public function testStaticPropertiesAreIgnored(): void
@@ -380,7 +397,6 @@ final class ReflectionCacheTest extends TestCase
     {
         $metadata = $this->cache->get(UnionTypeRequest::class);
 
-        $this->assertSame('float', $metadata->properties['price']->castType);
         $this->assertSame('float', $metadata->properties['price']->effectiveCastType);
     }
 
@@ -394,21 +410,19 @@ final class ReflectionCacheTest extends TestCase
     public function testDateTimeCastWithDateTimeInterface(): void
     {
         $metadata = $this->cache->get(DateTimeInterfaceRequest::class);
-        $this->assertSame('datetime', $metadata->properties['date']->castType);
         $this->assertSame('datetime', $metadata->properties['date']->effectiveCastType);
     }
 
     public function testDateTimeImmutableCast(): void
     {
         $metadata = $this->cache->get(DateTimeImmutableInterfaceRequest::class);
-        $this->assertSame('datetime:immutable', $metadata->properties['date']->castType);
+        $this->assertSame('datetime:immutable', $metadata->properties['date']->effectiveCastType);
     }
 
     public function testCustomCasterClassStoredInCustomCasterClass(): void
     {
         $metadata = $this->cache->get(CustomCasterRequest::class);
 
-        $this->assertNull($metadata->properties['value']->castType);
         $this->assertNull($metadata->properties['value']->effectiveCastType);
         $this->assertSame(DummyCaster::class, $metadata->properties['value']->customCasterClass);
     }
@@ -531,7 +545,6 @@ final class ReflectionCacheTest extends TestCase
     {
         $property = $this->cache->get(AdaptedDateTimeRequest::class)->properties['date'];
 
-        $this->assertSame('datetime:Y-m-d H:i:s', $property->castType);
         $this->assertSame('datetime:immutable:Y-m-d H:i:s', $property->effectiveCastType);
     }
 

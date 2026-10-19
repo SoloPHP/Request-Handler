@@ -15,6 +15,8 @@ use Solo\RequestHandler\Cache\PropertyMetadata;
  * `handleBody`/`handleArray`, Query for `handleQuery`). `#[FromRoute]` and
  * `#[FromContext]` deviate from the default to read from the `$route` /
  * `$context` arguments passed to `handle*()`.
+ *
+ * @internal
  */
 final readonly class InputBags
 {

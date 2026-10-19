@@ -6,7 +6,6 @@ namespace Solo\RequestHandler\Schema;
 
 use Solo\RequestHandler\Cache\PropertyMetadata;
 use Solo\RequestHandler\Cache\RequestMetadata;
-use Solo\RequestHandler\FieldSource;
 use Solo\RequestHandler\RuleParser;
 
 /**
@@ -37,6 +36,8 @@ use Solo\RequestHandler\RuleParser;
  *     source: ?string,
  *     rules: list<NormalizedRule>
  * }
+ *
+ * @internal Use `RequestHandler::schema()`.
  */
 final readonly class SchemaBuilder
 {
@@ -75,7 +76,7 @@ final readonly class SchemaBuilder
             'requiredIf' => $this->extractRequiredIf($rules),
             'hasDefault' => $property->hasDefault,
             'exclude'    => $property->exclude,
-            'source'     => $this->mapSource($property->source),
+            'source'     => $property->source?->value,
             'rules'      => $rules,
         ];
     }
@@ -105,19 +106,5 @@ final readonly class SchemaBuilder
         }
 
         return null;
-    }
-
-    /**
-     * Map the source enum to a lowercase string; null stays null.
-     */
-    private function mapSource(?FieldSource $source): ?string
-    {
-        return match ($source) {
-            FieldSource::Body    => 'body',
-            FieldSource::Query   => 'query',
-            FieldSource::Route   => 'route',
-            FieldSource::Context => 'context',
-            null                 => null,
-        };
     }
 }

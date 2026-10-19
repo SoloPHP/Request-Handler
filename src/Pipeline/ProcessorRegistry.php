@@ -15,6 +15,8 @@ use Solo\RequestHandler\ProcessContext;
  * Lazily instantiates and caches processor / caster / generator instances
  * for the lifetime of the owning `RequestHandler`, and dispatches them by
  * their pre-classified `ProcessorKind`.
+ *
+ * @internal
  */
 final class ProcessorRegistry
 {

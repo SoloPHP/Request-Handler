@@ -1,9 +1,9 @@
 # Solo Request Handler
 
-Type-safe Request DTOs for PHP 8.2+ with focused per-property attributes, declarative validation, type casting, and full IDE support.
+Type-safe Request DTOs for PHP 8.3+ with focused per-property attributes, declarative validation, type casting, and full IDE support.
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/solophp/request-handler.svg)](https://packagist.org/packages/solophp/request-handler)
-[![PHP Version](https://img.shields.io/badge/PHP-8.2%2B-8892BF.svg)](https://php.net/)
+[![PHP Version](https://img.shields.io/badge/PHP-8.3%2B-8892BF.svg)](https://php.net/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ## Features
@@ -153,11 +153,15 @@ Every managed property is emitted (excluded/`#[FromRoute]`/`#[FromContext]` fiel
 
 ## Requirements
 
-- PHP 8.2+
+- PHP 8.3+
 - PSR-7 HTTP Message implementation
 - Validator implementing `Solo\Contracts\Validator\ValidatorInterface`
 
 We recommend [solophp/validator](https://github.com/SoloPHP/Validator).
+
+## Public API
+
+`RequestHandler`, `Request`, the attributes, the contracts (`CasterInterface`, `GeneratorInterface`, `ProcessorInterface`), `ProcessContext`, `FieldSource` and the exceptions are the public API and follow semantic versioning. Classes marked `@internal` — metadata (`Cache\*`), `Casters\BuiltInCaster`, `Pipeline\*`, `Schema\SchemaBuilder`, `RuleParser`, `InputBags` — may change in any release.
 
 ## License
 
