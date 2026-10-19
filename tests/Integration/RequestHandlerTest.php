@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Solo\RequestHandler\Attributes\Cast;
 use Solo\RequestHandler\Attributes\Caster;
 use Solo\RequestHandler\Attributes\DateFormat;
+use Solo\RequestHandler\Attributes\EmptyToNull;
 use Solo\RequestHandler\Attributes\Exclude;
 use Solo\RequestHandler\Attributes\Generator;
 use Solo\RequestHandler\Attributes\Group;
@@ -395,6 +396,80 @@ final class RequestHandlerTest extends TestCase
 
         $this->assertSame('Test', $dto->name);
         $this->assertSame(['  tag1  ', '  tag2  '], $dto->tags);
+    }
+
+    // ===== #[EmptyToNull] =====
+
+    public function testBlankStringBecomesNullForTheValidatorAndTheProperty(): void
+    {
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(['endDate' => null, 'title' => ''], ['endDate' => 'nullable|date', 'title' => 'nullable|string'])
+            ->willReturn([]);
+
+        $dto = $this->handler->handleArray(BlankFieldsRequest::class, ['endDate' => '  ', 'title' => '']);
+
+        $this->assertNull($dto->endDate);
+        $this->assertSame('', $dto->title, 'without the attribute "" is kept');
+    }
+
+    public function testBlankStringFallsBackToTheDefaultOrIsRequired(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleArray(BlankFieldsRequest::class, ['sort' => '']);
+        $this->assertSame('id', $dto->sort);
+
+        try {
+            $this->handler->handleArray(BlankFieldsRequest::class, ['code' => '']);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['code' => [['rule' => 'required']]], $e->getErrors());
+        }
+    }
+
+    public function testFilledValueIsKeptAndPreProcessorSkipsBlank(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleArray(BlankFieldsRequest::class, ['slug' => '  Hello  ']);
+        $this->assertSame('hello', $dto->slug);
+
+        $dto = $this->handler->handleArray(BlankFieldsRequest::class, ['slug' => '']);
+        $this->assertNull($dto->slug);
+    }
+
+    public function testWhitespaceOnlyIsBlankEvenWithoutAutoTrim(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+        $handler = $this->createHandler(autoTrim: false);
+
+        $dto = $handler->handleArray(BlankFieldsRequest::class, ['endDate' => " \t", 'title' => ' x ']);
+
+        $this->assertNull($dto->endDate);
+        $this->assertSame(' x ', $dto->title);
+    }
+
+    public function testEmptyArrayIsNotBlank(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+
+        try {
+            $this->handler->handleArray(BlankFieldsRequest::class, ['endDate' => []]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['endDate' => [['rule' => 'string']]], $e->getErrors());
+        }
+    }
+
+    public function testClassLevelEmptyToNull(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleArray(BlankClassRequest::class, ['note' => '', 'tags' => '']);
+
+        $this->assertNull($dto->note);
+        $this->assertNull($dto->tags);
     }
 
     // ===== generator =====
@@ -2708,4 +2783,33 @@ final class StrictScalarsRequest extends Request
     public ?bool $active = null;
     public ?string $label = null;
     public ?bool $enabled = null;
+}
+
+final class BlankFieldsRequest extends Request
+{
+    #[EmptyToNull]
+    #[Validate('nullable|date')]
+    public ?string $endDate = null;
+
+    #[Validate('nullable|string')]
+    public ?string $title = null;
+
+    #[EmptyToNull]
+    public string $sort = 'id';
+
+    #[EmptyToNull]
+    public string $code;
+
+    #[EmptyToNull]
+    #[PreProcess('strtolower')]
+    public ?string $slug = null;
+}
+
+#[EmptyToNull]
+final class BlankClassRequest extends Request
+{
+    public ?string $note = null;
+
+    /** @var list<string>|null */
+    public ?array $tags = null;
 }

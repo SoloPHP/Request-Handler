@@ -30,6 +30,7 @@ For values that don't fit the four bags (Body, Query, Route, Context) — reques
 | `#[Cast('int'\|'float'\|'bool'\|'string'\|'array'\|'json')]` | Explicit cast for union / `mixed` properties; `json` encodes into a string |
 | `#[DateFormat('Y-m-d')]` | Fixed input format for a date property (class from the type) |
 | `#[Caster(MoneyCaster::class)]` | Custom `CasterInterface` implementation |
+| `#[EmptyToNull]` | A blank string is no value (`null` / default / `required`); also on a class |
 | `#[PreProcess(handler)]` | Run handler BEFORE validation |
 | `#[PostProcess(handler, config: [...])]` | Run handler AFTER validation, with optional config |
 | `#[Generator(GenClass::class, options: [...])]` | Value is generated, not read from any source |
@@ -130,6 +131,28 @@ public Money $price;
 `#[Cast]` and `#[Caster]` are mutually exclusive — both on the same property throws `ConfigurationException::castAndCasterConflict`.
 
 See [Type Casting](/features/type-casting).
+
+### `#[EmptyToNull]`
+
+Read a blank string — `""` or only whitespace — as no value, before pre-processing and validation. A nullable property gets `null`, one with a default keeps it, any other reports `required`. Without it a string property keeps `""`, and "not filled in" ends up in two shapes (`''` and `NULL`) in one column:
+
+```php
+#[EmptyToNull]
+#[Validate('nullable|date:Y-m-d')]
+public ?string $endDate = null;     // "" → null; the validator sees null too
+
+#[EmptyToNull]
+public string $sort = 'created_at'; // "" → 'created_at'
+```
+
+On a class it applies to every property of the class and its subclasses:
+
+```php
+#[EmptyToNull]
+final class UpdateLeadRequest extends Request { /* ... */ }
+```
+
+Only strings are blank: `[]` stays an array (and fails a `string` property's cast). Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`.
 
 ### `#[PreProcess(handler)]` and `#[PostProcess(handler, config: [...])]`
 

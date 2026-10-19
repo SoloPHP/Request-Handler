@@ -15,6 +15,7 @@ use ReflectionProperty;
 use Solo\RequestHandler\Attributes\Cast;
 use Solo\RequestHandler\Attributes\Caster;
 use Solo\RequestHandler\Attributes\DateFormat;
+use Solo\RequestHandler\Attributes\EmptyToNull;
 use Solo\RequestHandler\Attributes\Exclude;
 use Solo\RequestHandler\Attributes\Generator;
 use Solo\RequestHandler\Attributes\Group;
@@ -124,6 +125,7 @@ final class ReflectionCache
 
         try {
             $reflection = new ReflectionClass($className);
+            $emptyToNull = $this->classHasAttribute($reflection, EmptyToNull::class);
             $properties = [];
 
             foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
@@ -136,7 +138,7 @@ final class ReflectionCache
                     continue;
                 }
 
-                $metadata = $this->buildPropertyMetadata($property, $className);
+                $metadata = $this->buildPropertyMetadata($property, $className, $emptyToNull);
                 $properties[$metadata->name] = $metadata;
             }
 
@@ -177,6 +179,7 @@ final class ReflectionCache
             Cast::class        => 'Cast',
             Caster::class      => 'Caster',
             DateFormat::class  => 'DateFormat',
+            EmptyToNull::class => 'EmptyToNull',
             PreProcess::class  => 'PreProcess',
             PostProcess::class => 'PostProcess',
             Generator::class   => 'Generator',
@@ -196,12 +199,35 @@ final class ReflectionCache
     }
 
     /**
-     * @param class-string $requestClass The class being built — static-method
-     *                                   processors are looked up (and later called) on it,
-     *                                   which may be a subclass of the declaring class.
+     * Whether the class or one of its parents carries the attribute — PHP
+     * does not inherit attributes, but a request base class should pass its
+     * class-level ones on.
+     *
+     * @param ReflectionClass<object> $class
+     * @param class-string            $attributeClass
      */
-    private function buildPropertyMetadata(ReflectionProperty $property, string $requestClass): PropertyMetadata
+    private function classHasAttribute(ReflectionClass $class, string $attributeClass): bool
     {
+        for ($current = $class; $current !== false; $current = $current->getParentClass()) {
+            if ($current->getAttributes($attributeClass) !== []) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param class-string $requestClass     The class being built — static-method
+     *                                       processors are looked up (and later called) on it,
+     *                                       which may be a subclass of the declaring class.
+     * @param bool         $classEmptyToNull `#[EmptyToNull]` on the class or a parent.
+     */
+    private function buildPropertyMetadata(
+        ReflectionProperty $property,
+        string $requestClass,
+        bool $classEmptyToNull,
+    ): PropertyMetadata {
         $name = $property->getName();
         $className = $property->getDeclaringClass()->getName();
 
@@ -215,6 +241,7 @@ final class ReflectionCache
         $items = $this->firstAttribute($property, Items::class);
         $group = $this->firstAttribute($property, Group::class);
         $excludeAttr = $this->firstAttribute($property, Exclude::class);
+        $emptyToNull = $this->firstAttribute($property, EmptyToNull::class);
 
         [$source, $sourceKey, $pathSegments] = $this->detectSource($property, $name, $className);
 
@@ -369,6 +396,7 @@ final class ReflectionCache
             dateClass: $dateClass,
             dateFormat: $dateFormat?->format,
             nested: $nested,
+            emptyToNull: $generator === null && ($classEmptyToNull || $emptyToNull !== null),
         );
     }
 
@@ -519,6 +547,7 @@ final class ReflectionCache
             Cast::class        => 'Cast',
             Caster::class      => 'Caster',
             DateFormat::class  => 'DateFormat',
+            EmptyToNull::class => 'EmptyToNull',
             PreProcess::class  => 'PreProcess',
             PostProcess::class => 'PostProcess',
             Items::class       => 'Items',

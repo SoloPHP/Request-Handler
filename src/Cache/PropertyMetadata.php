@@ -47,6 +47,9 @@ use Solo\RequestHandler\Request;
  * non-empty input (`integer`, `numeric`, `boolean`, `string`, `json`, `in`,
  * `date`, `date_format`) — decided once, at build time.
  *
+ * `emptyToNull` (`#[EmptyToNull]` on the property or its class): a blank
+ * string is read as null.
+ *
  * @internal
  */
 final readonly class PropertyMetadata
@@ -94,6 +97,7 @@ final readonly class PropertyMetadata
         public ?string $dateClass = null,
         public ?string $dateFormat = null,
         public ?string $nested = null,
+        public bool $emptyToNull = false,
     ) {
     }
 }

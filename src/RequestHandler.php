@@ -224,6 +224,11 @@ final class RequestHandler
             if ($this->autoTrim && is_string($value)) {
                 $value = trim($value);
             }
+            // #[EmptyToNull]: a blank string is no value — for the validator
+            // and the property alike.
+            if ($property->emptyToNull && is_string($value) && trim($value) === '') {
+                $value = null;
+            }
 
             if ($value === null || $value === '') {
                 $values[$name] = $value === '' || $property->isNullable ? $value : $property->defaultValue;
