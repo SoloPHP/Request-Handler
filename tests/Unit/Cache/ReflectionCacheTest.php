@@ -628,6 +628,49 @@ final class ReflectionCacheTest extends TestCase
         $this->cache->get(PureEnumRequest::class);
     }
 
+    #[DataProvider('typesInputCannotHoldProvider')]
+    public function testTypesNoInputCanHoldNeedAProducer(string $requestClass, string $property): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("::\${$property} has type");
+        $this->expectExceptionMessage('cannot be produced from request input');
+        /** @var class-string $requestClass */
+        $this->cache->get($requestClass);
+    }
+
+    /** @return array<string, array{0: class-string, 1: string}> */
+    public static function typesInputCannotHoldProvider(): array
+    {
+        return [
+            'object'           => [ObjectTypedRequest::class, 'meta'],
+            'intersection'     => [IntersectionTypedRequest::class, 'items'],
+            'union of classes' => [ClassUnionRequest::class, 'money'],
+        ];
+    }
+
+    public function testUnionWithAnInputMemberGetsAGuardAndItsCasts(): void
+    {
+        $properties = $this->cache->get(UnionCastRequest::class)->properties;
+
+        $this->assertNotNull($properties['amount']->typeGuard);
+        $this->assertSame(['int', 'float'], $properties['amount']->unionCasts);
+        $this->assertSame(['rule' => 'numeric'], $properties['amount']->castFailure);
+
+        $this->assertSame(['int', 'string'], $properties['code']->unionCasts);
+        $this->assertSame(['rule' => 'string'], $properties['code']->castFailure);
+
+        // A member class may still be passed through context or a processor.
+        $this->assertSame(['string'], $properties['when']->unionCasts);
+
+        // #[Cast] decides on its own — no guard.
+        $this->assertNull($properties['price']->typeGuard);
+    }
+
+    public function testIterableIsCastLikeAnArray(): void
+    {
+        $this->assertSame('array', $this->cache->get(UnionCastRequest::class)->properties['list']->effectiveCastType);
+    }
+
     public function testClassTypesWithAProducerAreAccepted(): void
     {
         $metadata = $this->cache->get(ProducibleObjectsRequest::class);
@@ -1221,6 +1264,7 @@ final class AbstractGeneratorRequest extends Request
 
 final class IntersectionTypeRequest extends Request
 {
+    #[FromContext('thing')]
     public \Countable&\Iterator $thing;
 }
 
@@ -1341,6 +1385,8 @@ final class NonClassTypesRequest extends Request
 {
     public mixed $anything = null;
     public int|string $either = 0;
+
+    #[FromContext('both')]
     public \Countable&\Iterator $both;
 }
 
@@ -1506,4 +1552,33 @@ final class GeneratorWithNoTrimRequest extends Request
     #[Generator(TestGenerator::class)]
     #[NoTrim]
     public string $id;
+}
+
+final class ObjectTypedRequest extends Request
+{
+    public ?object $meta = null;
+}
+
+final class IntersectionTypedRequest extends Request
+{
+    /** @var \Countable&\ArrayAccess<int, mixed> */
+    public \Countable&\ArrayAccess $items;
+}
+
+final class ClassUnionRequest extends Request
+{
+    public CacheMoney|\DateTimeImmutable $money;
+}
+
+final class UnionCastRequest extends Request
+{
+    public int|float $amount = 0;
+    public int|string $code = 0;
+    public \DateTimeImmutable|string|null $when = null;
+
+    #[Cast('float')]
+    public int|float $price = 0;
+
+    /** @var iterable<mixed> */
+    public iterable $list = [];
 }

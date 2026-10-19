@@ -600,6 +600,7 @@ final class RequestHandler
                 $value
             ),
             $property->effectiveCastType !== null => $this->builtInCaster->cast($property->effectiveCastType, $value),
+            $property->typeGuard !== null => $this->castUnion($property->typeGuard, $property->unionCasts, $value),
             default => $value,
         };
 
@@ -608,6 +609,29 @@ final class RequestHandler
         }
 
         return $cast;
+    }
+
+    /**
+     * A union no cast applies to: a value of a member type stays as it is,
+     * any other one becomes the first scalar member it converts to without
+     * loss — PHP's coercion order, int, float, string, bool. Null when none.
+     *
+     * @param list<string> $casts
+     */
+    private function castUnion(ParameterTypeGuard $guard, array $casts, mixed $value): mixed
+    {
+        if ($guard->accepts($value)) {
+            return $value;
+        }
+
+        foreach ($casts as $type) {
+            $cast = $this->builtInCaster->cast($type, $value);
+            if ($cast !== null) {
+                return $cast;
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -50,6 +50,10 @@ use Solo\RequestHandler\Request;
  * `emptyToNull` (`#[EmptyToNull]` on the property or its class): a blank
  * string is read as null. `noTrim` (`#[NoTrim]`): auto-trim skips it.
  *
+ * `typeGuard` is set for a union no cast applies to (`int|float`): a value
+ * of a member type is kept, another one is converted to the first of
+ * `unionCasts` it fits without loss — or fails with `castFailure`.
+ *
  * @internal
  */
 final readonly class PropertyMetadata
@@ -63,6 +67,7 @@ final readonly class PropertyMetadata
      * @param array{rule: string, params?: list<string>}|null $castFailure
      * @param class-string<DateTime|DateTimeImmutable>|null    $dateClass
      * @param class-string<Request>|null                       $nested
+     * @param list<string>                                     $unionCasts
      */
     public function __construct(
         public string $name,
@@ -99,6 +104,8 @@ final readonly class PropertyMetadata
         public ?string $nested = null,
         public bool $emptyToNull = false,
         public bool $noTrim = false,
+        public ?ParameterTypeGuard $typeGuard = null,
+        public array $unionCasts = [],
     ) {
     }
 }
