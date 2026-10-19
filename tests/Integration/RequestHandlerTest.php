@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Solo\RequestHandler\Tests\Integration;
 
 use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Solo\RequestHandler\Attributes\Cast;
 use Solo\RequestHandler\Attributes\Caster;
@@ -506,6 +507,60 @@ final class RequestHandlerTest extends TestCase
     }
 
     // ===== application-supplied values =====
+
+    public function testContextValueOfWrongTypeIsAProgrammingError(): void
+    {
+        // Review #5: not a 422 for data the client never sent.
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Context value 'authUserId'");
+        $this->handler->handleBody(
+            ContextRequest::class,
+            $this->makeRequest(body: ['name' => 'X']),
+            context: ['authUserId' => [17]],
+        );
+    }
+
+    public function testGeneratedValueOfWrongTypeIsAProgrammingError(): void
+    {
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage('ArrayGenerator');
+        $this->handler->handleArray(BrokenGeneratorRequest::class, []);
+    }
+
+    public function testContextValuesGetTheSameLosslessCasts(): void
+    {
+        $dto = $this->handler->handleArray(
+            TrustedScalarsRequest::class,
+            [],
+            context: ['count' => '42', 'ratio' => 2, 'flag' => 'yes', 'label' => 7],
+        );
+
+        $this->assertSame(42, $dto->count);
+        $this->assertSame(2.0, $dto->ratio);
+        $this->assertTrue($dto->flag);
+        $this->assertSame('7', $dto->label);
+    }
+
+    #[DataProvider('looseContextValueProvider')]
+    public function testContextValueThatWouldLoseInformationThrows(string $key, mixed $value, string $rule): void
+    {
+        // 3.x coerced these silently; 4.0 holds the application to the declared type.
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Context value '{$key}' does not fit");
+        $this->expectExceptionMessage("({$rule})");
+        $this->handler->handleArray(TrustedScalarsRequest::class, [], context: [$key => $value]);
+    }
+
+    /** @return array<string, array{0: string, 1: mixed, 2: string}> */
+    public static function looseContextValueProvider(): array
+    {
+        return [
+            'fraction for an int' => ['count', 1.5, 'integer'],
+            'boolean for an int'  => ['count', true, 'integer'],
+            '2 for a bool'        => ['flag', 2, 'boolean'],
+            'boolean for string'  => ['label', false, 'string'],
+        ];
+    }
 
     public function testClassLevelInputAttributesLeaveContextValuesAlone(): void
     {
@@ -2048,27 +2103,6 @@ final class RequestHandlerTest extends TestCase
         $this->assertNull($dto->enabled);
     }
 
-    // ===== application-supplied values =====
-
-    public function testContextValueOfWrongTypeIsAProgrammingError(): void
-    {
-        // Review #5: not a 422 for data the client never sent.
-        $this->expectException(\UnexpectedValueException::class);
-        $this->expectExceptionMessage("Context value 'authUserId'");
-        $this->handler->handleBody(
-            ContextRequest::class,
-            $this->makeRequest(body: ['name' => 'X']),
-            context: ['authUserId' => [17]],
-        );
-    }
-
-    public function testGeneratedValueOfWrongTypeIsAProgrammingError(): void
-    {
-        $this->expectException(\UnexpectedValueException::class);
-        $this->expectExceptionMessage('ArrayGenerator');
-        $this->handler->handleArray(BrokenGeneratorRequest::class, []);
-    }
-
     // ===== explicit empty values =====
 
     public function testEmptyValueForPropertyThatNeedsOneIsRequiredError(): void
@@ -3225,4 +3259,19 @@ final class ContextAddressRequest extends Request
 {
     #[FromContext('address')]
     public AddressRequest $address;
+}
+
+final class TrustedScalarsRequest extends Request
+{
+    #[FromContext('count')]
+    public ?int $count = null;
+
+    #[FromContext('ratio')]
+    public ?float $ratio = null;
+
+    #[FromContext('flag')]
+    public ?bool $flag = null;
+
+    #[FromContext('label')]
+    public ?string $label = null;
 }

@@ -16,6 +16,7 @@ Most applications need only the checklist below. The sections after it explain e
 | Clients reading errors of `#[FromBody('path')]`, `#[FromRoute('key')]`, `#[FromContext('key')]` properties | Read them under the input key ([Error keys](#error-keys-follow-the-input)) |
 | `$handler->schema(...)` consumers | Read fields by input key; `exclude` is gone ([Schema](#schema-v2)) |
 | A property typed with a class that is not a Request subclass, enum or date — or with `object`, an intersection, a union of classes | Give it a `#[Caster]`, processor, `#[Generator]` or `#[FromContext]` ([Class types](#class-typed-properties)) |
+| `#[FromContext]` values or generator results of a looser type — `1.5` or `true` for an `int`, `2` for a `bool`, `true` for a `string` | Pass the declared type — they throw `UnexpectedValueException` now ([Values the application supplies](#values-the-application-supplies)) |
 | A `#[FromContext]` or generated value that may be `null` for a non-nullable property without a default | Make the property nullable or give it a default — `null` now throws `UnexpectedValueException` ([Values the application supplies](#values-the-application-supplies)) |
 | `toArray()` overridden in a Request subclass | Declare `toArray(bool $onlyProvided = false): array` |
 | `AuthorizationException` | Remove — it was never thrown |
@@ -53,6 +54,8 @@ The type-driven casts used PHP's own coercion, so the declared type silently rew
 | `bool` | `""` | `false` | no value — `null`, the default, or `required` |
 | `string` | `true` | `"1"` | `['rule' => 'string']` |
 | `string` | `["a"]` | `'["a"]'` | `['rule' => 'string']` |
+
+The same casts apply to `#[FromContext]` values and generator results, where a failure throws `UnexpectedValueException` — see [Values the application supplies](#values-the-application-supplies).
 
 The accepted forms are those of solophp/validator's `integer`, `numeric` and `boolean` rules — `"42"`, `"-5"`, `"9.99"`, `"1e3"`, `"true"`, `"off"`, `1`, `0` and so on still convert — except that a JSON `true` / `false` is never a number. A field whose `#[Validate]` already checks its type sees no difference — the validator reports first.
 
@@ -134,6 +137,7 @@ See [Schema Export](https://solophp.github.io/Request-Handler/features/schema).
 
 `#[FromContext]` values and generator results are the application's, not the client's:
 
+- they go through the same lossless casts as client input, but a value that does not fit throws `UnexpectedValueException` instead of a validation error. 3.x coerced it: `1.5` or `true` for an `int`, `2` for a `bool`, `true` or an array for a `string` now throw — pass the declared type;
 - `null` for a property that is neither nullable nor has a default throws `UnexpectedValueException` — 3.x left the property uninitialised, to fail later on first read;
 - a `#[FromContext]` property typed with a Request subclass receives the object passed in `context` as it is — it is not built from input like a nested DTO;
 - `#[EmptyToNull]` and `#[NoTrim]` on a class leave them alone.
