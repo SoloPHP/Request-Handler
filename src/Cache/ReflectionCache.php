@@ -440,12 +440,13 @@ final class ReflectionCache
             dateClass: $dateClass,
             dateFormat: $dateFormat?->format,
             nested: $nested,
-            // On a class, the client-input attributes leave out what the
-            // application supplies: generated and #[FromContext] values.
+            // What the application supplies — generated and #[FromContext]
+            // values — is kept as it is: never auto-trimmed, and left out by
+            // a class-level #[EmptyToNull].
             emptyToNull: $generator === null
                 && ($emptyToNull !== null || ($classEmptyToNull && $source !== FieldSource::Context)),
             noTrim: $generator === null
-                && ($noTrim !== null || ($classNoTrim && $source !== FieldSource::Context)),
+                && ($noTrim !== null || $classNoTrim || $source === FieldSource::Context),
             typeGuard: $typeGuard,
             unionCasts: $unionCasts,
         );

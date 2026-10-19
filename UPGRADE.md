@@ -140,7 +140,7 @@ See [Schema Export](https://solophp.github.io/Request-Handler/features/schema).
 - they go through the same lossless casts as client input, but a value that does not fit throws `UnexpectedValueException` instead of a validation error. 3.x coerced it: `1.5` or `true` for an `int`, `2` for a `bool`, `true` or an array for a `string` now throw — pass the declared type;
 - `null` for a property that is neither nullable nor has a default throws `UnexpectedValueException` — 3.x left the property uninitialised, to fail later on first read;
 - a `#[FromContext]` property typed with a Request subclass receives the object passed in `context` as it is — it is not built from input like a nested DTO;
-- `#[EmptyToNull]` and `#[NoTrim]` on a class leave them alone.
+- auto-trim leaves them as passed (3.x trimmed context strings), and a class-level `#[EmptyToNull]` skips them.
 
 ## Request API
 

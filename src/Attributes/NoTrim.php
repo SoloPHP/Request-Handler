@@ -12,8 +12,9 @@ use Attribute;
  * whitespace means something — code, Markdown, a password, a fixed-width
  * field.
  *
- * On a class, it applies to every property of the class and its subclasses
- * that the client sends — not to `#[FromContext]` or generated ones.
+ * On a class, it applies to every property of the class and its subclasses.
+ * Auto-trim never touches `#[FromContext]` values — they are the
+ * application's.
  *
  * Example:
  * ```php

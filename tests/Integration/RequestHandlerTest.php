@@ -574,6 +574,26 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame('', $dto->tenant, 'a context value is not client input');
     }
 
+    public function testAutoTrimLeavesContextValuesAlone(): void
+    {
+        $dto = $this->handler->handleArray(
+            BlankClientInputRequest::class,
+            ['note' => '  n  '],
+            context: ['tenant' => ' t '],
+        );
+        $this->assertSame('n', $dto->note);
+        $this->assertSame(' t ', $dto->tenant);
+
+        // Class-level #[NoTrim] used to hand context values back to auto-trim.
+        $dto = $this->handler->handleArray(
+            UntrimmedClassRequest::class,
+            ['note' => ' n '],
+            context: ['token' => ' t '],
+        );
+        $this->assertSame(' n ', $dto->note);
+        $this->assertSame(' t ', $dto->token);
+    }
+
     public function testNullContextValueForARequiredPropertyThrows(): void
     {
         // 3.x left the property uninitialised without a word.
@@ -3364,4 +3384,13 @@ final class CollidingAddressRequest extends Request
 {
     #[Validate('required|string')]
     public string $zip;
+}
+
+#[NoTrim]
+final class UntrimmedClassRequest extends Request
+{
+    public ?string $note = null;
+
+    #[FromContext('token')]
+    public string $token;
 }
