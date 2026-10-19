@@ -146,7 +146,7 @@ public ?string $endDate = null;     // "" → null; the validator sees null too
 public string $sort = 'created_at'; // "" → 'created_at'
 ```
 
-On a class it applies to every property of the class and its subclasses:
+On a class it applies to every property of the class and its subclasses that the client sends — `#[FromContext]` and generated values are the application's and stay as they are:
 
 ```php
 #[EmptyToNull]
@@ -165,7 +165,7 @@ Auto-trim (on by default) skips the property: the string reaches pre-processors,
 public string $snippet;   // "  echo 1;\n" stays as it is
 ```
 
-On a class it applies to every property of the class and its subclasses. With `#[EmptyToNull]`, a whitespace-only string is still read as no value. Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`.
+On a class it applies to every property of the class and its subclasses that the client sends (not to `#[FromContext]` or generated ones). With `#[EmptyToNull]`, a whitespace-only string is still read as no value. Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`.
 
 ### `#[PreProcess(handler)]` and `#[PostProcess(handler, config: [...])]`
 

@@ -108,7 +108,7 @@ Custom caster — `$class` must implement `CasterInterface`. Missing or non-impl
 final class EmptyToNull {}
 ```
 
-A blank string (`""` or only whitespace, also with auto-trim off) becomes `null` before pre-processing and validation: the property is then `null` when nullable, its default when it has one, and a `required` error otherwise. Non-string input is untouched. On a class, it applies to every property of the class and of its subclasses (generated ones aside). Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`, with `#[Ignore]` — `ignoreConflict`.
+A blank string (`""` or only whitespace, also with auto-trim off) becomes `null` before pre-processing and validation: the property is then `null` when nullable, its default when it has one, and a `required` error otherwise. Non-string input is untouched. On a class, it applies to every property of the class and of its subclasses that the client sends — `#[FromContext]` and generated ones aside. Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`, with `#[Ignore]` — `ignoreConflict`.
 
 ### `#[NoTrim]`
 
@@ -117,7 +117,7 @@ A blank string (`""` or only whitespace, also with auto-trim off) becomes `null`
 final class NoTrim {}
 ```
 
-Auto-trim skips the property: its string is kept as sent. On a class, it applies to every property of the class and of its subclasses. No effect when the handler was built with `autoTrim: false`. Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`, with `#[Ignore]` — `ignoreConflict`.
+Auto-trim skips the property: its string is kept as sent. On a class, it applies to every property of the class and of its subclasses that the client sends — `#[FromContext]` and generated ones aside. No effect when the handler was built with `autoTrim: false`. Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`, with `#[Ignore]` — `ignoreConflict`.
 
 ### `#[PreProcess(string $handler)]`
 
