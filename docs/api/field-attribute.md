@@ -2,7 +2,7 @@
 
 13 attribute classes organised into two namespaces. See [Attributes (feature guide)](/features/field-attribute) for usage patterns and examples.
 
-All attributes target `Attribute::TARGET_PROPERTY` and are not repeatable — at most one of each per property.
+All attributes target `Attribute::TARGET_PROPERTY` (`#[EmptyToNull]` also `TARGET_CLASS`) and are not repeatable — at most one of each per property.
 
 ---
 
@@ -100,6 +100,15 @@ final class Caster
 ```
 
 Custom caster — `$class` must implement `CasterInterface`. Missing or non-implementing class throws `ConfigurationException::invalidCaster`. Mutually exclusive with `#[Cast]` and `#[Items]`.
+
+### `#[EmptyToNull]`
+
+```php
+#[Attribute(Attribute::TARGET_CLASS | Attribute::TARGET_PROPERTY)]
+final class EmptyToNull {}
+```
+
+A blank string (`""` or only whitespace, also with auto-trim off) becomes `null` before pre-processing and validation: the property is then `null` when nullable, its default when it has one, and a `required` error otherwise. Non-string input is untouched. On a class, it applies to every property of the class and of its subclasses (generated ones aside). Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`, with `#[Ignore]` — `ignoreConflict`.
 
 ### `#[PreProcess(string $handler)]`
 

@@ -268,7 +268,7 @@ Empty string `""` is handled per type:
 | `string` | `""` | Preserved as-is |
 | `array` | `[]` | Empty collection |
 
-"No value" means `null` on a nullable property, the default on one that has a default, and the `required` error otherwise.
+"No value" means `null` on a nullable property, the default on one that has a default, and the `required` error otherwise. [`#[EmptyToNull]`](/features/field-attribute#emptytonull) extends that to `string` and `array` properties — on one property or a whole class.
 
 ---
 

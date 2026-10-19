@@ -37,6 +37,8 @@ $handler = new RequestHandler($validator, autoTrim: false);
 public string $name;
 ```
 
+A string trimmed to `""` stays `""` for a `string` property. To read it as no value — `null` or the default — add [`#[EmptyToNull]`](/features/field-attribute#emptytonull) to the property or the class.
+
 ## Dependency Injection
 
 Register processor/caster/generator instances with constructor dependencies:

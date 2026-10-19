@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Solo\RequestHandler\Attributes\Cast;
 use Solo\RequestHandler\Attributes\Caster;
 use Solo\RequestHandler\Attributes\DateFormat;
+use Solo\RequestHandler\Attributes\EmptyToNull;
 use Solo\RequestHandler\Attributes\Exclude;
 use Solo\RequestHandler\Attributes\Generator;
 use Solo\RequestHandler\Attributes\Group;
@@ -110,7 +111,36 @@ final class ReflectionCacheTest extends TestCase
             'Validate'  => [IgnoreWithValidateRequest::class, 'Validate'],
             'FromBody'  => [IgnoreWithFromBodyRequest::class, 'FromBody'],
             'Generator' => [IgnoreWithGeneratorRequest::class, 'Generator'],
+            'EmptyToNull' => [IgnoreWithEmptyToNullRequest::class, 'EmptyToNull'],
         ];
+    }
+
+    // ===== #[EmptyToNull] =====
+
+    public function testEmptyToNullOnAProperty(): void
+    {
+        $metadata = $this->cache->get(EmptyToNullPropertyRequest::class);
+
+        $this->assertTrue($metadata->properties['note']->emptyToNull);
+        $this->assertFalse($metadata->properties['title']->emptyToNull);
+    }
+
+    public function testEmptyToNullOnAClassCoversEveryInputPropertyAndIsInherited(): void
+    {
+        foreach ([EmptyToNullBaseRequest::class, EmptyToNullChildRequest::class] as $class) {
+            $properties = $this->cache->get($class)->properties;
+
+            $this->assertTrue($properties['note']->emptyToNull, $class);
+            $this->assertFalse($properties['id']->emptyToNull, "{$class}: generated, never read");
+        }
+        $this->assertTrue($this->cache->get(EmptyToNullChildRequest::class)->properties['extra']->emptyToNull);
+    }
+
+    public function testEmptyToNullWithGeneratorThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('#[Generator] and #[EmptyToNull]');
+        $this->cache->get(GeneratorWithEmptyToNullRequest::class);
     }
 
     public function testGroupMetadata(): void
@@ -1385,4 +1415,40 @@ final class ProducibleObjectsRequest extends Request
 
     #[PreProcess(GuardTestProcessor::class)]
     public CacheMoney $preProcessed;
+}
+
+final class IgnoreWithEmptyToNullRequest extends Request
+{
+    #[Ignore]
+    #[EmptyToNull]
+    public ?string $note = null;
+}
+
+final class EmptyToNullPropertyRequest extends Request
+{
+    #[EmptyToNull]
+    public ?string $note = null;
+
+    public ?string $title = null;
+}
+
+#[EmptyToNull]
+class EmptyToNullBaseRequest extends Request
+{
+    public ?string $note = null;
+
+    #[Generator(TestGenerator::class)]
+    public string $id;
+}
+
+final class EmptyToNullChildRequest extends EmptyToNullBaseRequest
+{
+    public ?string $extra = null;
+}
+
+final class GeneratorWithEmptyToNullRequest extends Request
+{
+    #[Generator(TestGenerator::class)]
+    #[EmptyToNull]
+    public string $id;
 }
