@@ -252,6 +252,11 @@ final class BuiltInCaster
             }
             return $value !== '' ? [$value] : [];
         }
+        // An iterable from context: its items, not the object's properties —
+        // `(array)` turns a generator into [].
+        if ($value instanceof \Traversable) {
+            return iterator_to_array($value);
+        }
         return (array) $value;
     }
 

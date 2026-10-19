@@ -101,6 +101,17 @@ final class BuiltInCasterTest extends TestCase
         $this->assertSame(['val'], $this->caster->cast('array', 'val'));
     }
 
+    public function testCastArrayFromTraversableReadsItsItems(): void
+    {
+        $generator = (static function (): \Generator {
+            yield 'a';
+            yield 'b';
+        })();
+
+        $this->assertSame(['a', 'b'], $this->caster->cast('array', $generator));
+        $this->assertSame(['k' => 1], $this->caster->cast('array', new \ArrayIterator(['k' => 1])));
+    }
+
     public function testCastArrayFromObject(): void
     {
         $obj = new \stdClass();
