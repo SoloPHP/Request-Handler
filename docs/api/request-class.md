@@ -105,7 +105,7 @@ Names of the properties the request supplied, in declaration order.
 public function provided(): array
 ```
 
-**Returns:** `list<string>` — every property whose key was present in its source (body, query, route or context), even with an explicit `null` or `""`, and the generated ones. A property left at its default because the client did not send it is not listed.
+**Returns:** `list<string>` — every property whose key was present in its source (body, query, route or context), even with an explicit `null` or `""`, and the generated ones. A property left at its default because the client did not send it is not listed, nor one left uninitialised — a post-processor's `null` for a property that can hold neither null nor a default.
 
 A DTO created with `new` (not by `RequestHandler`) has nothing provided.
 

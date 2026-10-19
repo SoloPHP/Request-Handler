@@ -1526,6 +1526,17 @@ final class RequestHandlerTest extends TestCase
 
         $this->assertSame('Test', $dto->name);
         $this->assertFalse(isset($dto->id));
+        $this->assertSame(['name'], $dto->provided(), 'an uninitialised property is not provided');
+    }
+
+    public function testPropertyLeftUninitialisedByAPostProcessorIsNotProvided(): void
+    {
+        $dto = $this->handler->handleArray(NullingPostProcessRequest::class, ['slug' => 'x', 'page' => 'y']);
+
+        $this->assertFalse($dto->has('slug'));
+        $this->assertSame(1, $dto->page, 'null resets a defaulted property');
+        $this->assertSame(['page'], $dto->provided());
+        $this->assertSame(['page' => 1], $dto->toArray(onlyProvided: true));
     }
 
     public function testUntypedPropertyPassesValueThroughWithoutCasting(): void
@@ -3274,4 +3285,18 @@ final class TrustedScalarsRequest extends Request
 
     #[FromContext('label')]
     public ?string $label = null;
+}
+
+final class NullingPostProcessRequest extends Request
+{
+    #[PostProcess('returnsNull')]
+    public string $slug;
+
+    #[PostProcess('returnsNull')]
+    public int $page = 1;
+
+    public static function returnsNull(mixed $value): mixed
+    {
+        return null;
+    }
 }
