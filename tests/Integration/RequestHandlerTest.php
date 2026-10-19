@@ -755,6 +755,39 @@ final class RequestHandlerTest extends TestCase
         $this->handler->handleArray(ContextLinesRequest::class, [], context: ['lines' => [['sku' => 'A-1']]]);
     }
 
+    public function testPostProcessedContextValueOfAnotherTypeThrows(): void
+    {
+        $address = new AddressRequest();
+        $address->city = 'Kyiv';
+
+        // A TypeError while populating before this check.
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Context value 'address' after #[PostProcess] is array, which does not fit");
+        $this->handler->handleArray(HookedContextRequest::class, [], context: ['address' => $address]);
+    }
+
+    public function testPostProcessedContextValueLeftEmptyThrows(): void
+    {
+        // Used to leave the property uninitialised.
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Context value 'city' after #[PostProcess] is empty, but");
+        $this->handler->handleArray(HookedContextRequest::class, [], context: ['city' => 'Kyiv']);
+    }
+
+    public function testCasterResultForAContextValueIsChecked(): void
+    {
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Context value 'count' after #[Caster] is string, which does not fit");
+        $this->handler->handleArray(HookedContextRequest::class, [], context: ['count' => 5]);
+    }
+
+    public function testPostProcessedContextValueThatFitsIsKept(): void
+    {
+        $dto = $this->handler->handleArray(HookedContextRequest::class, [], context: ['label' => 'x']);
+
+        $this->assertSame('X', $dto->label);
+    }
+
     public function testRequestTypedContextValueIsKeptAsPassed(): void
     {
         $address = new AddressRequest();
@@ -3649,4 +3682,41 @@ final class ContextListRequest extends Request
     /** @var array<mixed> */
     #[FromContext('list')]
     public array $list = [];
+}
+
+final class HookedContextRequest extends Request
+{
+    #[FromContext('address')]
+    #[PostProcess('toArrayOfIt')]
+    public ?AddressRequest $address = null;
+
+    #[FromContext('city')]
+    #[PostProcess('nothing')]
+    public string $city;
+
+    #[FromContext('count')]
+    #[Caster(WordCaster::class)]
+    public ?int $count = null;
+
+    #[FromContext('label')]
+    #[PostProcess('strtoupper')]
+    public ?string $label = null;
+
+    public static function toArrayOfIt(mixed $value): mixed
+    {
+        return ['city' => 'Kyiv'];
+    }
+
+    public static function nothing(mixed $value): mixed
+    {
+        return null;
+    }
+}
+
+final class WordCaster implements \Solo\RequestHandler\Contracts\CasterInterface
+{
+    public function cast(mixed $value): mixed
+    {
+        return 'five';
+    }
 }
