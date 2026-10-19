@@ -17,6 +17,7 @@ Most applications need only the checklist below. The sections after it explain e
 | `$handler->schema(...)` consumers | Read fields by input key; `exclude` is gone ([Schema](#schema-v2)) |
 | A property typed with a class that is not a Request subclass, enum or date — or with `object`, an intersection, a union of classes | Give it a `#[Caster]`, processor, `#[Generator]` or `#[FromContext]` ([Class types](#class-typed-properties)) |
 | `#[FromContext]` values or generator results of a looser type — `1.5` or `true` for an `int`, `2` for a `bool`, `true` for a `string` | Pass the declared type — they throw `UnexpectedValueException` now ([Values the application supplies](#values-the-application-supplies)) |
+| `#[Items]` on a `#[FromContext]` property fed with arrays | Pass the built DTOs — the arrays throw `UnexpectedValueException` now |
 | A `#[FromContext]` or generated value that may be `null` for a non-nullable property without a default | Make the property nullable or give it a default — `null` now throws `UnexpectedValueException` ([Values the application supplies](#values-the-application-supplies)) |
 | `toArray()` overridden in a Request subclass | Declare `toArray(bool $onlyProvided = false): array` |
 | `AuthorizationException` | Remove — it was never thrown |
@@ -143,6 +144,7 @@ See [Schema Export](https://solophp.github.io/Request-Handler/features/schema).
 - they go through the same lossless casts as client input, but a value that does not fit throws `UnexpectedValueException` instead of a validation error. 3.x coerced it: `1.5` or `true` for an `int`, `2` for a `bool`, `true` or an array for a `string` now throw — pass the declared type;
 - `null` for a property that is neither nullable nor has a default throws `UnexpectedValueException` — 3.x left the property uninitialised, to fail later on first read;
 - a `#[FromContext]` property typed with a Request subclass receives the object passed in `context` as it is — it is not built from input like a nested DTO;
+- `#[Items]` on a `#[FromContext]` list declares the class of the DTOs the application passes: they are checked, not built from arrays as in 3.x;
 - auto-trim leaves them as passed (3.x trimmed context strings), and a class-level `#[EmptyToNull]` skips them.
 
 ## Request API
