@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Solo\RequestHandler\Attributes\Cast;
 use Solo\RequestHandler\Attributes\Caster;
+use Solo\RequestHandler\Attributes\DateFormat;
 use Solo\RequestHandler\Attributes\Exclude;
 use Solo\RequestHandler\Attributes\Generator;
 use Solo\RequestHandler\Attributes\Group;
@@ -407,18 +408,6 @@ final class ReflectionCacheTest extends TestCase
         $this->cache->get(InvalidUnionTypeRequest::class);
     }
 
-    public function testDateTimeCastWithDateTimeInterface(): void
-    {
-        $metadata = $this->cache->get(DateTimeInterfaceRequest::class);
-        $this->assertSame('datetime', $metadata->properties['date']->effectiveCastType);
-    }
-
-    public function testDateTimeImmutableCast(): void
-    {
-        $metadata = $this->cache->get(DateTimeImmutableInterfaceRequest::class);
-        $this->assertSame('datetime:immutable', $metadata->properties['date']->effectiveCastType);
-    }
-
     public function testCustomCasterClassStoredInCustomCasterClass(): void
     {
         $metadata = $this->cache->get(CustomCasterRequest::class);
@@ -541,46 +530,67 @@ final class ReflectionCacheTest extends TestCase
 
     // ===== datetime specs & cast compatibility =====
 
-    public function testMutableDateTimeCastIsAdaptedToImmutableProperty(): void
-    {
-        $property = $this->cache->get(AdaptedDateTimeRequest::class)->properties['date'];
+    // ===== dates =====
 
-        $this->assertSame('datetime:immutable:Y-m-d H:i:s', $property->effectiveCastType);
+    #[DataProvider('dateTypeProvider')]
+    public function testDateClassComesFromTheDeclaredType(string $property, string $expectedClass): void
+    {
+        $metadata = $this->cache->get(DateTypesRequest::class);
+
+        $this->assertSame($expectedClass, $metadata->properties[$property]->dateClass);
+        $this->assertNull($metadata->properties[$property]->effectiveCastType);
     }
 
-    public function testImmutableDateTimeCastOnMutablePropertyThrows(): void
-    {
-        $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage(
-            "cast type 'datetime:immutable' which is incompatible with property type 'DateTime'"
-        );
-        $this->cache->get(ImmutableCastOnMutableRequest::class);
-    }
-
-    public function testDatetimePrefixWithoutColonIsRejected(): void
-    {
-        $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('neither a built-in type');
-        $this->cache->get(DatetimeTypoCastRequest::class);
-    }
-
-    #[DataProvider('typeDrivenDateTimeProvider')]
-    public function testDateTimeTypesGetTypeDrivenCast(string $property, string $expectedCast): void
-    {
-        $metadata = $this->cache->get(TypeDrivenDateTimeRequest::class);
-
-        $this->assertSame($expectedCast, $metadata->properties[$property]->effectiveCastType);
-    }
-
-    /** @return array<string, array{0: string, 1: string}> */
-    public static function typeDrivenDateTimeProvider(): array
+    /** @return array<string, array{0: string, 1: class-string}> */
+    public static function dateTypeProvider(): array
     {
         return [
-            'DateTimeImmutable'  => ['immutable', 'datetime:immutable'],
-            '?DateTimeImmutable' => ['maybe', 'datetime:immutable'],
-            'DateTime'           => ['mutable', 'datetime'],
-            'DateTimeInterface'  => ['either', 'datetime'],
+            'DateTimeImmutable'           => ['immutable', \DateTimeImmutable::class],
+            '?DateTimeImmutable'          => ['maybe', \DateTimeImmutable::class],
+            'DateTime'                    => ['mutable', \DateTime::class],
+            'DateTimeInterface'           => ['either', \DateTimeImmutable::class],
+            'mixed + #[DateFormat]'       => ['anything', \DateTimeImmutable::class],
+            'DateTime + #[DateFormat]'    => ['formatted', \DateTime::class],
         ];
+    }
+
+    public function testDateFormatIsStoredWithItsFailureRule(): void
+    {
+        $property = $this->cache->get(DateTypesRequest::class)->properties['formatted'];
+
+        $this->assertSame('Y-m-d H:i:s', $property->dateFormat);
+        $this->assertSame(['rule' => 'date_format', 'params' => ['Y-m-d H:i:s']], $property->castFailure);
+        $mutable = $this->cache->get(DateTypesRequest::class)->properties['mutable'];
+        $this->assertSame(['rule' => 'date'], $mutable->castFailure);
+    }
+
+    public function testDatetimeCastSpecIsRejectedWithAHint(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('datetime casts were removed in 4.0');
+        $this->expectExceptionMessage('#[DateFormat');
+        $this->cache->get(DatetimeCastRequest::class);
+    }
+
+    public function testCastAliasesAreRejected(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("#[Cast('integer')] which is neither a built-in type");
+        $this->cache->get(IntegerAliasCastRequest::class);
+    }
+
+    public function testDateFormatOnNonDateTypeThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage("has #[DateFormat] but type 'string'");
+        $this->cache->get(DateFormatOnStringRequest::class);
+    }
+
+    public function testDateFormatWithCasterThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('has both #[DateFormat] and #[Caster]');
+        $this->cache->get(DateFormatWithCasterRequest::class);
     }
 
     public function testBackedEnumPropertyResolvesToEnumClass(): void
@@ -870,18 +880,6 @@ final class InvalidUnionTypeRequest extends Request
     public int|float $count;
 }
 
-final class DateTimeInterfaceRequest extends Request
-{
-    #[Cast('datetime')]
-    public \DateTimeInterface $date;
-}
-
-final class DateTimeImmutableInterfaceRequest extends Request
-{
-    #[Cast('datetime:immutable')]
-    public \DateTimeInterface $date;
-}
-
 final class CustomCasterRequest extends Request
 {
     #[Caster(DummyCaster::class)]
@@ -1152,32 +1150,6 @@ final class TreeNodeRequest extends Request
     public ?array $children = null;
 }
 
-final class AdaptedDateTimeRequest extends Request
-{
-    #[Cast('datetime:Y-m-d H:i:s')]
-    public \DateTimeImmutable $date;
-}
-
-final class ImmutableCastOnMutableRequest extends Request
-{
-    #[Cast('datetime:immutable')]
-    public \DateTime $date;
-}
-
-final class DatetimeTypoCastRequest extends Request
-{
-    #[Cast('datetime_immutable')]
-    public \DateTimeImmutable $date;
-}
-
-final class TypeDrivenDateTimeRequest extends Request
-{
-    public \DateTimeImmutable $immutable;
-    public ?\DateTimeImmutable $maybe = null;
-    public \DateTime $mutable;
-    public \DateTimeInterface $either;
-}
-
 enum CacheTestStatus: string
 {
     case Draft = 'draft';
@@ -1265,4 +1237,43 @@ final class NonClassTypesRequest extends Request
     public mixed $anything = null;
     public int|string $either = 0;
     public \Countable&\Iterator $both;
+}
+
+final class DateTypesRequest extends Request
+{
+    public \DateTimeImmutable $immutable;
+    public ?\DateTimeImmutable $maybe = null;
+    public \DateTime $mutable;
+    public \DateTimeInterface $either;
+
+    #[DateFormat('Y-m-d')]
+    public mixed $anything = null;
+
+    #[DateFormat('Y-m-d H:i:s')]
+    public \DateTime $formatted;
+}
+
+final class DatetimeCastRequest extends Request
+{
+    #[Cast('datetime:immutable:Y-m-d')]
+    public \DateTimeImmutable $date;
+}
+
+final class IntegerAliasCastRequest extends Request
+{
+    #[Cast('integer')]
+    public int $count;
+}
+
+final class DateFormatOnStringRequest extends Request
+{
+    #[DateFormat('Y-m-d')]
+    public string $day;
+}
+
+final class DateFormatWithCasterRequest extends Request
+{
+    #[DateFormat('Y-m-d')]
+    #[Caster(DummyCaster::class)]
+    public \DateTimeImmutable $day;
 }

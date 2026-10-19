@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Solo\RequestHandler\Cache;
 
 use BackedEnum;
+use DateTime;
+use DateTimeImmutable;
 use ReflectionClass;
 use ReflectionFunction;
 use ReflectionFunctionAbstract;
@@ -12,6 +14,7 @@ use ReflectionMethod;
 use ReflectionProperty;
 use Solo\RequestHandler\Attributes\Cast;
 use Solo\RequestHandler\Attributes\Caster;
+use Solo\RequestHandler\Attributes\DateFormat;
 use Solo\RequestHandler\Attributes\Exclude;
 use Solo\RequestHandler\Attributes\Generator;
 use Solo\RequestHandler\Attributes\Group;
@@ -52,35 +55,26 @@ final class ReflectionCache
     private static ?self $shared = null;
 
     /**
-     * Built-in cast type → acceptable PHP types for the target property.
-     *
-     * Used by `isCastCompatible`. Keys mirror the entries in
-     * `BuiltInCaster::BUILT_IN_TYPES`; `datetime[:...]` is handled
-     * separately because the spec has a variable suffix. An int result
-     * widens losslessly into a float property, a float result does not
+     * `#[Cast]` type → acceptable PHP types for the target property. An int
+     * result widens losslessly into a float property, a float result does not
      * narrow into an int one; `mixed` accepts every cast.
      */
     private const array CAST_COMPATIBILITY = [
-        'int'     => ['int', 'float'],
-        'integer' => ['int', 'float'],
-        'float'   => ['float'],
-        'double'  => ['float'],
-        'bool'    => ['bool'],
-        'boolean' => ['bool'],
-        'string'  => ['string'],
-        'array'   => ['array', 'iterable'],
+        'int'    => ['int', 'float'],
+        'float'  => ['float'],
+        'bool'   => ['bool'],
+        'string' => ['string'],
+        'array'  => ['array', 'iterable'],
     ];
 
     /**
-     * DateTime type (lower-case) → whether it needs an immutable instance:
-     * true = DateTimeImmutable only, false = DateTime only, null = either.
-     * Drives the type-driven spec, the adaptation of an explicit spec and its
-     * compatibility check.
+     * Date type (lower-case) → the class a date property is built as.
+     * `DateTimeInterface` gets the immutable implementation.
      */
     private const array DATETIME_TYPES = [
-        'datetimeimmutable' => true,
-        'datetime'          => false,
-        'datetimeinterface' => null,
+        'datetimeimmutable' => DateTimeImmutable::class,
+        'datetime'          => DateTime::class,
+        'datetimeinterface' => DateTimeImmutable::class,
     ];
 
     /** @var array<class-string, RequestMetadata> */
@@ -180,6 +174,7 @@ final class ReflectionCache
             Validate::class    => 'Validate',
             Cast::class        => 'Cast',
             Caster::class      => 'Caster',
+            DateFormat::class  => 'DateFormat',
             PreProcess::class  => 'PreProcess',
             PostProcess::class => 'PostProcess',
             Generator::class   => 'Generator',
@@ -211,6 +206,7 @@ final class ReflectionCache
         $validate = $this->firstAttribute($property, Validate::class);
         $cast = $this->firstAttribute($property, Cast::class);
         $caster = $this->firstAttribute($property, Caster::class);
+        $dateFormat = $this->firstAttribute($property, DateFormat::class);
         $preProcess = $this->firstAttribute($property, PreProcess::class);
         $postProcess = $this->firstAttribute($property, PostProcess::class);
         $generator = $this->firstAttribute($property, Generator::class);
@@ -221,7 +217,7 @@ final class ReflectionCache
         [$source, $sourceKey, $pathSegments] = $this->detectSource($property, $name, $className);
 
         $rules = $validate?->rules;
-        $castType = $cast?->type;
+        $castType = $cast !== null ? strtolower($cast->type) : null;
         $customCasterClass = $caster?->class;
 
         if ($cast !== null && $caster !== null) {
@@ -252,19 +248,31 @@ final class ReflectionCache
             throw ConfigurationException::requiredWithDefault($className, $name);
         }
 
-        $adaptedCastType = null;
-        if ($castType !== null) {
-            if (!BuiltInCaster::isBuiltIn($castType)) {
-                if (class_exists($castType)) {
-                    throw ConfigurationException::castExpectsBuiltInType($className, $name, $castType);
-                }
-                throw ConfigurationException::unknownCastType($className, $name, $castType);
+        if ($cast !== null && $castType !== null) {
+            if (str_starts_with($castType, 'datetime')) {
+                throw ConfigurationException::castDateTimeRemoved($className, $name, $cast->type);
             }
-            $adaptedCastType = $this->adaptDateTimeSpec($castType, $classType);
-            if ($phpType !== null && !$this->isCastCompatible($adaptedCastType, $phpType)) {
-                throw ConfigurationException::castTypeMismatch($className, $name, $castType, $phpType);
+            if (!BuiltInCaster::isBuiltIn($castType)) {
+                if (class_exists($cast->type)) {
+                    throw ConfigurationException::castExpectsBuiltInType($className, $name, $cast->type);
+                }
+                throw ConfigurationException::unknownCastType($className, $name, $cast->type);
+            }
+            if ($phpType !== null && !$this->isCastCompatible($castType, $phpType)) {
+                throw ConfigurationException::castTypeMismatch($className, $name, $cast->type, $phpType);
             }
         }
+
+        $dateClass = $this->resolveDateClass(
+            $dateFormat,
+            $cast,
+            $caster,
+            $items,
+            $phpType,
+            $classType,
+            $className,
+            $name
+        );
 
         if ($customCasterClass !== null && !$this->isCasterClass($customCasterClass)) {
             throw ConfigurationException::invalidCaster($className, $name, $customCasterClass);
@@ -291,7 +299,7 @@ final class ReflectionCache
         }
 
         [$effectiveCastType, $resolvedCasterClass, $enumClass] = $this->resolveCast(
-            $adaptedCastType,
+            $castType,
             $customCasterClass,
             $phpType,
             $classType
@@ -303,7 +311,7 @@ final class ReflectionCache
         $rejectsArrayInput = $effectiveCastType !== null
             && (
                 BuiltInCaster::rejectsArray($effectiveCastType)
-                || ($pathSegments !== null && strtolower($effectiveCastType) === 'string')
+                || ($pathSegments !== null && $effectiveCastType === 'string')
             );
 
         return new PropertyMetadata(
@@ -335,9 +343,53 @@ final class ReflectionCache
             postProcessorGuard: $postProcessorGuard,
             enumClass: $enumClass,
             rejectsArrayInput: $rejectsArrayInput,
-            castFailure: $this->castFailure($effectiveCastType, $enumClass),
+            castFailure: $this->castFailure($dateClass, $dateFormat?->format, $enumClass),
             groupMapTo: $group?->mapTo,
+            dateClass: $dateClass,
+            dateFormat: $dateFormat?->format,
         );
+    }
+
+    /**
+     * The class a date property is built as: from a DateTime-family type, or
+     * DateTimeImmutable for an untyped / `mixed` property carrying
+     * `#[DateFormat]`. Null when the property is not a date or another
+     * attribute produces the value.
+     *
+     * @return class-string<DateTime|DateTimeImmutable>|null
+     */
+    private function resolveDateClass(
+        ?DateFormat $dateFormat,
+        ?Cast $cast,
+        ?Caster $caster,
+        ?Items $items,
+        ?string $phpType,
+        ?string $classType,
+        string $className,
+        string $name,
+    ): ?string {
+        if ($dateFormat !== null) {
+            foreach (['Cast' => $cast, 'Caster' => $caster, 'Items' => $items] as $attribute => $present) {
+                if ($present !== null) {
+                    throw ConfigurationException::dateFormatConflict($className, $name, $attribute);
+                }
+            }
+        }
+
+        if ($cast !== null || $caster !== null) {
+            return null;
+        }
+
+        $dateClass = $classType !== null ? (self::DATETIME_TYPES[strtolower($classType)] ?? null) : null;
+
+        if ($dateFormat !== null && $dateClass === null) {
+            if ($phpType !== null && $phpType !== 'mixed') {
+                throw ConfigurationException::dateFormatRequiresDateType($className, $name, $phpType);
+            }
+            $dateClass = DateTimeImmutable::class;
+        }
+
+        return $dateClass;
     }
 
     /**
@@ -347,7 +399,7 @@ final class ReflectionCache
      * @param class-string<BackedEnum>|null $enumClass
      * @return array{rule: string, params?: list<string>}|null
      */
-    private function castFailure(?string $effectiveCastType, ?string $enumClass): ?array
+    private function castFailure(?string $dateClass, ?string $dateFormat, ?string $enumClass): ?array
     {
         if ($enumClass !== null) {
             return [
@@ -359,13 +411,11 @@ final class ReflectionCache
             ];
         }
 
-        if ($effectiveCastType === null || !BuiltInCaster::isDateTime($effectiveCastType)) {
+        if ($dateClass === null) {
             return null;
         }
 
-        $format = BuiltInCaster::parseDateTimeSpec($effectiveCastType)['format'];
-
-        return $format === null ? ['rule' => 'date'] : ['rule' => 'date_format', 'params' => [$format]];
+        return $dateFormat === null ? ['rule' => 'date'] : ['rule' => 'date_format', 'params' => [$dateFormat]];
     }
 
     /**
@@ -434,6 +484,7 @@ final class ReflectionCache
             Validate::class    => 'Validate',
             Cast::class        => 'Cast',
             Caster::class      => 'Caster',
+            DateFormat::class  => 'DateFormat',
             PreProcess::class  => 'PreProcess',
             PostProcess::class => 'PostProcess',
             Items::class       => 'Items',
@@ -610,11 +661,11 @@ final class ReflectionCache
 
     /**
      * Resolve cast configuration. Returns [effectiveCastType, customCasterClass, enumClass].
+     * Dates are resolved separately (`resolveDateClass`).
      *
      * - explicit `#[Caster(...)]`              → [null, casterClass, null]
-     * - explicit `#[Cast('built-in')]`         → [castType, null, null] (already adapted to the property type)
-     * - no attribute, built-in property type   → [propertyType, null, null]
-     * - no attribute, DateTime family          → ['datetime' | 'datetime:immutable', null, null]
+     * - explicit `#[Cast('scalar')]`           → [castType, null, null]
+     * - no attribute, scalar property type     → [propertyType, null, null]
      * - no attribute, BackedEnum property type → [null, null, enumClass]
      * - anything else                          → [null, null, null]
      *
@@ -631,28 +682,15 @@ final class ReflectionCache
         }
 
         if ($castType !== null) {
-            // castType is validated upstream to be a built-in.
+            // castType is validated upstream to be a scalar built-in.
             return [$castType, null, null];
         }
 
-        if ($propertyType === null) {
-            return [null, null, null];
-        }
-
-        if (BuiltInCaster::isBuiltIn($propertyType)) {
+        if ($propertyType !== null && BuiltInCaster::isBuiltIn($propertyType)) {
             return [$propertyType, null, null];
         }
 
-        if ($classType === null) {
-            return [null, null, null];
-        }
-
-        $dateTimeType = strtolower($classType);
-        if (array_key_exists($dateTimeType, self::DATETIME_TYPES)) {
-            return [self::DATETIME_TYPES[$dateTimeType] === true ? 'datetime:immutable' : 'datetime', null, null];
-        }
-
-        if (is_subclass_of($classType, BackedEnum::class)) {
+        if ($classType !== null && is_subclass_of($classType, BackedEnum::class)) {
             return [null, null, $classType];
         }
 
@@ -660,52 +698,12 @@ final class ReflectionCache
     }
 
     /**
-     * A mutable `datetime[:format]` cast on a property typed exactly
-     * `DateTimeImmutable` would produce an unassignable `DateTime` — produce
-     * the immutable class the property demands instead.
-     */
-    private function adaptDateTimeSpec(string $castType, ?string $classType): string
-    {
-        if (
-            $classType === null
-            || (self::DATETIME_TYPES[strtolower($classType)] ?? null) !== true
-            || !BuiltInCaster::isDateTime($castType)
-        ) {
-            return $castType;
-        }
-
-        $spec = BuiltInCaster::parseDateTimeSpec($castType);
-
-        return $spec['immutable']
-            ? $castType
-            : 'datetime:immutable' . ($spec['format'] !== null ? ':' . $spec['format'] : '');
-    }
-
-    /**
-     * Built-in cast compatibility check. castType is guaranteed built-in by
-     * upstream validation and already adapted to the property type.
+     * `#[Cast]` compatibility check. castType is guaranteed to be a scalar
+     * built-in by upstream validation.
      */
     private function isCastCompatible(string $castType, string $propertyType): bool
     {
-        if (BuiltInCaster::isDateTime($castType)) {
-            $immutable = BuiltInCaster::parseDateTimeSpec($castType)['immutable'];
-            $allowedTypes = ['object'];
-            foreach (self::DATETIME_TYPES as $type => $needsImmutable) {
-                if ($needsImmutable === null || $needsImmutable === $immutable) {
-                    $allowedTypes[] = $type;
-                }
-            }
-
-            return $this->isTypeInUnion($propertyType, $allowedTypes);
-        }
-
-        // Upstream guard in buildPropertyMetadata throws on anything that is
-        // not a built-in, so the lookup always hits. `?? []` is a defensive
-        // no-match fallback that satisfies the type-checker without dead code.
-        return $this->isTypeInUnion(
-            $propertyType,
-            self::CAST_COMPATIBILITY[strtolower($castType)] ?? []
-        );
+        return $this->isTypeInUnion($propertyType, self::CAST_COMPATIBILITY[$castType] ?? []);
     }
 
     /**

@@ -9,7 +9,7 @@ Type-safe Request DTOs for PHP 8.3+ with focused per-property attributes, declar
 ## Features
 
 - **Per-property source binding** — default source comes from the handle method (`handleBody` → Body, `handleQuery` → Query); `#[FromRoute]` and `#[FromContext]` override per property. No implicit merging, no surprises.
-- **Attribute-composed DTOs** — each concern is its own focused attribute: `#[Validate]`, `#[Cast]`, `#[PostProcess]`, `#[Generator]`, `#[Items]`, …
+- **Attribute-composed DTOs** — each concern is its own focused attribute: `#[Validate]`, `#[DateFormat]`, `#[PostProcess]`, `#[Generator]`, `#[Items]`, …
 - **Convention over configuration** — every public non-static property is managed; attributes only add behaviour
 - **Automatic type casting** — driven by the property's declared type: int, float, bool, string, array, `DateTime` / `DateTimeImmutable`, backed enums + custom casters. Arrays sent for int/float/bool fields, unparseable dates and unknown enum values are validation errors rather than `1`, `null` or an uninitialised property
 - **Validation rules** — passed verbatim to your `ValidatorInterface`; every field present in the request — route and context values included, with or without rules of their own — lands in the validation payload, so cross-field rules (`exists:…,scope_col,{field}`) work without special syntax
@@ -86,7 +86,8 @@ $dto->toArray();   // ['id'=>…, 'name'=>…, 'price'=>…, 'stock'=>…, 'tena
 | `#[FromRoute(?string $key = null)]` | Read from the `$route` argument (URL path params) |
 | `#[FromContext(string $key)]` | Read from the `$context` argument (auth user, tenant, …) |
 | `#[FromBody(string $path)]` | Read from a nested body path (`customer.id`); flat keys may also be remapped this way |
-| `#[Cast('int'\|'float'\|'datetime:Y-m-d'\|...)]` | Explicit built-in cast |
+| `#[Cast('int'\|'float'\|'bool'\|'string'\|'array')]` | Explicit scalar cast (union / `mixed` properties) |
+| `#[DateFormat('Y-m-d')]` | Fixed input format for a date property — the class follows the type |
 | `#[Caster(MoneyCaster::class)]` | Custom `CasterInterface` implementation |
 | `#[PreProcess(MyProc::class)]` | Run handler BEFORE validation |
 | `#[PostProcess(MyProc::class, config: [...])]` | Run handler AFTER validation, with optional config |

@@ -512,6 +512,11 @@ final class RequestHandler
 
         $cast = match (true) {
             $property->enumClass !== null => $this->builtInCaster->castEnum($property->enumClass, $value),
+            $property->dateClass !== null => $this->builtInCaster->castDate(
+                $property->dateClass,
+                $property->dateFormat,
+                $value
+            ),
             $property->effectiveCastType !== null => $this->builtInCaster->cast($property->effectiveCastType, $value),
             default => $value,
         };

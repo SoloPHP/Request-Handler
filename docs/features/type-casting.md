@@ -12,8 +12,8 @@ public float $price;              // Cast to float
 public bool $active;              // Cast to bool
 public string $name;              // Cast to string
 public array $tags;               // Cast to array
-public DateTimeImmutable $at;     // Parsed into DateTimeImmutable
-public DateTime $legacyAt;        // Parsed into DateTime (also for DateTimeInterface)
+public DateTimeImmutable $at;     // Parsed into DateTimeImmutable (also for DateTimeInterface)
+public DateTime $legacyAt;        // Parsed into DateTime
 public Status $status;            // BackedEnum — resolved by backing value
 ```
 
@@ -25,7 +25,7 @@ A value that cannot become the declared type is reported in the `ValidationExcep
 |-------|-------|
 | Array for an `int` / `float` / `bool` property (`?page[]=5`) | `['rule' => 'scalar']` |
 | Unparseable date, no format | `['rule' => 'date']` |
-| Unparseable date for `datetime:<format>` | `['rule' => 'date_format', 'params' => ['<format>']]` |
+| Unparseable date for `#[DateFormat('<format>')]` | `['rule' => 'date_format', 'params' => ['<format>']]` |
 | Value matching no enum case | `['rule' => 'in', 'params' => [...backing values]]` |
 | `""` or `null` for a non-nullable property without a default | `['rule' => 'required']` |
 
@@ -37,22 +37,16 @@ Values the application supplies — `#[FromContext]` and generators — are not 
 
 ## Explicit Casting (`#[Cast]`)
 
-Use `#[Cast]` for built-in casts when the property type alone isn't enough (e.g. `DateTime` with a format):
+Use `#[Cast]` when the declared type does not say which scalar to produce — a union or `mixed` property. It accepts `int`, `float`, `bool`, `string` and `array` (the 3.x aliases `integer`, `double`, `boolean` are gone); dates are cast by their type, see [Dates](#dates):
 
 ```php
 use Solo\RequestHandler\Attributes\Cast;
 
-#[Cast('int')]
-public int $quantity;
-
 #[Cast('float')]
-public float $amount;
-
-#[Cast('bool')]
-public bool $enabled;
+public int|float $amount;
 
 #[Cast('array')]
-public array $items;
+public mixed $payload = null;
 ```
 
 ---
@@ -116,48 +110,38 @@ $caster->cast('array', '');             // []
 
 ---
 
-## DateTime Casting
+## Dates
 
-### Basic DateTime
-
-```php
-#[Cast('datetime')]
-public DateTime $createdAt;
-
-// Accepts: date strings, Unix timestamps (int or digit string), DateTime objects
-// "2024-01-15" → DateTime
-// 1705276800   → DateTime
-// "1705276800" → DateTime
-```
-
-`#[Cast]` is only needed for a format or to pick a class the type does not imply — a `DateTimeImmutable` / `DateTime` / `DateTimeInterface` property is parsed without it.
-
-### DateTime with Format
+A property typed `DateTimeImmutable`, `DateTime` or `DateTimeInterface` is parsed from the input — no attribute needed. The class comes from the type; `DateTimeInterface` gets `DateTimeImmutable`:
 
 ```php
-#[Cast('datetime:Y-m-d')]
-public DateTime $birthDate;      // "1990-05-01" → 1990-05-01 00:00:00
+public DateTimeImmutable $createdAt;       // "2024-01-15", "2024-01-15T10:30:00+02:00", ...
+public DateTime $legacyAt;                 // a mutable DateTime
+public ?DateTimeInterface $seenAt = null;  // a DateTimeImmutable
 
-#[Cast('datetime:Y-m-d H:i:s')]
-public DateTime $eventTime;      // formats may contain ':'
+// Also accepted: Unix timestamps (1705276800 or "1705276800") and DateTime
+// objects passed via context — converted to the declared class.
 ```
 
-A format without time-of-day fields (`Y-m-d`, `d.m.Y`) yields midnight. Other fields the format does not parse keep `createFromFormat()` semantics and come from the current date — `m-d` is in the current year; add `!` or `|` to a format to reset them yourself (`!Y-m` is the first of the month).
-
-### DateTimeImmutable
+### Fixed format — `#[DateFormat]`
 
 ```php
-#[Cast('datetime:immutable')]
-public DateTimeImmutable $timestamp;
+use Solo\RequestHandler\Attributes\DateFormat;
 
-#[Cast('datetime:immutable:Y-m-d')]
-public DateTimeImmutable $date;
+#[DateFormat('Y-m-d')]
+public DateTimeImmutable $birthDate;   // "1990-05-01" → 1990-05-01 00:00:00
 
-#[Cast('datetime:Y-m-d')]          // the property type implies immutable
-public DateTimeImmutable $day;
+#[DateFormat('Y-m-d H:i:s')]
+public DateTime $eventTime;            // formats may contain ':'
 ```
 
-An immutable spec also converts a `DateTime` object (e.g. a clock passed via `context`) into `DateTimeImmutable`. `datetime:immutable` on a property typed `DateTime` is a `ConfigurationException`.
+A format without time-of-day fields yields midnight. Other fields the format does not parse keep `createFromFormat()` semantics and come from the current date — `m-d` is in the current year; add `!` or `|` to the format to reset them yourself (`!Y-m` is the first of the month).
+
+`#[DateFormat]` on an untyped or `mixed` property produces a `DateTimeImmutable`; on any other non-date type it is a `ConfigurationException`. It cannot be combined with `#[Cast]`, `#[Caster]` or `#[Items]`.
+
+::: tip Migrating from 3.x
+`#[Cast('datetime…')]` was removed in 4.0 and now throws `ConfigurationException`: drop it — the class follows the property type — and move a format into `#[DateFormat]`. See [UPGRADE.md](https://github.com/solophp/request-handler/blob/main/UPGRADE.md).
+:::
 
 ---
 
@@ -263,7 +247,7 @@ Empty string `""` is handled per type:
 | Type | `""` Result | Reason |
 |------|-------------|--------|
 | `int`, `float` | `null` | Not a valid number |
-| `datetime` | `null` | Not a valid date |
+| date types | `null` | Not a valid date |
 | `string` | `""` | Preserved as-is |
 | `bool` | `false` | Treated as falsy |
 | `array` | `[]` | Empty collection |

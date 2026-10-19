@@ -75,9 +75,20 @@ final class Cast
 }
 ```
 
-Built-in type for `BuiltInCaster`: `int`, `float`, `bool`, `string`, `array`, or a datetime spec (`datetime`, `datetime:immutable`, `datetime:Y-m-d`, `datetime:immutable:Y-m-d H:i:s`).
+Scalar cast: `int`, `float`, `bool`, `string` or `array` (case-insensitive). Needed only where the declared type does not imply one — a union or `mixed` property.
 
-Passing a class name throws `ConfigurationException::castExpectsBuiltInType` at metadata-build time — use `#[Caster]` for custom logic. Unknown strings throw `ConfigurationException::unknownCastType`. Mutually exclusive with `#[Caster]` and `#[Items]`.
+Passing a class name throws `ConfigurationException::castExpectsBuiltInType` at metadata-build time — use `#[Caster]` for custom logic. A `datetime…` spec throws `ConfigurationException::castDateTimeRemoved` (dates follow the property type; see `#[DateFormat]`). Other unknown strings throw `ConfigurationException::unknownCastType`. Mutually exclusive with `#[Caster]`, `#[DateFormat]` and `#[Items]`.
+
+### `#[DateFormat(string $format)]`
+
+```php
+final class DateFormat
+{
+    public function __construct(public string $format) {}
+}
+```
+
+Reads the property's date with `createFromFormat($format)`. The class comes from the declared type (`DateTimeImmutable` / `DateTimeInterface` / untyped / `mixed` → `DateTimeImmutable`, `DateTime` → `DateTime`); any other type throws `ConfigurationException::dateFormatRequiresDateType`. A format without time-of-day fields yields midnight. An empty format throws `InvalidArgumentException`; combining it with `#[Cast]`, `#[Caster]` or `#[Items]` throws `ConfigurationException::dateFormatConflict`.
 
 ### `#[Caster(class-string<CasterInterface> $class)]`
 

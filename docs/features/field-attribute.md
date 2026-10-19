@@ -27,7 +27,8 @@ For values that don't fit the four bags (Body, Query, Route, Context) — reques
 | Attribute | Purpose |
 |---|---|
 | `#[Validate('rules')]` | Validation rules passed to your `ValidatorInterface` |
-| `#[Cast('int'\|'datetime:Y-m-d'\|...)]` | Explicit built-in cast (overrides type-driven default) |
+| `#[Cast('int'\|'float'\|'bool'\|'string'\|'array')]` | Explicit scalar cast for union / `mixed` properties |
+| `#[DateFormat('Y-m-d')]` | Fixed input format for a date property (class from the type) |
 | `#[Caster(MoneyCaster::class)]` | Custom `CasterInterface` implementation |
 | `#[PreProcess(handler)]` | Run handler BEFORE validation |
 | `#[PostProcess(handler, config: [...])]` | Run handler AFTER validation, with optional config |
@@ -111,15 +112,15 @@ See [Validation](/features/validation).
 
 ### `#[Cast('type')]` and `#[Caster(class)]`
 
-Without either attribute, casting is driven by the property's declared type (`int`, `float`, `bool`, `string`, `array`).
+Without either attribute, casting is driven by the property's declared type: `int`, `float`, `bool`, `string`, `array`, the DateTime family and backed enums.
 
-`#[Cast]` is for built-in types only — it accepts `int`, `float`, `bool`, `string`, `array`, or a datetime spec like `datetime`, `datetime:immutable`, `datetime:Y-m-d`, `datetime:immutable:Y-m-d H:i:s`. Passing a class name throws `ConfigurationException::castExpectsBuiltInType` — use `#[Caster]` for custom logic.
+`#[Cast]` is for scalar types only — `int`, `float`, `bool`, `string`, `array` — and needed only where the type does not imply one. Dates follow their type; `#[DateFormat]` fixes the input format. Passing a class name throws `ConfigurationException::castExpectsBuiltInType` — use `#[Caster]` for custom logic.
 
 ```php
-#[Cast('int')]
-public int $count;
+#[Cast('float')]
+public int|float $amount;
 
-#[Cast('datetime:immutable:Y-m-d')]
+#[DateFormat('Y-m-d')]
 public DateTimeImmutable $birthday;
 
 #[Caster(MoneyCaster::class)]
@@ -262,7 +263,7 @@ final class AuthenticatedRequest extends Request
 ## Complete example
 
 ```php
-use Solo\RequestHandler\Attributes\{Validate, Cast, PreProcess, PostProcess, Generator, Items, Group, Exclude};
+use Solo\RequestHandler\Attributes\{Validate, DateFormat, PreProcess, PostProcess, Generator, Items, Group, Exclude};
 use Solo\RequestHandler\Attributes\Source\{FromRoute, FromContext};
 
 final class UpdateOrderRequest extends Request
@@ -289,7 +290,7 @@ final class UpdateOrderRequest extends Request
     #[Exclude]
     public string $status = 'pending';
 
-    #[Cast('datetime:Y-m-d')]
+    #[DateFormat('Y-m-d')]
     #[Group('meta')]
     public ?DateTime $deliveryDate = null;
 
