@@ -13,12 +13,14 @@ use Solo\RequestHandler\Exceptions\ConfigurationException;
 use Solo\RequestHandler\ProcessContext;
 
 /**
- * Lazily resolves and caches processor / caster / generator instances for
- * the lifetime of the owning `RequestHandler`, and dispatches them by their
- * pre-classified `ProcessorKind`.
+ * Resolves processor / caster / generator instances and dispatches them by
+ * their pre-classified `ProcessorKind`.
  *
  * A class resolves to the instance registered for it, else the container's
  * entry for the class name, else a new instance built without arguments.
+ * Registered and argument-less instances live as long as the owning
+ * `RequestHandler`; a container entry is fetched on every use, so the
+ * container decides whether it is shared, built per call or request-scoped.
  *
  * @internal
  */
@@ -26,6 +28,9 @@ final class ProcessorRegistry
 {
     /** @var array<class-string, ProcessorInterface|CasterInterface|GeneratorInterface|object> */
     private array $instances = [];
+
+    /** @var array<class-string, bool> Whether the container holds a class — asked once. */
+    private array $inContainer = [];
 
     public function __construct(
         private readonly ?ContainerInterface $container = null,
@@ -115,24 +120,20 @@ final class ProcessorRegistry
     private function getOrCreate(string $className): object
     {
         /** @var class-string $className */
-        return $this->instances[$className] ??= $this->resolve($className);
-    }
-
-    /**
-     * @param class-string $className
-     */
-    private function resolve(string $className): object
-    {
-        if ($this->container === null || !$this->container->has($className)) {
-            return $this->instantiate($className);
+        if (isset($this->instances[$className])) {
+            return $this->instances[$className];
         }
 
-        $entry = $this->container->get($className);
-        if (!$entry instanceof $className) {
-            throw ConfigurationException::containerEntryMismatch($className, get_debug_type($entry));
+        if ($this->container !== null && ($this->inContainer[$className] ??= $this->container->has($className))) {
+            $entry = $this->container->get($className);
+            if (!$entry instanceof $className) {
+                throw ConfigurationException::containerEntryMismatch($className, get_debug_type($entry));
+            }
+
+            return $entry;
         }
 
-        return $entry;
+        return $this->instances[$className] = $this->instantiate($className);
     }
 
     /**
