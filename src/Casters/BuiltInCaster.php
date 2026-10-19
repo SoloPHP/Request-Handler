@@ -25,6 +25,12 @@ final class BuiltInCaster
      */
     public const array CAST_TYPES = ['int', 'float', 'bool', 'string', 'array', 'json'];
 
+    /**
+     * Parser warnings for an impossible date or time it rolled over into a
+     * real one (2024-02-31 → 2024-03-02, 23:61 → 00:01).
+     */
+    private const array ROLLOVER_WARNINGS = ['The parsed date was invalid', 'The parsed time was invalid'];
+
     private const array TRUE_STRINGS = ['true' => true, '1' => true, 'yes' => true, 'on' => true];
     private const array FALSE_STRINGS = ['false' => true, '0' => true, 'no' => true, 'off' => true];
 
@@ -78,7 +84,8 @@ final class BuiltInCaster
      * Without a format, a string of digits is a date when it spells one
      * (`20240115`) and a Unix timestamp when the parser rejects it
      * (`1700000000`); digits the parser takes for a time of day (`2024` →
-     * 20:24 today) are not a date.
+     * 20:24 today) are not a date. Neither is an impossible date or time
+     * (`2024-02-31`, `23:61`), which PHP would roll over.
      *
      * A format without time-of-day fields yields midnight: `createFromFormat()`
      * would otherwise copy the current time into the unparsed fields.
@@ -106,7 +113,7 @@ final class BuiltInCaster
 
         if ($format !== null) {
             $parsed = $class::createFromFormat($format, $value);
-            if ($parsed === false) {
+            if ($parsed === false || self::rolledOver($class)) {
                 return null;
             }
 
@@ -123,6 +130,10 @@ final class BuiltInCaster
             // The DateTime parser rejects a bare Unix timestamp ('1700000000'),
             // which is how query strings and form fields deliver one.
             return $digits ? (new $class())->setTimestamp((int) $value) : null;
+        }
+
+        if (self::rolledOver($class)) {
+            return null;
         }
 
         return $digits && date_parse($value)['year'] === false ? null : $date;
@@ -233,6 +244,20 @@ final class BuiltInCaster
             return $value !== '' ? [$value] : [];
         }
         return (array) $value;
+    }
+
+    /**
+     * Whether the last parse rolled an impossible date or time over into a
+     * real one — a warning to PHP's parser, not an error. Other warnings, such
+     * as the trailing data a `+` format allows, are fine.
+     *
+     * @param class-string<DateTime|DateTimeImmutable> $class
+     */
+    private static function rolledOver(string $class): bool
+    {
+        $errors = $class::getLastErrors();
+
+        return $errors !== false && array_intersect($errors['warnings'], self::ROLLOVER_WARNINGS) !== [];
     }
 
     /**

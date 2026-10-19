@@ -159,6 +159,8 @@ public ?DateTimeInterface $seenAt = null;  // a DateTimeImmutable
 
 A string of digits is a date when it spells one (`"20240115"`) and a Unix timestamp when PHP's parser cannot read it (`"1705276800"`). Digits the parser would take for a time of day — `"2024"` is 20:24 today — are a `date` error.
 
+An impossible date or time — `2024-02-31`, `23:61` — is a `date` error (`date_format` with `#[DateFormat]`), not the 2 March or the next hour PHP's parser would roll it over into.
+
 ### Fixed format — `#[DateFormat]`
 
 ```php
