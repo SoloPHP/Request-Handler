@@ -436,6 +436,23 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(' z ', $dto->c, 'a filled value is not trimmed');
     }
 
+    public function testImpossibleDateIsAnErrorNotTheNextMonth(): void
+    {
+        try {
+            $this->handler->handleArray(TypeDrivenDateTimeRequest::class, ['immutable' => '2024-02-31']);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['immutable' => [['rule' => 'date']]], $e->getErrors());
+        }
+
+        try {
+            $this->handler->handleArray(DateTimeFormatsRequest::class, ['day' => '2024-02-31']);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['day' => [['rule' => 'date_format', 'params' => ['Y-m-d']]]], $e->getErrors());
+        }
+    }
+
     public function testYearTypedIntoADateFieldIsADateError(): void
     {
         try {

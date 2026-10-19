@@ -170,6 +170,21 @@ final class BuiltInCasterTest extends TestCase
         $this->assertNotNull($this->caster->castDate(DateTimeImmutable::class, null, 'tomorrow'));
     }
 
+    public function testImpossibleDatesAreNotRolledOver(): void
+    {
+        // PHP's parser turns these into 2024-03-02, 2023-03-01, … with a warning.
+        foreach (['2024-02-31', '2023-02-29', '20240231', '2024-01-15 24:00:00'] as $input) {
+            $this->assertNull($this->caster->castDate(DateTimeImmutable::class, null, $input), $input);
+        }
+        $this->assertNull($this->caster->castDate(DateTimeImmutable::class, 'Y-m-d', '2024-02-31'));
+        $this->assertNull($this->caster->castDate(DateTime::class, 'Y-m-d H:i', '2024-01-15 23:61'));
+
+        $this->assertNotNull($this->caster->castDate(DateTimeImmutable::class, null, '2024-02-29'));
+        $this->assertNotNull($this->caster->castDate(DateTimeImmutable::class, 'd.m.Y', '29.02.2024'));
+        // A `+` format allows trailing data — a warning, but no rolled-over date.
+        $this->assertNotNull($this->caster->castDate(DateTimeImmutable::class, 'Y-m-d+', '2024-01-15 extra'));
+    }
+
     public function testCastDateFormatContainingColons(): void
     {
         $casted = $this->caster->castDate(DateTimeImmutable::class, 'Y-m-d H:i:s', '2024-01-15 10:30:45');
