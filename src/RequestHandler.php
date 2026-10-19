@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Solo\RequestHandler;
 
 use Psr\Http\Message\ServerRequestInterface;
+use ReflectionProperty;
 use Solo\Contracts\Validator\ValidatorInterface;
 use Solo\RequestHandler\Cache\ProcessorKind;
 use Solo\RequestHandler\Cache\PropertyMetadata;
@@ -44,6 +45,8 @@ final class RequestHandler
     private readonly ReflectionCache $cache;
     private readonly BuiltInCaster $builtInCaster;
     private readonly ProcessorRegistry $processors;
+    /** `Request::$provided`, written when a DTO is populated. */
+    private readonly ReflectionProperty $provided;
 
     public function __construct(
         private readonly ValidatorInterface $validator,
@@ -52,6 +55,7 @@ final class RequestHandler
         $this->cache = ReflectionCache::shared();
         $this->builtInCaster = new BuiltInCaster();
         $this->processors = new ProcessorRegistry();
+        $this->provided = new ReflectionProperty(Request::class, 'provided');
     }
 
     /**
@@ -754,6 +758,13 @@ final class RequestHandler
 
             $property->reflection->setValue($instance, $value);
         }
+
+        // Every property with a value here was supplied by the request (or
+        // generated) — absent keys never reach $data. Declaration order.
+        $this->provided->setValue(
+            $instance,
+            array_fill_keys(array_keys(array_intersect_key($metadata->properties, $data)), true)
+        );
 
         return $instance;
     }
