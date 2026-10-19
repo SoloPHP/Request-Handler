@@ -13,7 +13,7 @@ Type-safe Request DTOs for PHP 8.3+ with focused per-property attributes, declar
 - **Convention over configuration** — every public non-static property is managed; attributes only add behaviour
 - **Automatic type casting** — driven by the property's declared type: int, float, bool, string, array, `DateTime` / `DateTimeImmutable`, backed enums + custom casters. Arrays sent for int/float/bool fields, unparseable dates and unknown enum values are validation errors rather than `1`, `null` or an uninitialised property
 - **Validation rules** — passed verbatim to your `ValidatorInterface`; every field present in the request — route and context values included, with or without rules of their own — lands in the validation payload, so cross-field rules (`exists:…,scope_col,{field}`) work without special syntax
-- **All errors at once** — validator errors, cast failures and nested-item errors come back in one `ValidationException`; generators and post-processors run only for valid input
+- **All errors at once** — validator errors, cast failures and nested errors come back in one `ValidationException`, keyed by the input the client sent (`display_name`, `customer.id`, `lines.0.qty`); generators and post-processors run only for valid input
 - **Generators** — auto-generate UUIDs, sequences, custom values via `#[Generator]`
 - **Pre/post processing** — `#[PreProcess]` / `#[PostProcess]` for transformation
 - **Nested DTOs** — a property typed with a Request subclass is a nested object, `#[Items]` makes a list of them; errors come back as `address.city`, `lines.0.qty`

@@ -1198,9 +1198,10 @@ final class RequestHandlerTest extends TestCase
             $this->handler->handleArray(FromBodyCustomerRequest::class, ['customer' => ['id' => ['nested' => 1]]]);
             $this->fail('Expected ValidationException');
         } catch (ValidationException $e) {
+            // Errors are keyed by the input path the client used, not the property name.
             $this->assertSame([
-                'name'       => [['rule' => 'required']],
-                'customerId' => [['rule' => 'scalar']],
+                'name'        => [['rule' => 'required']],
+                'customer.id' => [['rule' => 'scalar']],
             ], $e->getErrors());
         }
     }
@@ -1394,6 +1395,52 @@ final class RequestHandlerTest extends TestCase
                 'status'   => [['rule' => 'in', 'params' => ['draft', 'published']]],
                 'priority' => [['rule' => 'in', 'params' => ['1', '2']]],
             ], $e->getErrors());
+        }
+    }
+
+    // ===== error keys follow the input =====
+
+    public function testErrorKeysAreTheInputKeysTheClientUsed(): void
+    {
+        $this->requireWhenMissing();
+
+        try {
+            $this->handler->handleArray(InputKeyedRequest::class, [
+                'order' => ['lines' => [['product' => 'Widget']]],
+            ], context: []);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame([
+                'display_name'           => [['rule' => 'required']],
+                'product_id'             => [['rule' => 'required']],
+                'authUserId'             => [['rule' => 'required']],
+                'order.lines.0.quantity' => [['rule' => 'required']],
+            ], $e->getErrors());
+        }
+    }
+
+    public function testHandlerErrorKeyedByPropertyNameIsMovedToTheInputKey(): void
+    {
+        try {
+            $this->handler->handleArray(RenamedRejectingRequest::class, ['first_name' => 'x']);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['first_name' => [['rule' => 'rejected']]], $e->getErrors());
+        }
+    }
+
+    public function testPropertiesSharingAnInputKeyMergeTheirErrors(): void
+    {
+        $this->validator->method('validate')->willReturn([
+            'id'        => [['rule' => 'integer']],
+            'productId' => [['rule' => 'exists']],
+        ]);
+
+        try {
+            $this->handler->handleArray(SharedRouteKeyRequest::class, [], route: ['id' => 'x']);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['id' => [['rule' => 'integer'], ['rule' => 'exists']]], $e->getErrors());
         }
     }
 
@@ -1600,7 +1647,7 @@ final class RequestHandlerTest extends TestCase
             $this->handler->handleArray(FromBodyOrderRequest::class, ['customer' => ['id' => ['nested' => 1]]]);
             $this->fail('Expected ValidationException');
         } catch (ValidationException $e) {
-            $this->assertSame(['customerId' => [['rule' => 'integer']]], $e->getErrors());
+            $this->assertSame(['customer.id' => [['rule' => 'integer']]], $e->getErrors());
         }
     }
 
@@ -2570,4 +2617,42 @@ final class ParentWithGeneratedAddressRequest extends Request
     public string $title;
 
     public GeneratedAddressRequest $address;
+}
+
+final class InputKeyedRequest extends Request
+{
+    #[FromBody('display_name')]
+    #[Validate('required|string')]
+    public string $name;
+
+    #[FromRoute('product_id')]
+    #[Validate('required|integer')]
+    public int $productId;
+
+    #[FromContext('authUserId')]
+    #[Validate('required|integer')]
+    public int $createdBy;
+
+    /** @var OrderItemRequest[] */
+    #[FromBody('order.lines')]
+    #[Items(OrderItemRequest::class)]
+    public array $lines = [];
+}
+
+final class RenamedRejectingRequest extends Request
+{
+    #[FromBody('first_name')]
+    #[PostProcess(RejectingProcessor::class, config: ['field' => 'firstName'])]
+    public string $firstName;
+}
+
+final class SharedRouteKeyRequest extends Request
+{
+    #[FromRoute]
+    #[Validate('required|integer')]
+    public int $id;
+
+    #[FromRoute('id')]
+    #[Validate('required|exists:products,id')]
+    public int $productId;
 }
