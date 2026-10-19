@@ -94,7 +94,7 @@ Strings follow `FILTER_VALIDATE_INT`: digits with an optional sign — no fracti
 |-------|--------|
 | `12.34`, `"12.34"`, `"1e3"` | `12.34`, `12.34`, `1000.0` |
 | `5` | `5.0` |
-| `"9,99"`, `"abc"`, `true`, an array | `numeric` error |
+| `"9,99"`, `"abc"`, `true`, an array, `"1e400"` (overflows to `INF`) | `numeric` error |
 
 ### Boolean
 

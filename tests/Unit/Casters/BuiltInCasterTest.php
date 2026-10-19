@@ -49,7 +49,8 @@ final class BuiltInCasterTest extends TestCase
         $this->assertSame(1000.0, $this->caster->cast('float', '1e3'));
         $this->assertSame(5.0, $this->caster->cast('float', 5));
 
-        foreach (['abc', '1,5', [1.5], 'NaN', true, false] as $input) {
+        // Overflow to INF / NAN is no number either.
+        foreach (['abc', '1,5', [1.5], 'NaN', true, false, '1e400', '-1e400', INF, -INF, NAN] as $input) {
             $this->assertNull($this->caster->cast('float', $input), var_export($input, true));
         }
     }
@@ -79,8 +80,8 @@ final class BuiltInCasterTest extends TestCase
             }
         }));
 
-        foreach ([['a' => 1], true, new \stdClass()] as $input) {
-            $this->assertNull($this->caster->cast('string', $input), get_debug_type($input));
+        foreach ([['a' => 1], true, new \stdClass(), INF, NAN] as $input) {
+            $this->assertNull($this->caster->cast('string', $input), var_export($input, true));
         }
     }
 

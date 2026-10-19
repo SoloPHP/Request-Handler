@@ -182,11 +182,14 @@ final class BuiltInCaster
 
     private function toFloat(mixed $value): ?float
     {
-        return match (true) {
+        $float = match (true) {
             is_float($value), is_int($value) => (float) $value,
             is_string($value) && is_numeric($value) => (float) $value,
             default => null,
         };
+
+        // "1e400" overflows to INF — no number a float property can hold.
+        return $float !== null && is_finite($float) ? $float : null;
     }
 
     private function toBool(mixed $value): ?bool
@@ -214,7 +217,8 @@ final class BuiltInCaster
     {
         return match (true) {
             is_string($value) => $value,
-            is_int($value), is_float($value), $value instanceof \Stringable => (string) $value,
+            is_float($value) => is_finite($value) ? (string) $value : null,
+            is_int($value), $value instanceof \Stringable => (string) $value,
             default => null,
         };
     }
