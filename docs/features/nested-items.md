@@ -1,6 +1,47 @@
-# Nested Items
+# Nested Objects and Items
 
-The `#[Items]` attribute lets you validate and process arrays of nested objects through a referenced Request class.
+A property typed with a `Request` subclass is a **nested object**; `#[Items]` makes an array property a **list** of them. Either way the child DTO runs its full pipeline — read, pre-process, validate, cast, post-process, generate — and its errors come back under the path the client used.
+
+## Nested Objects
+
+No attribute is needed — the type says it:
+
+```php
+final class AddressRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $city;
+
+    #[Validate('required|string')]
+    public string $zip;
+}
+
+final class ShipmentRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $carrier;
+
+    public AddressRequest $address;            // required by type: absent → uninitialised, null → 'required'
+
+    public ?AddressRequest $billing = null;     // optional
+}
+```
+
+```php
+$dto = $handler->handleBody(ShipmentRequest::class, $request);
+// {"carrier": "ups", "address": {"city": "Kyiv", "zip": "01001"}}
+
+$dto->address->city;   // 'Kyiv'
+$dto->toArray();       // ['carrier' => 'ups', 'address' => ['city' => 'Kyiv', 'zip' => '01001'], 'billing' => null]
+```
+
+Errors use the property path: `address.zip` for a field of the nested object, `address` itself (`['rule' => 'array']`) when the value is not an object. A `#[PostProcess]` on the property runs first, so it can turn a JSON string into the object to read. Nested objects can contain `#[Items]` lists and further nested objects (`from.stock.0.quantity`).
+
+The nested class must be concrete; it is validated together with its parent when metadata is built.
+
+## Item Lists
+
+`#[Items]` validates and processes arrays of nested objects through a referenced Request class.
 
 ## Basic Usage
 

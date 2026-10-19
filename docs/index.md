@@ -36,8 +36,8 @@ features:
     title: Pre/post processing
     details: Transform values before validation or after it via #[PreProcess] / #[PostProcess].
   - icon: 🪆
-    title: Nested items
-    details: Validate arrays of nested DTOs via #[Items] with dot-notation error paths.
+    title: Nested DTOs
+    details: A property typed with a Request subclass is a nested object; #[Items] makes a list of them. Errors keyed address.city, lines.0.qty.
   - icon: 🛡️
     title: Fail-fast
     details: Misconfigurations throw ConfigurationException at metadata-build time, nested item classes included.

@@ -339,9 +339,26 @@ public string $value;
 public string $value;
 ```
 
+#### unproducibleType
+
+A class-typed property must be producible from request input: a Request subclass (nested DTO), a `BackedEnum`, a DateTime class — or carry `#[Caster]`, a pre/post-processor or `#[Generator]`, or read `#[FromContext]`.
+
+```php
+// ❌ A string from the request can never become a Money
+public Money $price;
+
+// ✅
+#[Caster(MoneyCaster::class)]
+public Money $price;
+
+// ✅ The application supplies the object
+#[FromContext('currentUser')]
+public User $user;
+```
+
 #### abstractClass
 
-`#[Items]` and `#[Generator]` need a concrete instantiable class.
+`#[Items]`, nested-DTO and `#[Generator]` classes need a concrete instantiable class.
 
 ```php
 // ❌

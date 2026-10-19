@@ -16,7 +16,7 @@ Type-safe Request DTOs for PHP 8.3+ with focused per-property attributes, declar
 - **All errors at once** — validator errors, cast failures and nested-item errors come back in one `ValidationException`; generators and post-processors run only for valid input
 - **Generators** — auto-generate UUIDs, sequences, custom values via `#[Generator]`
 - **Pre/post processing** — `#[PreProcess]` / `#[PostProcess]` for transformation
-- **Nested items** — `#[Items]` validates arrays of nested Request DTOs with dot-notation error paths
+- **Nested DTOs** — a property typed with a Request subclass is a nested object, `#[Items]` makes a list of them; errors come back as `address.city`, `lines.0.qty`
 - **Fail-fast** — misconfigurations throw `ConfigurationException` at metadata-build time (nested item classes included), not on the first request that happens to exercise them
 - **Schema export** — `schema()` emits JSON-serializable per-field metadata (type, nullability, requiredness incl. conditional `required_if`, normalized rules) so the frontend can treat the backend as the single source of truth
 
@@ -148,7 +148,7 @@ Every managed property is emitted (excluded/`#[FromRoute]`/`#[FromContext]` fiel
 - [Type Casting](https://solophp.github.io/Request-Handler/features/type-casting)
 - [Processors](https://solophp.github.io/Request-Handler/features/processors)
 - [Generators](https://solophp.github.io/Request-Handler/features/generators)
-- [Nested Items](https://solophp.github.io/Request-Handler/features/nested-items)
+- [Nested Objects & Items](https://solophp.github.io/Request-Handler/features/nested-items)
 - [Validation](https://solophp.github.io/Request-Handler/features/validation)
 - [API Reference](https://solophp.github.io/Request-Handler/api/request-class)
 

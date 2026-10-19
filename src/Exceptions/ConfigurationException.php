@@ -242,6 +242,26 @@ final class ConfigurationException extends Exception
     }
 
     /**
+     * A class-typed property that nothing can produce from request input.
+     *
+     * Example: public Money $price; — no #[Caster], processor or #[FromContext].
+     */
+    public static function unproducibleType(
+        string $className,
+        string $propertyName,
+        string $type
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has type '%s', which cannot be produced from request input. " .
+            "Add #[Caster(...)], a pre/post-processor or a #[Generator], read it #[FromContext(...)], " .
+            "or type it as a Request subclass, a BackedEnum or a DateTime class.",
+            $className,
+            $propertyName,
+            $type
+        ));
+    }
+
+    /**
      * #[DateFormat] on a property whose type cannot hold a date.
      */
     public static function dateFormatRequiresDateType(
@@ -318,7 +338,7 @@ final class ConfigurationException extends Exception
     }
 
     /**
-     * #[Items] / #[Generator] class is abstract and cannot be instantiated.
+     * #[Items] / nested-DTO / #[Generator] class is abstract and cannot be instantiated.
      */
     public static function abstractClass(
         string $className,

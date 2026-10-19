@@ -40,6 +40,9 @@ use Solo\RequestHandler\Request;
  * `dateClass` is set for a date property: the class built from the input,
  * read in `dateFormat` when `#[DateFormat]` gives one.
  *
+ * `nested` is set for a property typed with a Request subclass: the value is
+ * processed as a nested DTO, like one `#[Items]` element.
+ *
  * `rejectsArrayInput` and `castFailure` are the built-in cast's policy,
  * decided once: whether an array input is a `scalar` error, and the error to
  * report when non-empty input casts to null (`in`, `date`, `date_format`).
@@ -56,6 +59,7 @@ final readonly class PropertyMetadata
      * @param class-string<BackedEnum>|null   $enumClass
      * @param array{rule: string, params?: list<string>}|null $castFailure
      * @param class-string<DateTime|DateTimeImmutable>|null    $dateClass
+     * @param class-string<Request>|null                       $nested
      */
     public function __construct(
         public string $name,
@@ -90,6 +94,7 @@ final readonly class PropertyMetadata
         public ?string $groupMapTo = null,
         public ?string $dateClass = null,
         public ?string $dateFormat = null,
+        public ?string $nested = null,
     ) {
     }
 }
