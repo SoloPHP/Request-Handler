@@ -377,7 +377,11 @@ final class RequestHandler
                 }
             }
             if ($childErrors[$name] === [] && isset($children[$name])) {
-                $children[$name] = $this->transformChildren($children[$name], $name, $childErrors[$name]);
+                $children[$name] = $this->transformChildren(
+                    $children[$name],
+                    $property->sourceKey,
+                    $childErrors[$name]
+                );
             }
         }
 
@@ -431,14 +435,16 @@ final class RequestHandler
         $errors = [];
 
         foreach ($resolved->children as $name => $children) {
+            $path = $metadata->properties[$name]->sourceKey;
+
             if ($children instanceof ResolvedRequest) {
-                $values[$name] = $this->hydrateChild($children, $name, $errors);
+                $values[$name] = $this->hydrateChild($children, $path, $errors);
                 continue;
             }
 
             $hydrated = [];
             foreach ($children as $index => $child) {
-                $item = $this->hydrateChild($child, "{$name}.{$index}", $errors);
+                $item = $this->hydrateChild($child, "{$path}.{$index}", $errors);
                 if ($item !== null) {
                     $hydrated[] = $item;
                 }
@@ -480,12 +486,14 @@ final class RequestHandler
         array $context,
         array &$errors,
     ): ResolvedRequest|array|null {
+        $path = $property->sourceKey;
+
         if ($property->nested !== null) {
-            return $this->resolveChild($property->nested, $value, $property->name, $context, $errors);
+            return $this->resolveChild($property->nested, $value, $path, $context, $errors);
         }
 
         if (!is_array($value)) {
-            $errors[$property->name] = [['rule' => 'array']];
+            $errors[$path] = [['rule' => 'array']];
             return [];
         }
 
@@ -493,7 +501,7 @@ final class RequestHandler
         $itemsClass = $property->items;
         $items = [];
         foreach ($value as $index => $itemData) {
-            $item = $this->resolveChild($itemsClass, $itemData, "{$property->name}.{$index}", $context, $errors);
+            $item = $this->resolveChild($itemsClass, $itemData, "{$path}.{$index}", $context, $errors);
             if ($item !== null) {
                 $items[$index] = $item;
             }
@@ -697,31 +705,39 @@ final class RequestHandler
     }
 
     /**
-     * Errors in property declaration order, each nested-DTO or items property
-     * followed by its children's errors — the order a form presents fields in.
+     * Errors keyed by where the client put each value — the input key
+     * (`display_name`, `customer.id`, a route parameter) rather than the PHP
+     * property name the validator and handlers use — in property declaration
+     * order, each nested-DTO or items property followed by its children's
+     * errors: the order a form presents its fields in.
      *
-     * @param ValidationErrors                $errors
-     * @param array<string, ValidationErrors> $childErrors
+     * @param ValidationErrors                $errors      Keyed by property name (or anything else).
+     * @param array<string, ValidationErrors> $childErrors Already keyed by input path.
      * @return ValidationErrors
      */
     private function orderErrors(RequestMetadata $metadata, array $errors, array $childErrors): array
     {
         // Hot path: runs twice per request, almost always without errors.
         $childErrors = array_filter($childErrors);
-        if ($childErrors === [] && count($errors) < 2) {
-            return $errors;
+        if ($errors === [] && $childErrors === []) {
+            return [];
         }
 
         $ordered = [];
-        foreach ($metadata->properties as $name => $_) {
+        foreach ($metadata->properties as $name => $property) {
             if (isset($errors[$name])) {
-                $ordered[$name] = $errors[$name];
+                $ordered[$property->sourceKey] = array_merge($ordered[$property->sourceKey] ?? [], $errors[$name]);
+                unset($errors[$name]);
             }
             $ordered += $childErrors[$name] ?? [];
         }
 
         // Keys reported for something other than a property.
-        return $ordered + $errors;
+        foreach ($errors as $key => $messages) {
+            $ordered[$key] = array_merge($ordered[$key] ?? [], $messages);
+        }
+
+        return $ordered;
     }
 
     /**

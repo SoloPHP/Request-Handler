@@ -139,7 +139,22 @@ If your validator (or custom rule) needs a different convention, that's a valida
 
 ## Handling Validation Errors
 
-All errors of a request come back in one `ValidationException`: the validator's errors, cast failures (see [Type Casting](/features/type-casting#cast-failures-are-validation-errors)) and the errors of every nested item, in declaration order. Catch it to handle them:
+All errors of a request come back in one `ValidationException`: the validator's errors, cast failures (see [Type Casting](/features/type-casting#cast-failures-are-validation-errors)) and the errors of every nested object and item, in declaration order. Catch it to handle them.
+
+### Error keys follow the input
+
+Errors are keyed by where the client put the value, so a form can map them to its fields without knowing the PHP property names:
+
+| Property | Error key |
+|----------|-----------|
+| `public string $name` | `name` |
+| `#[FromBody('display_name')] public string $name` | `display_name` |
+| `#[FromBody('customer.id')] public int $customerId` | `customer.id` |
+| `#[FromRoute('product_id')] public int $productId` | `product_id` |
+| `#[FromContext('authUserId')] public int $createdBy` | `authUserId` |
+| a field of `#[FromBody('order.lines')] #[Items(...)]` | `order.lines.0.quantity` |
+
+Rule strings still reference **property names** (`same:password`, `required_if:company_type,company`, `{id}`): the validator works on the DTO. A `ValidationException` thrown by a handler keyed by a property name is moved to that property's input key too.
 
 ```php
 use Solo\RequestHandler\Exceptions\ValidationException;

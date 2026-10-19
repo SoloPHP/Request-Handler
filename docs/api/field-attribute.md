@@ -44,7 +44,7 @@ final class FromBody
 }
 ```
 
-Reads from the body bag via a dot-path (`'customer.id'`, `'address.city'`). A single-segment path acts as a flat key remap (`#[FromBody('display_name')]` on `public string $name`).
+Reads from the body bag via a dot-path (`'customer.id'`, `'address.city'`). A single-segment path acts as a flat key remap (`#[FromBody('display_name')]` on `public string $name`). Validation errors for the property are reported under the path (`customer.id`, `display_name`).
 
 Malformed paths (leading/trailing dot, empty segment like `'a..b'`) throw `InvalidArgumentException`. Resolving the dot-path to an array while the property is a scalar (string included) yields a `ValidationException` with `['field' => [['rule' => 'scalar']]]` — unless a pre/post-processor or custom caster converts the array; when the field has rules, the validator's error (e.g. `integer`) is reported instead.
 
