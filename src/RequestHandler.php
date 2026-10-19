@@ -37,6 +37,7 @@ use Solo\RequestHandler\Schema\SchemaBuilder;
  * ```
  *
  * @phpstan-import-type ValidationErrors from ValidationException
+ * @phpstan-import-type FieldSchema from SchemaBuilder
  */
 final class RequestHandler
 {
@@ -133,28 +134,22 @@ final class RequestHandler
     }
 
     /**
-     * Build a JSON-serializable validation schema for a request class.
+     * Build the JSON-serializable input contract of a request class.
      *
-     * Exposes normalized per-field validation metadata (type, nullability,
-     * requiredness — including conditional `required_if` — and the full
-     * normalized rule list) so a frontend can treat the backend as the single
-     * source of truth. Read-only: it does not process any HTTP input.
+     * One entry per field the client sends, keyed by its input key (the key
+     * validation errors use): type, nullability, requiredness — including
+     * conditional `required_if` — the normalized rule list, the default, and
+     * where relevant the date format, enum cases and nested schemas, so a
+     * frontend can treat the backend as the single source of truth. Generated
+     * and `#[FromContext]` properties are not part of it. Read-only: it does
+     * not process any HTTP input.
      *
      * @param  class-string $className
-     * @return array<string, array{
-     *     type: ?string,
-     *     nullable: bool,
-     *     required: bool,
-     *     requiredIf: array{field: string, value: string}|null,
-     *     hasDefault: bool,
-     *     exclude: bool,
-     *     source: ?string,
-     *     rules: list<array{name: string, args: list<string>}>
-     * }>
+     * @return array<string, FieldSchema>
      */
     public function schema(string $className): array
     {
-        return (new SchemaBuilder())->build($this->cache->get($className));
+        return (new SchemaBuilder($this->cache))->build($this->cache->get($className));
     }
 
     /**

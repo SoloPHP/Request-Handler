@@ -4,22 +4,27 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Schema;
 
+use BackedEnum;
 use Solo\RequestHandler\Cache\PropertyMetadata;
+use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Cache\RequestMetadata;
+use Solo\RequestHandler\FieldSource;
 use Solo\RequestHandler\RuleParser;
+use UnitEnum;
 
 /**
- * Builds a strictly JSON-serializable validation schema from cached request
- * metadata.
+ * Builds the JSON-serializable input contract of a request class.
  *
- * The output lets a frontend treat the backend as the single source of truth
- * for field requiredness — including CONDITIONAL requiredness (`required_if`),
- * which the boolean `PropertyMetadata::$isRequired` (literal `required` only)
- * does not capture.
+ * Fields are keyed by their input key — the key the client sends and the
+ * key `ValidationException` reports errors under — and describe only what
+ * the client sends: generated properties and `#[FromContext]` values are left
+ * out. Nested DTOs (`fields`) and `#[Items]` classes (`items`) are described
+ * inline; a class that recurs on its own nesting path is referenced as
+ * `['$ref' => ClassName]` instead.
  *
  * Every value emitted is composed solely of scalars and arrays: no
- * `ReflectionProperty`, enums, objects, or closures leak through, so the result
- * round-trips losslessly through `json_encode`/`json_decode`.
+ * `ReflectionProperty`, enums, objects, or closures leak through, so the
+ * result round-trips losslessly through `json_encode`/`json_decode`.
  *
  * Validation rules are parsed by the shared `RuleParser`, the single source of
  * truth for rule-string split semantics (also used by `ReflectionCache`).
@@ -27,71 +32,124 @@ use Solo\RequestHandler\RuleParser;
  * @phpstan-type NormalizedRule array{name: string, args: list<string>}
  * @phpstan-type RequiredIf array{field: string, value: string}
  * @phpstan-type FieldSchema array{
+ *     property: string,
+ *     source: ?string,
  *     type: ?string,
  *     nullable: bool,
  *     required: bool,
  *     requiredIf: RequiredIf|null,
  *     hasDefault: bool,
- *     exclude: bool,
- *     source: ?string,
- *     rules: list<NormalizedRule>
+ *     default: mixed,
+ *     rules: list<NormalizedRule>,
+ *     format?: string,
+ *     cases?: list<int|string>,
+ *     fields?: array<string, mixed>,
+ *     items?: array<string, mixed>,
  * }
  *
  * @internal Use `RequestHandler::schema()`.
  */
 final readonly class SchemaBuilder
 {
+    public function __construct(
+        private ReflectionCache $cache,
+    ) {
+    }
+
     /**
-     * Map every managed property to its JSON-serializable field schema.
-     *
-     * ALL managed properties are emitted — properties are NOT filtered by
-     * `exclude` or `source` (those describe the output of `Request::toArray()`,
-     * not the input contract). The consumer filters using the emitted
-     * `exclude`/`source` keys.
-     *
      * @return array<string, FieldSchema>
      */
     public function build(RequestMetadata $metadata): array
     {
-        $schema = [];
+        return $this->describe($metadata, [$metadata->className => true]);
+    }
 
+    /**
+     * @param array<string, true> $path Classes on the current nesting path.
+     * @return array<string, FieldSchema>
+     */
+    private function describe(RequestMetadata $metadata, array $path): array
+    {
+        $inputKeys = [];
         foreach ($metadata->properties as $name => $property) {
-            $schema[$name] = $this->buildField($property);
+            $inputKeys[$name] = $property->sourceKey;
+        }
+
+        $schema = [];
+        foreach ($metadata->properties as $property) {
+            if ($property->generator !== null || $property->source === FieldSource::Context) {
+                continue;
+            }
+            $schema[$property->sourceKey] = $this->describeField($property, $inputKeys, $path);
         }
 
         return $schema;
     }
 
     /**
+     * @param array<string, string> $inputKeys Property name → input key.
+     * @param array<string, true>   $path
      * @return FieldSchema
      */
-    private function buildField(PropertyMetadata $property): array
+    private function describeField(PropertyMetadata $property, array $inputKeys, array $path): array
     {
         $rules = RuleParser::parse($property->validationRules);
 
-        return [
+        $field = [
+            'property'   => $property->name,
+            'source'     => $property->source?->value,
             'type'       => $property->type,
             'nullable'   => $property->isNullable,
             'required'   => $property->isRequired,
-            'requiredIf' => $this->extractRequiredIf($rules),
+            'requiredIf' => $this->extractRequiredIf($rules, $inputKeys),
             'hasDefault' => $property->hasDefault,
-            'exclude'    => $property->exclude,
-            'source'     => $property->source?->value,
+            'default'    => $this->export($property->defaultValue),
             'rules'      => $rules,
         ];
+
+        if ($property->dateFormat !== null) {
+            $field['format'] = $property->dateFormat;
+        }
+        if ($property->enumClass !== null) {
+            $field['cases'] = array_map(
+                static fn(BackedEnum $case): int|string => $case->value,
+                $property->enumClass::cases()
+            );
+        }
+        if ($property->nested !== null) {
+            $field['fields'] = $this->describeChild($property->nested, $path);
+        }
+        if ($property->items !== null) {
+            $field['items'] = $this->describeChild($property->items, $path);
+        }
+
+        return $field;
     }
 
     /**
-     * Extract the first `required_if` rule as `{field, value}`.
+     * @param class-string        $class
+     * @param array<string, true> $path
+     * @return array<string, mixed>
+     */
+    private function describeChild(string $class, array $path): array
+    {
+        if (isset($path[$class])) {
+            return ['$ref' => $class];
+        }
+
+        return $this->describe($this->cache->get($class), $path + [$class => true]);
+    }
+
+    /**
+     * Extract the first well-formed `required_if` as `{field, value}`, with
+     * `field` mapped to the referenced property's input key. Null when there
+     * is none — a `required_if` missing an argument is treated as absent.
      *
-     * Returns null when no `required_if` rule is present. A malformed
-     * `required_if` missing either argument is treated as absent — the
-     * convenience accessor only reports a well-formed conditional.
-     *
-     * @param  list<NormalizedRule> $rules
+     * @param list<NormalizedRule>  $rules
+     * @param array<string, string> $inputKeys
      * @return RequiredIf|null
      */
-    private function extractRequiredIf(array $rules): ?array
+    private function extractRequiredIf(array $rules, array $inputKeys): ?array
     {
         foreach ($rules as $rule) {
             if ($rule['name'] !== 'required_if') {
@@ -102,9 +160,22 @@ final readonly class SchemaBuilder
                 return null;
             }
 
-            return ['field' => $rule['args'][0], 'value' => $rule['args'][1]];
+            return ['field' => $inputKeys[$rule['args'][0]] ?? $rule['args'][0], 'value' => $rule['args'][1]];
         }
 
         return null;
+    }
+
+    /**
+     * A default value in JSON terms: enum cases become their value / name.
+     */
+    private function export(mixed $value): mixed
+    {
+        return match (true) {
+            $value instanceof BackedEnum => $value->value,
+            $value instanceof UnitEnum => $value->name,
+            is_array($value) => array_map($this->export(...), $value),
+            default => $value,
+        };
     }
 }

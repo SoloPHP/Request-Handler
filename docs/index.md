@@ -43,7 +43,7 @@ features:
     details: Misconfigurations throw ConfigurationException at metadata-build time, nested item classes included.
   - icon: 📐
     title: Schema export
-    details: schema() emits JSON-serializable per-field metadata (type, nullability, requiredness incl. required_if, normalized rules) — the backend as a single source of truth for the frontend.
+    details: schema() emits the JSON-serializable input contract keyed like the errors — types, requiredness incl. required_if, rules, defaults, date formats, enum cases, nested schemas.
 ---
 
 <style>
