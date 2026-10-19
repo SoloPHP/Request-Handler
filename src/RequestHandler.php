@@ -767,13 +767,17 @@ final class RequestHandler
             return [];
         }
 
+        // Lists sharing an input key — two properties reading it, or a flat
+        // #[FromBody('a.b')] next to a nested `a` — are merged, never dropped.
         $ordered = [];
         foreach ($metadata->properties as $name => $property) {
             if (isset($errors[$name])) {
                 $ordered[$property->sourceKey] = array_merge($ordered[$property->sourceKey] ?? [], $errors[$name]);
                 unset($errors[$name]);
             }
-            $ordered += $childErrors[$name] ?? [];
+            foreach ($childErrors[$name] ?? [] as $path => $messages) {
+                $ordered[$path] = array_merge($ordered[$path] ?? [], $messages);
+            }
         }
 
         // Keys reported for something other than a property.
