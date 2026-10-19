@@ -5,19 +5,17 @@ declare(strict_types=1);
 namespace Solo\RequestHandler\Tests\Unit\Schema;
 
 use PHPUnit\Framework\TestCase;
-use ReflectionClass;
-use ReflectionProperty;
 use Solo\Contracts\Validator\ValidatorInterface;
+use Solo\RequestHandler\Attributes\DateFormat;
 use Solo\RequestHandler\Attributes\Exclude;
+use Solo\RequestHandler\Attributes\Generator;
 use Solo\RequestHandler\Attributes\Items;
 use Solo\RequestHandler\Attributes\Source\FromBody;
 use Solo\RequestHandler\Attributes\Source\FromContext;
 use Solo\RequestHandler\Attributes\Source\FromRoute;
 use Solo\RequestHandler\Attributes\Validate;
-use Solo\RequestHandler\Cache\PropertyMetadata;
 use Solo\RequestHandler\Cache\ReflectionCache;
-use Solo\RequestHandler\Cache\RequestMetadata;
-use Solo\RequestHandler\FieldSource;
+use Solo\RequestHandler\Contracts\GeneratorInterface;
 use Solo\RequestHandler\Request;
 use Solo\RequestHandler\RequestHandler;
 use Solo\RequestHandler\Schema\SchemaBuilder;
@@ -32,216 +30,127 @@ final class SchemaBuilderTest extends TestCase
     }
 
     /**
-     * @param  class-string $className
-     * @return array<string, array{
-     *     type: ?string,
-     *     nullable: bool,
-     *     required: bool,
-     *     requiredIf: array{field: string, value: string}|null,
-     *     hasDefault: bool,
-     *     exclude: bool,
-     *     source: ?string,
-     *     rules: list<array{name: string, args: list<string>}>
-     * }>
+     * @param class-string $className
+     * @return array<string, array<string, mixed>>
      */
     private function build(string $className): array
     {
-        return (new SchemaBuilder())->build($this->cache->get($className));
+        return (new SchemaBuilder($this->cache))->build($this->cache->get($className));
     }
 
-    // ===== scalar field flags =====
+    // ===== shape =====
 
-    public function testRequiredFieldFlags(): void
+    public function testFieldsAreKeyedByInputKeyAndLeaveOutNonInputs(): void
     {
-        $schema = $this->build(SchemaFixtureRequest::class);
-        $field = $schema['name'];
-
-        $this->assertSame('string', $field['type']);
-        $this->assertFalse($field['nullable']);
-        $this->assertTrue($field['required']);
-        $this->assertNull($field['requiredIf']);
-        $this->assertFalse($field['hasDefault']);
-        $this->assertFalse($field['exclude']);
-        $this->assertNull($field['source']);
-    }
-
-    public function testNullableFieldFlags(): void
-    {
-        $field = $this->build(SchemaFixtureRequest::class)['nickname'];
-
-        $this->assertSame('string', $field['type']);
-        $this->assertTrue($field['nullable']);
-        $this->assertFalse($field['required']);
-        $this->assertNull($field['requiredIf']);
-    }
-
-    public function testDefaultValueFieldFlags(): void
-    {
-        $field = $this->build(SchemaFixtureRequest::class)['page'];
-
-        $this->assertSame('int', $field['type']);
-        $this->assertTrue($field['hasDefault']);
-        $this->assertFalse($field['required']);
-    }
-
-    public function testExcludedFieldIsEmittedWithExcludeFlag(): void
-    {
-        $schema = $this->build(SchemaFixtureRequest::class);
-
-        $this->assertArrayHasKey('internal', $schema, 'excluded fields must still be present in the schema');
-        $this->assertTrue($schema['internal']['exclude']);
-        $this->assertFalse($schema['name']['exclude']);
-    }
-
-    public function testFromRouteFieldExposesSource(): void
-    {
-        $field = $this->build(SchemaFixtureRequest::class)['id'];
-
-        $this->assertSame('route', $field['source']);
-        $this->assertSame('int', $field['type']);
-    }
-
-    public function testFromContextFieldExposesSource(): void
-    {
-        $field = $this->build(SchemaFixtureRequest::class)['contextId'];
-
-        $this->assertSame('context', $field['source']);
-        $this->assertSame('int', $field['type']);
-    }
-
-    public function testFromBodyFieldExposesSource(): void
-    {
-        $field = $this->build(SchemaFixtureRequest::class)['bodyField'];
-
-        $this->assertSame('body', $field['source']);
-        $this->assertSame('string', $field['type']);
-    }
-
-    public function testQuerySourceMapsToString(): void
-    {
-        // No source attribute yields FieldSource::Query — Query is the default
-        // bag for handleQuery() and is never stored on a property. Build the
-        // metadata directly to exercise the Query → 'query' mapping.
-        $metadata = new RequestMetadata(
-            className: SchemaFixtureRequest::class,
-            properties: ['q' => new PropertyMetadata(
-                name: 'q',
-                source: FieldSource::Query,
-                sourceKey: 'q',
-                type: 'string',
-                isNullable: false,
-                hasDefault: false,
-                defaultValue: null,
-                validationRules: null,
-                effectiveCastType: null,
-                customCasterClass: null,
-                preProcessor: null,
-                preProcessorKind: null,
-                postProcessor: null,
-                postProcessorKind: null,
-                postProcessConfig: [],
-                group: null,
-                isRequired: false,
-                validatesWhenAbsent: false,
-                reflection: new ReflectionProperty(SchemaFixtureRequest::class, 'name'),
-            )],
-            reflection: new ReflectionClass(SchemaFixtureRequest::class),
+        // Generated (`uuid`) and context (`contextId`) properties are not
+        // part of what the client sends.
+        $this->assertSame(
+            [
+                'product_id', 'name', 'nickname', 'company.type', 'companyName', 'status', 'page',
+                'internal', 'lines', 'noRules', 'day', 'state', 'address', 'conditionalBad',
+            ],
+            array_keys($this->build(SchemaFixtureRequest::class)),
         );
-
-        $schema = (new SchemaBuilder())->build($metadata);
-
-        $this->assertSame('query', $schema['q']['source']);
     }
 
-    // ===== requiredIf extraction =====
+    public function testFieldNamesItsPropertyAndSource(): void
+    {
+        $schema = $this->build(SchemaFixtureRequest::class);
 
-    public function testRequiredIfExtractsFieldAndValue(): void
+        $this->assertSame('id', $schema['product_id']['property']);
+        $this->assertSame('route', $schema['product_id']['source']);
+        $this->assertSame('companyType', $schema['company.type']['property']);
+        $this->assertSame('body', $schema['company.type']['source']);
+        $this->assertSame('name', $schema['name']['property']);
+        $this->assertNull($schema['name']['source']);
+    }
+
+    public function testRequiredNullableAndDefaultFlags(): void
+    {
+        $schema = $this->build(SchemaFixtureRequest::class);
+
+        $this->assertSame('string', $schema['name']['type']);
+        $this->assertFalse($schema['name']['nullable']);
+        $this->assertTrue($schema['name']['required']);
+        $this->assertFalse($schema['name']['hasDefault']);
+        $this->assertNull($schema['name']['default']);
+
+        $this->assertTrue($schema['nickname']['nullable']);
+        $this->assertFalse($schema['nickname']['required']);
+
+        $this->assertSame('int', $schema['page']['type']);
+        $this->assertTrue($schema['page']['hasDefault']);
+        $this->assertSame(1, $schema['page']['default']);
+    }
+
+    public function testEnumFieldListsCasesAndExportsItsDefault(): void
+    {
+        $field = $this->build(SchemaFixtureRequest::class)['state'];
+
+        $this->assertSame(['draft', 'live'], $field['cases']);
+        $this->assertSame('draft', $field['default']);
+    }
+
+    public function testDateFieldCarriesItsFormat(): void
+    {
+        $schema = $this->build(SchemaFixtureRequest::class);
+
+        $this->assertSame('Y-m-d', $schema['day']['format']);
+        $this->assertArrayNotHasKey('format', $schema['name']);
+    }
+
+    // ===== requiredIf =====
+
+    public function testRequiredIfReferencesTheInputKey(): void
     {
         $field = $this->build(SchemaFixtureRequest::class)['companyName'];
 
-        $this->assertSame(
-            ['field' => 'company_type', 'value' => 'company'],
-            $field['requiredIf'],
-        );
+        $this->assertSame(['field' => 'company.type', 'value' => 'company'], $field['requiredIf']);
         // required_if does NOT set the literal `required` flag.
         $this->assertFalse($field['required']);
     }
 
-    public function testRequiredIfNullWhenAbsent(): void
-    {
-        $this->assertNull($this->build(SchemaFixtureRequest::class)['name']['requiredIf']);
-    }
-
     public function testMalformedRequiredIfTreatedAsAbsent(): void
     {
-        // `required_if` with only one argument is not a well-formed conditional:
-        // requiredIf stays null, but the raw rule still appears in `rules`.
         $field = $this->build(SchemaFixtureRequest::class)['conditionalBad'];
 
         $this->assertNull($field['requiredIf']);
         $this->assertContains(['name' => 'required_if', 'args' => ['onlyfield']], $field['rules']);
     }
 
-    // ===== rule normalization =====
+    // ===== rules =====
 
-    public function testMaxRuleArgs(): void
-    {
-        $rules = $this->build(SchemaFixtureRequest::class)['nickname']['rules'];
-
-        $this->assertContains(['name' => 'nullable', 'args' => []], $rules);
-        $this->assertContains(['name' => 'string', 'args' => []], $rules);
-        $this->assertContains(['name' => 'max', 'args' => ['255']], $rules);
-    }
-
-    public function testInRuleSplitsAllArgs(): void
-    {
-        $rules = $this->build(SchemaFixtureRequest::class)['status']['rules'];
-
-        $this->assertContains(['name' => 'in', 'args' => ['a', 'b']], $rules);
-    }
-
-    public function testRequiredIfRuleKeepsAllArgsInList(): void
-    {
-        $rules = $this->build(SchemaFixtureRequest::class)['companyName']['rules'];
-
-        $this->assertContains(['name' => 'required_if', 'args' => ['company_type', 'company']], $rules);
-    }
-
-    public function testNullableArrayWithItemsRule(): void
-    {
-        $field = $this->build(SchemaFixtureRequest::class)['lines'];
-
-        $this->assertSame('array', $field['type']);
-        $this->assertTrue($field['nullable']);
-        $this->assertContains(['name' => 'array', 'args' => []], $field['rules']);
-    }
-
-    public function testFieldWithoutRulesHasEmptyRuleList(): void
-    {
-        // `id` has only #[Validate('required|integer')]; a property with no
-        // Validate attribute yields an empty rule list.
-        $field = $this->build(SchemaFixtureRequest::class)['noRules'];
-
-        $this->assertSame([], $field['rules']);
-        $this->assertNull($field['requiredIf']);
-    }
-
-    // ===== completeness =====
-
-    public function testAllManagedPropertiesAreIncluded(): void
+    public function testRulesAreNormalized(): void
     {
         $schema = $this->build(SchemaFixtureRequest::class);
 
+        $this->assertContains(['name' => 'max', 'args' => ['255']], $schema['nickname']['rules']);
+        $this->assertContains(['name' => 'in', 'args' => ['a', 'b']], $schema['status']['rules']);
+        $this->assertSame([], $schema['noRules']['rules']);
+    }
+
+    // ===== nesting =====
+
+    public function testNestedDtoAndItemsAreDescribedInline(): void
+    {
+        $schema = $this->build(SchemaFixtureRequest::class);
+
+        $this->assertSame(['city'], array_keys($schema['address']['fields']));
+        $this->assertSame(['sku'], array_keys($schema['lines']['items']));
         $this->assertSame(
-            [
-                'id', 'name', 'nickname', 'companyName', 'status', 'page',
-                'internal', 'lines', 'noRules', 'contextId', 'bodyField', 'conditionalBad',
-            ],
-            array_keys($schema),
+            [['name' => 'required', 'args' => []], ['name' => 'string', 'args' => []]],
+            $schema['lines']['items']['sku']['rules']
         );
     }
 
-    // ===== JSON serialization =====
+    public function testRecursiveClassIsReferenced(): void
+    {
+        $schema = $this->build(SchemaTreeRequest::class);
+
+        $this->assertSame(['$ref' => SchemaTreeRequest::class], $schema['children']['items']);
+    }
+
+    // ===== JSON =====
 
     public function testSchemaIsLosslesslyJsonSerializable(): void
     {
@@ -249,29 +158,14 @@ final class SchemaBuilderTest extends TestCase
 
         $json = json_encode($schema);
         $this->assertNotFalse($json);
-
-        $roundTrip = json_decode($json, true);
-        $this->assertSame($schema, $roundTrip);
+        $this->assertSame($schema, json_decode($json, true));
     }
-
-    // ===== via RequestHandler::schema() =====
 
     public function testRequestHandlerSchemaWrapperMatchesBuilder(): void
     {
-        // schema() is read-only and never invokes the validator, so a stub
-        // (no configured expectations) is the correct double here.
-        $validator = $this->createStub(ValidatorInterface::class);
-        $handler = new RequestHandler($validator);
+        $handler = new RequestHandler($this->createStub(ValidatorInterface::class));
 
-        $viaHandler = $handler->schema(SchemaFixtureRequest::class);
-        $viaBuilder = $this->build(SchemaFixtureRequest::class);
-
-        $this->assertSame($viaBuilder, $viaHandler);
-
-        $requiredIf = $viaHandler['companyName']['requiredIf'];
-        $this->assertNotNull($requiredIf);
-        $this->assertSame('company_type', $requiredIf['field']);
-        $this->assertNotFalse(json_encode($viaHandler));
+        $this->assertSame($this->build(SchemaFixtureRequest::class), $handler->schema(SchemaFixtureRequest::class));
     }
 }
 
@@ -281,7 +175,7 @@ final class SchemaBuilderTest extends TestCase
 
 final class SchemaFixtureRequest extends Request
 {
-    #[FromRoute]
+    #[FromRoute('product_id')]
     #[Validate('required|integer')]
     public int $id;
 
@@ -291,13 +185,17 @@ final class SchemaFixtureRequest extends Request
     #[Validate('nullable|string|max:255')]
     public ?string $nickname = null;
 
-    #[Validate('nullable|string|required_if:company_type,company')]
+    #[FromBody('company.type')]
+    #[Validate('nullable|in:person,company')]
+    public ?string $companyType = null;
+
+    #[Validate('nullable|string|required_if:companyType,company')]
     public ?string $companyName = null;
 
     #[Validate('nullable|in:a,b')]
     public ?string $status = null;
 
-    #[Validate('integer|min:1')]
+    #[Validate('integer|min_value:1')]
     public int $page = 1;
 
     #[Exclude]
@@ -313,8 +211,15 @@ final class SchemaFixtureRequest extends Request
     #[FromContext('tenantId')]
     public int $contextId;
 
-    #[FromBody('shipping.zip')]
-    public ?string $bodyField = null;
+    #[Generator(SchemaIdGenerator::class)]
+    public string $uuid;
+
+    #[DateFormat('Y-m-d')]
+    public ?\DateTimeImmutable $day = null;
+
+    public SchemaState $state = SchemaState::Draft;
+
+    public ?SchemaAddressRequest $address = null;
 
     #[Validate('nullable|required_if:onlyfield')]
     public ?string $conditionalBad = null;
@@ -324,4 +229,33 @@ final class SchemaLineRequest extends Request
 {
     #[Validate('required|string')]
     public string $sku;
+}
+
+final class SchemaAddressRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $city;
+}
+
+final class SchemaTreeRequest extends Request
+{
+    public string $name;
+
+    /** @var array<int, array<string, mixed>> */
+    #[Items(SchemaTreeRequest::class)]
+    public array $children = [];
+}
+
+enum SchemaState: string
+{
+    case Draft = 'draft';
+    case Live = 'live';
+}
+
+final class SchemaIdGenerator implements GeneratorInterface
+{
+    public function generate(array $options = []): string
+    {
+        return 'id';
+    }
 }

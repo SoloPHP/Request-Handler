@@ -18,7 +18,7 @@ Type-safe Request DTOs for PHP 8.3+ with focused per-property attributes, declar
 - **Pre/post processing** — `#[PreProcess]` / `#[PostProcess]` for transformation
 - **Nested DTOs** — a property typed with a Request subclass is a nested object, `#[Items]` makes a list of them; errors come back as `address.city`, `lines.0.qty`
 - **Fail-fast** — misconfigurations throw `ConfigurationException` at metadata-build time (nested item classes included), not on the first request that happens to exercise them
-- **Schema export** — `schema()` emits JSON-serializable per-field metadata (type, nullability, requiredness incl. conditional `required_if`, normalized rules) so the frontend can treat the backend as the single source of truth
+- **Schema export** — `schema()` emits the JSON-serializable input contract: per field type, nullability, requiredness incl. conditional `required_if`, normalized rules, default, date format, enum cases and nested schemas — the frontend's single source of truth
 
 ## Installation
 
@@ -110,32 +110,22 @@ $schema = $requestHandler->schema(UpdateProductRequest::class);
 
 // [
 //   'id' => [
-//     'type' => 'int', 'nullable' => false, 'required' => true,
-//     'requiredIf' => null, 'hasDefault' => false, 'exclude' => false,
-//     'source' => 'route',
+//     'property' => 'id', 'source' => 'route', 'type' => 'int', 'nullable' => false,
+//     'required' => true, 'requiredIf' => null, 'hasDefault' => false, 'default' => null,
 //     'rules' => [['name' => 'required', 'args' => []], ['name' => 'integer', 'args' => []]],
 //   ],
 //   'name' => [
-//     'type' => 'string', 'nullable' => false, 'required' => true,
-//     'requiredIf' => null, 'hasDefault' => false, 'exclude' => false, 'source' => null,
+//     'property' => 'name', 'source' => null, 'type' => 'string', 'nullable' => false,
+//     'required' => true, 'requiredIf' => null, 'hasDefault' => false, 'default' => null,
 //     'rules' => [['name' => 'required', 'args' => []], ['name' => 'string', 'args' => []], ['name' => 'max', 'args' => ['255']]],
 //   ],
-//   'slug' => [
-//     'type' => 'string', 'nullable' => true, 'required' => false,
-//     'requiredIf' => ['field' => 'status', 'value' => 'published'],
-//     'hasDefault' => true, 'exclude' => false, 'source' => null,
-//     'rules' => [/* … incl. ['name' => 'required_if', 'args' => ['status', 'published']] */],
-//   ],
+//   …
 // ]
 
 echo json_encode($schema); // round-trips losslessly — scalars and arrays only
 ```
 
-Every managed property is emitted (excluded/`#[FromRoute]`/`#[FromContext]` fields included) — `exclude` and `source` are reported as flags so the consumer decides what to render. Notes:
-
-- `required` reflects the **literal** `required` rule only. Conditional requiredness lives in `requiredIf` (the first well-formed `required_if`, as `{field, value}`), and the rule itself is still present in `rules`.
-- `source` is `'body' | 'query' | 'route' | 'context'`, or `null` when the field uses the handle method's default bag.
-- `rules` is the full normalized rule list, split with the same semantics the handler uses internally: `name` is the part before the first `:`, `args` is the comma-split remainder.
+Fields are keyed by their **input key** — the key the client sends and errors are reported under. Generated and `#[FromContext]` properties are left out (the client never sends them). Dates carry their `format`, backed enums their `cases`, nested DTOs and `#[Items]` their own schema (`fields` / `items`). `required` reflects the literal `required` rule; conditional requiredness lives in `requiredIf` (`{field, value}`, with `field` as an input key). See [Schema Export](https://solophp.github.io/Request-Handler/features/schema).
 
 ## Documentation
 
