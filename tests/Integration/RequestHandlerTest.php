@@ -1880,6 +1880,22 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
+    public function testChildErrorSharingAFlatPropertysKeyIsMerged(): void
+    {
+        $this->requireWhenMissing();
+
+        try {
+            $this->handler->handleArray(CollidingPathRequest::class, ['address' => []]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            // One from #[FromBody('address.zip')], one from the nested DTO.
+            $this->assertSame(
+                ['address.zip' => [['rule' => 'required'], ['rule' => 'required']]],
+                $e->getErrors()
+            );
+        }
+    }
+
     // ===== nested DTOs =====
 
     public function testNestedDtoIsBuiltFromAnObject(): void
@@ -3333,4 +3349,19 @@ final class NullingPostProcessRequest extends Request
     {
         return null;
     }
+}
+
+final class CollidingPathRequest extends Request
+{
+    #[FromBody('address.zip')]
+    #[Validate('required|string')]
+    public string $zip;
+
+    public ?CollidingAddressRequest $address = null;
+}
+
+final class CollidingAddressRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $zip;
 }
