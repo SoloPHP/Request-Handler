@@ -899,6 +899,32 @@ final class RequestHandlerTest extends TestCase
         $this->assertNull($reference->get());
     }
 
+    public function testOnlyProvidedKeepsDtosTheApplicationPassedWhole(): void
+    {
+        $address = new AddressRequest();
+        $address->city = 'Kyiv';
+        $address->zip = '01001';
+        $line = new LineItemRequest();
+        $line->sku = 'A-1';
+
+        $dto = $this->handler->handleArray(
+            ContextValuesPatchRequest::class,
+            ['note' => 'n'],
+            context: ['address' => $address, 'lines' => [$line]],
+        );
+
+        // They record nothing provided, but they are the value supplied.
+        $this->assertSame([
+            'note'    => 'n',
+            'address' => ['city' => 'Kyiv', 'zip' => '01001'],
+            'lines'   => [['sku' => 'A-1', 'qty' => 1]],
+        ], $dto->toArray(onlyProvided: true));
+
+        // A nested DTO the handler built from `{}` still supplied nothing.
+        $order = $this->handler->handleArray(PatchOrderRequest::class, ['address' => []]);
+        $this->assertSame(['address' => []], $order->toArray(onlyProvided: true));
+    }
+
     public function testDtoBuiltByHandHasNothingProvided(): void
     {
         $dto = new PatchAddressRequest();
@@ -3587,4 +3613,18 @@ final class IterableRequest extends Request
 
     /** @var array<mixed>|\ArrayObject<int|string, mixed> */
     public array|\ArrayObject $data = [];
+}
+
+final class ContextValuesPatchRequest extends Request
+{
+    public ?string $note = null;
+    public ?string $other = null;
+
+    #[FromContext('address')]
+    public ?AddressRequest $address = null;
+
+    /** @var list<LineItemRequest> */
+    #[FromContext('lines')]
+    #[Items(LineItemRequest::class)]
+    public array $lines = [];
 }

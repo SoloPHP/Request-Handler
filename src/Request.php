@@ -42,7 +42,8 @@ abstract class Request
      *
      * With `$onlyProvided`, only the properties the request supplied
      * (`provided()`), nested DTOs and `#[Items]` included — the change set of
-     * a PATCH.
+     * a PATCH. A nested DTO the handler did not build — one the application
+     * passed in context — is a value supplied as a whole.
      *
      * @return array<string, mixed>
      */
@@ -62,10 +63,12 @@ abstract class Request
             $value = $property->reflection->getValue($this);
 
             if ($value instanceof self) {
-                $value = $value->toArray($onlyProvided);
+                $value = $value->toArray($onlyProvided && ProvidedFields::knows($value));
             } elseif (is_array($value)) {
                 $value = array_map(
-                    static fn($item) => $item instanceof self ? $item->toArray($onlyProvided) : $item,
+                    static fn($item) => $item instanceof self
+                        ? $item->toArray($onlyProvided && ProvidedFields::knows($item))
+                        : $item,
                     $value
                 );
             }
