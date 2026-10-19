@@ -112,6 +112,27 @@ final class BuiltInCasterTest extends TestCase
         $this->assertSame(['k' => 1], $this->caster->cast('array', new \ArrayIterator(['k' => 1])));
     }
 
+    public function testCastArrayFromTraversableKeepsEveryItem(): void
+    {
+        // iterator_to_array() would keep the keys and return ['c', 'd'].
+        $chained = (static function (): \Generator {
+            yield from ['a', 'b'];
+            yield from ['c', 'd'];
+        })();
+        $this->assertSame(['a', 'b', 'c', 'd'], $this->caster->cast('array', $chained));
+
+        $repeated = (static function (): \Generator {
+            yield 'k' => 1;
+            yield 'k' => 2;
+        })();
+        $this->assertSame([1, 2], $this->caster->cast('array', $repeated));
+
+        $objectKeys = (static function (): \Generator {
+            yield new \stdClass() => 'x';
+        })();
+        $this->assertSame(['x'], $this->caster->cast('array', $objectKeys));
+    }
+
     public function testCastArrayFromObject(): void
     {
         $obj = new \stdClass();

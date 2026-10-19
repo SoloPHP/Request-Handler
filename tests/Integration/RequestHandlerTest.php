@@ -583,6 +583,18 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(['a', 'b'], $dto->feed, 'a generator is not turned into []');
     }
 
+    public function testChainedGeneratorFromContextKeepsEveryItem(): void
+    {
+        $list = (static function (): \Generator {
+            yield from ['a', 'b'];
+            yield from ['c', 'd'];
+        })();
+
+        $dto = $this->handler->handleArray(ContextListRequest::class, [], context: ['list' => $list]);
+
+        $this->assertSame(['a', 'b', 'c', 'd'], $dto->list);
+    }
+
     public function testUnionWithOnlyArrayAmongInputTypesReportsArray(): void
     {
         $dto = $this->handler->handleArray(IterableRequest::class, ['data' => ['a']]);
@@ -3627,4 +3639,11 @@ final class ContextValuesPatchRequest extends Request
     #[FromContext('lines')]
     #[Items(LineItemRequest::class)]
     public array $lines = [];
+}
+
+final class ContextListRequest extends Request
+{
+    /** @var array<mixed> */
+    #[FromContext('list')]
+    public array $list = [];
 }

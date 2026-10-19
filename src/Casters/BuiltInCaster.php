@@ -255,9 +255,37 @@ final class BuiltInCaster
         // An iterable from context: its items, not the object's properties —
         // `(array)` turns a generator into [].
         if ($value instanceof \Traversable) {
-            return iterator_to_array($value);
+            return self::items($value);
         }
         return (array) $value;
+    }
+
+    /**
+     * The items of a Traversable, keyed by its keys while they are unique ints
+     * or strings — a list as soon as one repeats (`yield from` restarts at 0)
+     * or is no array key, so no item is lost to an overwrite.
+     *
+     * @param \Traversable<mixed, mixed> $value
+     * @return array<mixed>
+     */
+    private static function items(\Traversable $value): array
+    {
+        $items = [];
+        $keyed = true;
+
+        foreach ($value as $key => $item) {
+            if ($keyed && (is_int($key) || is_string($key)) && !array_key_exists($key, $items)) {
+                $items[$key] = $item;
+                continue;
+            }
+            if ($keyed) {
+                $items = array_values($items);
+                $keyed = false;
+            }
+            $items[] = $item;
+        }
+
+        return $items;
     }
 
     /**
