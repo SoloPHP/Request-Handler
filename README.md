@@ -28,6 +28,8 @@ Type-safe Request DTOs for PHP 8.3+ with focused per-property attributes, declar
 composer require solophp/request-handler
 ```
 
+Upgrading from 3.x? See [UPGRADE.md](UPGRADE.md).
+
 ## Quick Example
 
 ```php
