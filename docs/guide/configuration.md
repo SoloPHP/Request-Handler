@@ -229,7 +229,8 @@ final class MyRequest extends Request
 
 The base class provides:
 
-- `toArray()` — Convert to array (skips uninitialized and `#[Exclude]`-marked properties)
+- `toArray(bool $onlyProvided = false)` — Convert to array (skips uninitialized and `#[Exclude]`-marked properties; with `onlyProvided`, also those the request did not supply)
+- `provided()` / `isProvided(string $name)` — Which properties the request supplied (PATCH)
 - `has(string $name)` — Check if property is initialized
 - `get(string $name, mixed $default)` — Get value with default
 - `group(string $name)` — Get fields by group name (see `#[Group]`)

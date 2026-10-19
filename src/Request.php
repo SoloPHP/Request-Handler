@@ -37,11 +37,22 @@ abstract class Request
     private const array GROUP_KEYS = ['AND', 'OR'];
 
     /**
+     * The properties the request supplied — set by `RequestHandler`.
+     *
+     * @var array<string, true>
+     */
+    private array $provided = [];
+
+    /**
      * Returns all initialized properties as array (skips uninitialized and #[Exclude]-marked).
+     *
+     * With `$onlyProvided`, only the properties the request supplied
+     * (`provided()`), nested DTOs and `#[Items]` included — the change set of
+     * a PATCH.
      *
      * @return array<string, mixed>
      */
-    public function toArray(): array
+    public function toArray(bool $onlyProvided = false): array
     {
         $result = [];
 
@@ -49,14 +60,17 @@ abstract class Request
             if ($property->exclude || !$property->reflection->isInitialized($this)) {
                 continue;
             }
+            if ($onlyProvided && !isset($this->provided[$name])) {
+                continue;
+            }
 
             $value = $property->reflection->getValue($this);
 
             if ($value instanceof self) {
-                $value = $value->toArray();
+                $value = $value->toArray($onlyProvided);
             } elseif (is_array($value)) {
                 $value = array_map(
-                    static fn($item) => $item instanceof self ? $item->toArray() : $item,
+                    static fn($item) => $item instanceof self ? $item->toArray($onlyProvided) : $item,
                     $value
                 );
             }
@@ -75,6 +89,29 @@ abstract class Request
         $property = $this->metadata()->properties[$name] ?? null;
 
         return $property !== null && $property->reflection->isInitialized($this);
+    }
+
+    /**
+     * Names of the properties the request supplied, in declaration order:
+     * every property whose key was present in its source (body, query, route
+     * or context) — an explicit `null` or `""` included — and the generated
+     * ones. A property left at its default because the key was absent is not
+     * listed. Empty for a DTO not built by `RequestHandler`.
+     *
+     * @return list<string>
+     */
+    public function provided(): array
+    {
+        return array_keys($this->provided);
+    }
+
+    /**
+     * Whether the request supplied the property — see `provided()`. Unlike
+     * `has()`, a default does not count.
+     */
+    public function isProvided(string $name): bool
+    {
+        return isset($this->provided[$name]);
     }
 
     /**

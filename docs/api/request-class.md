@@ -30,8 +30,14 @@ final class CreateUserRequest extends Request
 Convert all initialized properties to an array. Excludes fields marked with `#[Exclude]`. `protected` and `private` properties are not part of the DTO surface (use those for internal state the handler should not touch).
 
 ```php
-public function toArray(): array
+public function toArray(bool $onlyProvided = false): array
 ```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `$onlyProvided` | `bool` | Keep only the properties the request supplied — see [`provided()`](#provided). Applies to nested DTOs and `#[Items]` too |
 
 **Returns:** Associative array of property names to values.
 
@@ -47,6 +53,20 @@ $data = $dto->toArray();
 
 ::: info Uninitialized Properties
 Properties that were not in the request (and have no default value) are not included in the result.
+:::
+
+**PATCH:** `toArray(onlyProvided: true)` is the change set — the fields the client sent, without the defaults of the ones it left out:
+
+```php
+// PATCH /products/5  {"name": "Desk", "note": null}
+$dto = $handler->handleBody(UpdateProductRequest::class, $request, route: ['id' => 5]);
+
+$dto->toArray();                    // ['id' => 5, 'name' => 'Desk', 'note' => null, 'price' => null, ...]
+$dto->toArray(onlyProvided: true);  // ['id' => 5, 'name' => 'Desk', 'note' => null]
+```
+
+::: warning Overriding toArray()
+A subclass that overrides `toArray()` must declare the parameter: `public function toArray(bool $onlyProvided = false): array`.
 :::
 
 ---
@@ -72,6 +92,43 @@ public function has(string $name): bool
 ```php
 if ($dto->has('bio')) {
     echo $dto->bio;
+}
+```
+
+---
+
+### provided()
+
+Names of the properties the request supplied, in declaration order.
+
+```php
+public function provided(): array
+```
+
+**Returns:** `list<string>` — every property whose key was present in its source (body, query, route or context), even with an explicit `null` or `""`, and the generated ones. A property left at its default because the client did not send it is not listed.
+
+A DTO created with `new` (not by `RequestHandler`) has nothing provided.
+
+```php
+// Body: {"name": "Desk", "note": null}
+$dto->provided();   // ['name', 'note']
+```
+
+---
+
+### isProvided()
+
+Whether the request supplied the property — see [`provided()`](#provided).
+
+```php
+public function isProvided(string $name): bool
+```
+
+Unlike `has()`, a default value does not count: with `public ?string $note = null;` absent from the input, `has('note')` is `true` and `isProvided('note')` is `false`.
+
+```php
+if ($dto->isProvided('email')) {
+    $this->sendVerification($dto->email);   // only when the client changed it
 }
 ```
 
