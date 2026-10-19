@@ -44,6 +44,9 @@ use UnitEnum;
  *     rules: list<NormalizedRule>,
  *     format?: string,
  *     cases?: list<int|string>,
+ *     cast?: string,
+ *     emptyToNull?: true,
+ *     noTrim?: true,
  *     fields?: array<string, mixed>,
  *     items?: array<string, mixed>,
  *     also?: list<array<string, mixed>>,
@@ -126,6 +129,17 @@ final readonly class SchemaBuilder
                 static fn(BackedEnum $case): int|string => $case->value,
                 $property->enumClass::cases()
             );
+        }
+        // What the client may send when the type does not say it: any JSON
+        // value for #[Cast('json')], a float for #[Cast('float')] on int|float.
+        if ($property->effectiveCastType !== null && $property->effectiveCastType !== $property->type) {
+            $field['cast'] = $property->effectiveCastType;
+        }
+        if ($property->emptyToNull) {
+            $field['emptyToNull'] = true;
+        }
+        if ($property->noTrim) {
+            $field['noTrim'] = true;
         }
         if ($property->nested !== null) {
             $field['fields'] = $this->describeChild($property->nested, $path);

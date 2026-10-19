@@ -128,7 +128,7 @@ A **union with a scalar member** and no `#[Cast]` (`int|float`, `int|string`) re
 - fields are keyed by **input key** (3.x: property name) and name their `property`;
 - generated and `#[FromContext]` properties are left out;
 - the `exclude` flag is gone — it describes output, not input;
-- new keys: `default`, `format` (`#[DateFormat]`), `cases` (backed enums), `fields` (nested DTO), `items` (`#[Items]`), with `['$ref' => Class]` for a class recurring on its own path;
+- new keys: `default`, `format` (`#[DateFormat]`), `cases` (backed enums), `cast` (a `#[Cast]` the type does not show, such as `json`), `emptyToNull` / `noTrim` (the attributes), `fields` (nested DTO), `items` (`#[Items]`), with `['$ref' => Class]` for a class recurring on its own path, and `also` for further properties reading the same key;
 - `requiredIf.field` is the referenced field's input key.
 
 See [Schema Export](https://solophp.github.io/Request-Handler/features/schema).

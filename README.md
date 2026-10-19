@@ -131,7 +131,7 @@ $schema = $requestHandler->schema(UpdateProductRequest::class);
 echo json_encode($schema); // round-trips losslessly — scalars and arrays only
 ```
 
-Fields are keyed by their **input key** — the key the client sends and errors are reported under. Generated and `#[FromContext]` properties are left out (the client never sends them). Dates carry their `format`, backed enums their `cases`, nested DTOs and `#[Items]` their own schema (`fields` / `items`). `required` reflects the literal `required` rule; conditional requiredness lives in `requiredIf` (`{field, value}`, with `field` as an input key). See [Schema Export](https://solophp.github.io/Request-Handler/features/schema).
+Fields are keyed by their **input key** — the key the client sends and errors are reported under. Generated and `#[FromContext]` properties are left out (the client never sends them). Dates carry their `format`, backed enums their `cases`, nested DTOs and `#[Items]` their own schema (`fields` / `items`); a `#[Cast]` the type does not show is reported as `cast` (`json`), and `#[EmptyToNull]` / `#[NoTrim]` as flags. `required` reflects the literal `required` rule; conditional requiredness lives in `requiredIf` (`{field, value}`, with `field` as an input key). See [Schema Export](https://solophp.github.io/Request-Handler/features/schema).
 
 ## Documentation
 

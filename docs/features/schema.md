@@ -121,6 +121,9 @@ $schema = $handler->schema(UpdateProductRequest::class);
 | `rules` | `list<{name, args}>` | Full normalized rule list |
 | `format` | `string` | Only for `#[DateFormat]` dates |
 | `cases` | `list<int\|string>` | Only for `BackedEnum` properties: the allowed values |
+| `cast` | `string` | Only when the built-in cast differs from `type`: `json` (any JSON value, stored encoded), or the `#[Cast]` of a union / `mixed` property |
+| `emptyToNull` | `true` | Only with `#[EmptyToNull]`: a blank string is read as no value |
+| `noTrim` | `true` | Only with `#[NoTrim]`: the string is kept as sent instead of auto-trimmed |
 | `fields` | field schemas | Only for a nested DTO property |
 | `items` | field schemas | Only for an `#[Items]` property: the schema of one element |
 | `also` | `list<field schema>` | Only when several properties read this input key: the others, in declaration order |
@@ -157,4 +160,4 @@ Every emitted value is a scalar or array — no `ReflectionProperty`, enums, obj
 
 ### Changes from 3.x
 
-The schema is keyed by input key (3.x used the property name), lists only client inputs (3.x included context and generated properties), dropped the `exclude` flag, and gained `property`, `default`, `format`, `cases`, `fields` and `items`.
+The schema is keyed by input key (3.x used the property name), lists only client inputs (3.x included context and generated properties), dropped the `exclude` flag, and gained `property`, `default`, `format`, `cases`, `cast`, `emptyToNull`, `noTrim`, `fields`, `items` and `also`.

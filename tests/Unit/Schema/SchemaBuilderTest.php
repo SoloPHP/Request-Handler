@@ -6,10 +6,13 @@ namespace Solo\RequestHandler\Tests\Unit\Schema;
 
 use PHPUnit\Framework\TestCase;
 use Solo\Contracts\Validator\ValidatorInterface;
+use Solo\RequestHandler\Attributes\Cast;
 use Solo\RequestHandler\Attributes\DateFormat;
+use Solo\RequestHandler\Attributes\EmptyToNull;
 use Solo\RequestHandler\Attributes\Exclude;
 use Solo\RequestHandler\Attributes\Generator;
 use Solo\RequestHandler\Attributes\Items;
+use Solo\RequestHandler\Attributes\NoTrim;
 use Solo\RequestHandler\Attributes\Source\FromBody;
 use Solo\RequestHandler\Attributes\Source\FromContext;
 use Solo\RequestHandler\Attributes\Source\FromRoute;
@@ -141,6 +144,21 @@ final class SchemaBuilderTest extends TestCase
             [['name' => 'required', 'args' => []], ['name' => 'string', 'args' => []]],
             $schema['lines']['items']['sku']['rules']
         );
+    }
+
+    public function testInputHandlingTheTypeDoesNotShowIsReported(): void
+    {
+        $schema = $this->build(SchemaInputHintsRequest::class);
+
+        $this->assertSame('json', $schema['settings']['cast']);
+        $this->assertSame('string', $schema['settings']['type']);
+        $this->assertSame('float', $schema['amount']['cast']);
+        $this->assertTrue($schema['note']['emptyToNull']);
+        $this->assertTrue($schema['snippet']['noTrim']);
+
+        foreach (['cast', 'emptyToNull', 'noTrim'] as $key) {
+            $this->assertArrayNotHasKey($key, $schema['plain'], "{$key}: an int property cast as int says nothing new");
+        }
     }
 
     public function testPropertiesSharingAnInputKeyAreAllDescribed(): void
@@ -282,4 +300,21 @@ final class SchemaSharedKeyRequest extends Request
     #[FromRoute('id')]
     #[Validate('required|exists:products,id')]
     public int $productId;
+}
+
+final class SchemaInputHintsRequest extends Request
+{
+    #[Cast('json')]
+    public ?string $settings = null;
+
+    #[Cast('float')]
+    public int|float $amount = 0;
+
+    #[EmptyToNull]
+    public ?string $note = null;
+
+    #[NoTrim]
+    public string $snippet = '';
+
+    public int $plain = 0;
 }
