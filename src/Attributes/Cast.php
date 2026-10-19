@@ -8,8 +8,9 @@ use Attribute;
 use InvalidArgumentException;
 
 /**
- * Explicit scalar cast for the property value: `int`, `float`, `bool`,
- * `string` or `array`.
+ * Explicit cast for the property value: `int`, `float`, `bool`, `string`,
+ * `array` — or `json`, which encodes a structured input (an object or list)
+ * into a `string` property instead of rejecting it.
  *
  * Without this attribute, casting is driven by the property's declared type
  * (e.g. `public int $age` is cast as int), so `#[Cast]` is only needed where

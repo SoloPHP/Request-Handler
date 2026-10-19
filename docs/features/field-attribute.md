@@ -27,7 +27,7 @@ For values that don't fit the four bags (Body, Query, Route, Context) — reques
 | Attribute | Purpose |
 |---|---|
 | `#[Validate('rules')]` | Validation rules passed to your `ValidatorInterface` |
-| `#[Cast('int'\|'float'\|'bool'\|'string'\|'array')]` | Explicit scalar cast for union / `mixed` properties |
+| `#[Cast('int'\|'float'\|'bool'\|'string'\|'array'\|'json')]` | Explicit cast for union / `mixed` properties; `json` encodes into a string |
 | `#[DateFormat('Y-m-d')]` | Fixed input format for a date property (class from the type) |
 | `#[Caster(MoneyCaster::class)]` | Custom `CasterInterface` implementation |
 | `#[PreProcess(handler)]` | Run handler BEFORE validation |
@@ -86,7 +86,7 @@ A single-segment path acts as a flat key remap:
 public string $name;
 ```
 
-Malformed paths (leading/trailing dot, empty segment) throw `InvalidArgumentException` at construction. If the path resolves to an array but the property is a scalar (string included), a structured `ValidationException` is raised (`['field' => [['rule' => 'scalar']]]`) — unless a pre/post-processor or custom caster converts the array; when the field has rules, the validator's error (e.g. `integer`) is reported instead.
+Malformed paths (leading/trailing dot, empty segment) throw `InvalidArgumentException` at construction. If the path stops at a sub-object while the property is a scalar, the property's cast fails like for any other array — `['field' => [['rule' => 'integer']]]` for an `int`, `string` for a `string` — unless a pre/post-processor or custom caster converts the array, or `#[Cast('json')]` encodes it.
 
 ---
 
@@ -114,7 +114,7 @@ See [Validation](/features/validation).
 
 Without either attribute, casting is driven by the property's declared type: `int`, `float`, `bool`, `string`, `array`, the DateTime family and backed enums.
 
-`#[Cast]` is for scalar types only — `int`, `float`, `bool`, `string`, `array` — and needed only where the type does not imply one. Dates follow their type; `#[DateFormat]` fixes the input format. Passing a class name throws `ConfigurationException::castExpectsBuiltInType` — use `#[Caster]` for custom logic.
+`#[Cast]` takes the built-in types only — `int`, `float`, `bool`, `string`, `array`, and `json` to encode structured input into a string — and is needed only where the type does not imply the cast. Dates follow their type; `#[DateFormat]` fixes the input format. Passing a class name throws `ConfigurationException::castExpectsBuiltInType` — use `#[Caster]` for custom logic.
 
 ```php
 #[Cast('float')]

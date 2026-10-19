@@ -19,10 +19,14 @@ use ReflectionEnum;
 final class BuiltInCaster
 {
     /**
-     * Scalar cast types: the `#[Cast]` vocabulary and the type-driven casts of
-     * `int` / `float` / `bool` / `string` / `array` properties.
+     * Built-in cast types: the `#[Cast]` vocabulary and the type-driven casts
+     * of `int` / `float` / `bool` / `string` / `array` properties. `json`
+     * (explicit only) encodes a structured value into a string property.
      */
-    public const array SCALAR_TYPES = ['int', 'float', 'bool', 'string', 'array'];
+    public const array CAST_TYPES = ['int', 'float', 'bool', 'string', 'array', 'json'];
+
+    private const array TRUE_STRINGS = ['true' => true, '1' => true, 'yes' => true, 'on' => true];
+    private const array FALSE_STRINGS = ['false' => true, '0' => true, 'no' => true, 'off' => true];
 
     /**
      * Memoised "does this format parse no time-of-day field" lookups.
@@ -40,19 +44,15 @@ final class BuiltInCaster
 
     public static function isBuiltIn(string $type): bool
     {
-        return in_array($type, self::SCALAR_TYPES, true);
+        return in_array($type, self::CAST_TYPES, true);
     }
 
     /**
-     * Whether an array input is meaningless for a scalar cast: `(int) ['5']`
-     * is 1, `(bool) ['x']` is true. String (JSON-encodes) and array casts
-     * accept arrays.
+     * Convert `$value` to `$type` without losing information — or return null
+     * when it cannot be: `'12abc'` is no int, `['5']` no float, `'maybe'` no
+     * bool. `""` means "no value" for int / float / bool (null); a string
+     * keeps it, an array reads it as `[]`.
      */
-    public static function rejectsArray(string $type): bool
-    {
-        return $type === 'int' || $type === 'float' || $type === 'bool';
-    }
-
     public function cast(string $type, mixed $value): mixed
     {
         if ($value === null) {
@@ -60,11 +60,12 @@ final class BuiltInCaster
         }
 
         return match ($type) {
-            'int' => $value === '' ? null : $this->toInt($value),
-            'float' => $value === '' ? null : $this->toFloat($value),
+            'int' => $this->toInt($value),
+            'float' => $this->toFloat($value),
             'bool' => $this->toBool($value),
             'string' => $this->toString($value),
             'array' => $this->toArray($value),
+            'json' => $this->toJson($value),
             default => throw new InvalidArgumentException("Unknown cast type: {$type}"),
         };
     }
@@ -143,40 +144,66 @@ final class BuiltInCaster
         return is_string($value) || is_int($value) ? $enumClass::tryFrom((string) $value) : null;
     }
 
-    private function toInt(mixed $value): int
+    private function toInt(mixed $value): ?int
     {
-        return is_bool($value) ? ($value ? 1 : 0) : (int) $value;
+        return match (true) {
+            is_int($value) => $value,
+            is_bool($value) => (int) $value,
+            // Whole floats only, inside the range a float can hold exactly.
+            is_float($value) => $value === floor($value) && abs($value) < 9.0E15 ? (int) $value : null,
+            is_string($value) => ($int = filter_var($value, FILTER_VALIDATE_INT)) === false ? null : $int,
+            default => null,
+        };
     }
 
-    private function toFloat(mixed $value): float
+    private function toFloat(mixed $value): ?float
     {
-        return is_bool($value) ? ($value ? 1.0 : 0.0) : (float) $value;
+        return match (true) {
+            is_float($value), is_int($value), is_bool($value) => (float) $value,
+            is_string($value) && is_numeric($value) => (float) $value,
+            default => null,
+        };
     }
 
-    private function toBool(mixed $value): bool
+    private function toBool(mixed $value): ?bool
     {
         if (is_bool($value)) {
             return $value;
         }
-        if (is_string($value)) {
-            return match (strtolower($value)) {
-                'true', '1', 'yes', 'on' => true,
-                'false', '0', 'no', 'off', '' => false,
-                default => (bool) $value,
-            };
+        if ($value === 0 || $value === 1) {
+            return $value === 1;
         }
-        return (bool) $value;
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $lower = strtolower($value);
+
+        return match (true) {
+            isset(self::TRUE_STRINGS[$lower]) => true,
+            isset(self::FALSE_STRINGS[$lower]) => false,
+            default => null,
+        };
     }
 
-    private function toString(mixed $value): string
+    private function toString(mixed $value): ?string
     {
-        if (is_array($value)) {
-            return json_encode($value, JSON_THROW_ON_ERROR);
+        return match (true) {
+            is_string($value) => $value,
+            is_int($value), is_float($value), $value instanceof \Stringable => (string) $value,
+            default => null,
+        };
+    }
+
+    private function toJson(mixed $value): ?string
+    {
+        if (is_string($value)) {
+            return $value;
         }
-        if (is_scalar($value) || $value instanceof \Stringable) {
-            return (string) $value;
-        }
-        return '';
+
+        $json = json_encode($value);
+
+        return $json === false ? null : $json;
     }
 
     /**

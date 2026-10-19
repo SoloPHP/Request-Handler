@@ -197,7 +197,7 @@ final class ConfigurationException extends Exception
     ): self {
         return new self(sprintf(
             "Property %s::\$%s has #[Cast('%s')] which is neither a built-in type " .
-            "(int, float, bool, string, array) nor a known class.",
+            "(int, float, bool, string, array, json) nor a known class.",
             $className,
             $propertyName,
             $castType
@@ -214,7 +214,7 @@ final class ConfigurationException extends Exception
     ): self {
         return new self(sprintf(
             "Property %s::\$%s has #[Cast('%s')] but that is a class name. " .
-            "#[Cast] accepts built-in types only (int, float, bool, string, array). " .
+            "#[Cast] accepts built-in types only (int, float, bool, string, array, json). " .
             "For custom caster classes use #[Caster(%s::class)].",
             $className,
             $propertyName,

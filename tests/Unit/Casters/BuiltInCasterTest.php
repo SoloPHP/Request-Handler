@@ -20,7 +20,7 @@ final class BuiltInCasterTest extends TestCase
 
     public function testIsBuiltIn(): void
     {
-        foreach (['int', 'float', 'bool', 'string', 'array'] as $type) {
+        foreach (['int', 'float', 'bool', 'string', 'array', 'json'] as $type) {
             $this->assertTrue(BuiltInCaster::isBuiltIn($type), $type);
         }
         // 4.0: no aliases, no datetime specs.
@@ -29,39 +29,69 @@ final class BuiltInCasterTest extends TestCase
         }
     }
 
-    public function testCastInt(): void
+    public function testCastIntIsLossless(): void
     {
         $this->assertSame(123, $this->caster->cast('int', '123'));
+        $this->assertSame(-5, $this->caster->cast('int', '-5'));
+        $this->assertSame(7, $this->caster->cast('int', 7));
+        $this->assertSame(2, $this->caster->cast('int', 2.0));
         $this->assertSame(1, $this->caster->cast('int', true));
         $this->assertSame(0, $this->caster->cast('int', false));
-        $this->assertSame(0, $this->caster->cast('int', 'abc'));
+
+        // Cannot be converted without loss → null (the handler reports `integer`).
+        foreach (['abc', '12abc', '1.5', '1e3', 'true', [5], 2.5, 1.0E20] as $input) {
+            $this->assertNull($this->caster->cast('int', $input), var_export($input, true));
+        }
     }
 
-    public function testCastFloat(): void
+    public function testCastFloatIsLossless(): void
     {
         $this->assertSame(12.34, $this->caster->cast('float', '12.34'));
+        $this->assertSame(1000.0, $this->caster->cast('float', '1e3'));
+        $this->assertSame(5.0, $this->caster->cast('float', 5));
         $this->assertSame(1.0, $this->caster->cast('float', true));
-        $this->assertSame(0.0, $this->caster->cast('float', false));
+
+        foreach (['abc', '1,5', [1.5], 'NaN'] as $input) {
+            $this->assertNull($this->caster->cast('float', $input), var_export($input, true));
+        }
     }
 
-    public function testCastBool(): void
+    public function testCastBoolAcceptsOnlyBooleanForms(): void
     {
-        $this->assertTrue($this->caster->cast('bool', 'true'));
-        $this->assertTrue($this->caster->cast('bool', '1'));
-        $this->assertTrue($this->caster->cast('bool', 'yes'));
-        $this->assertTrue($this->caster->cast('bool', 'on'));
-        $this->assertFalse($this->caster->cast('bool', 'false'));
-        $this->assertFalse($this->caster->cast('bool', '0'));
-        $this->assertFalse($this->caster->cast('bool', 'no'));
-        $this->assertFalse($this->caster->cast('bool', 'off'));
-        $this->assertTrue($this->caster->cast('bool', true));
-        $this->assertFalse($this->caster->cast('bool', false));
+        foreach (['true', 'TRUE', '1', 'yes', 'on', 1, true] as $input) {
+            $this->assertTrue($this->caster->cast('bool', $input), var_export($input, true));
+        }
+        foreach (['false', '0', 'no', 'Off', 0, false] as $input) {
+            $this->assertFalse($this->caster->cast('bool', $input), var_export($input, true));
+        }
+        foreach (['anything', 2, 'null', [true], 1.0] as $input) {
+            $this->assertNull($this->caster->cast('bool', $input), var_export($input, true));
+        }
     }
 
-    public function testCastString(): void
+    public function testCastStringAcceptsScalarsAndStringables(): void
     {
+        $this->assertSame('abc', $this->caster->cast('string', 'abc'));
         $this->assertSame('123', $this->caster->cast('string', 123));
-        $this->assertSame('{"a":1}', $this->caster->cast('string', ['a' => 1]));
+        $this->assertSame('1.5', $this->caster->cast('string', 1.5));
+        $this->assertSame('test-object', $this->caster->cast('string', new class {
+            public function __toString(): string
+            {
+                return 'test-object';
+            }
+        }));
+
+        foreach ([['a' => 1], true, new \stdClass()] as $input) {
+            $this->assertNull($this->caster->cast('string', $input), get_debug_type($input));
+        }
+    }
+
+    public function testCastJsonEncodesStructuredInput(): void
+    {
+        $this->assertSame('{"a":1}', $this->caster->cast('json', ['a' => 1]));
+        $this->assertSame('[1,2]', $this->caster->cast('json', [1, 2]));
+        $this->assertSame('{"x":true}', $this->caster->cast('json', '{"x":true}'));
+        $this->assertSame('true', $this->caster->cast('json', true));
     }
 
     public function testCastArray(): void
@@ -72,50 +102,6 @@ final class BuiltInCasterTest extends TestCase
         $this->assertSame(['val'], $this->caster->cast('array', 'val'));
     }
 
-    public function testCastNull(): void
-    {
-        $this->assertNull($this->caster->cast('int', null));
-        $this->assertNull($this->caster->cast('string', null));
-        $this->assertNull($this->caster->cast('array', null));
-    }
-
-    public function testCastEmptyString(): void
-    {
-        $this->assertNull($this->caster->cast('int', ''));
-        $this->assertNull($this->caster->cast('float', ''));
-        $this->assertSame('', $this->caster->cast('string', ''));
-        $this->assertFalse($this->caster->cast('bool', ''));
-        $this->assertSame([], $this->caster->cast('array', ''));
-    }
-
-    public function testCastFloatNonNumeric(): void
-    {
-        $this->assertSame(0.0, $this->caster->cast('float', 'abc'));
-    }
-
-    public function testCastBoolNonStandard(): void
-    {
-        $this->assertTrue($this->caster->cast('bool', 'anything'));
-        $this->assertTrue($this->caster->cast('bool', 100));
-        $this->assertFalse($this->caster->cast('bool', 0));
-    }
-
-    public function testCastStringFromObject(): void
-    {
-        $obj = new class {
-            public function __toString(): string
-            {
-                return 'test-object';
-            }
-        };
-        $this->assertSame('test-object', $this->caster->cast('string', $obj));
-    }
-
-    public function testCastStringFromNonStringable(): void
-    {
-        $this->assertSame('', $this->caster->cast('string', new \stdClass()));
-    }
-
     public function testCastArrayFromObject(): void
     {
         $obj = new \stdClass();
@@ -123,21 +109,27 @@ final class BuiltInCasterTest extends TestCase
         $this->assertSame(['key' => 'value'], $this->caster->cast('array', $obj));
     }
 
+    public function testCastNull(): void
+    {
+        foreach (['int', 'float', 'bool', 'string', 'array', 'json'] as $type) {
+            $this->assertNull($this->caster->cast($type, null), $type);
+        }
+    }
+
+    public function testEmptyStringMeansNoValueForNumbersAndBooleans(): void
+    {
+        $this->assertNull($this->caster->cast('int', ''));
+        $this->assertNull($this->caster->cast('float', ''));
+        $this->assertNull($this->caster->cast('bool', ''));
+        $this->assertSame('', $this->caster->cast('string', ''));
+        $this->assertSame([], $this->caster->cast('array', ''));
+    }
+
     public function testCastUnknownTypeThrowsException(): void
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Unknown cast type: unknown');
         $this->caster->cast('unknown', 'value');
-    }
-
-    public function testRejectsArray(): void
-    {
-        foreach (['int', 'float', 'bool'] as $type) {
-            $this->assertTrue(BuiltInCaster::rejectsArray($type), $type);
-        }
-        foreach (['string', 'array'] as $type) {
-            $this->assertFalse(BuiltInCaster::rejectsArray($type), $type);
-        }
     }
 
     // ===== dates =====

@@ -826,7 +826,7 @@ final class RequestHandlerTest extends TestCase
         } catch (ValidationException $e) {
             $errors = $e->getErrors();
             $this->assertArrayHasKey('shipping', $errors);
-            $this->assertSame('scalar', $errors['shipping'][0]['rule']);
+            $this->assertSame('string', $errors['shipping'][0]['rule']);
         }
     }
 
@@ -1201,7 +1201,7 @@ final class RequestHandlerTest extends TestCase
             // Errors are keyed by the input path the client used, not the property name.
             $this->assertSame([
                 'name'        => [['rule' => 'required']],
-                'customer.id' => [['rule' => 'scalar']],
+                'customer.id' => [['rule' => 'integer']],
             ], $e->getErrors());
         }
     }
@@ -1217,8 +1217,8 @@ final class RequestHandlerTest extends TestCase
             $this->fail('Expected ValidationException');
         } catch (ValidationException $e) {
             $this->assertSame([
-                'page'   => [['rule' => 'scalar']],
-                'active' => [['rule' => 'scalar']],
+                'page'   => [['rule' => 'integer']],
+                'active' => [['rule' => 'boolean']],
             ], $e->getErrors());
         }
     }
@@ -1651,11 +1651,49 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
-    public function testArrayForStringPropertyFromFlatKeyIsJsonEncoded(): void
+    public function testArrayForStringPropertyIsRejected(): void
     {
-        $dto = $this->handler->handleArray(SortRequest::class, ['sort' => ['x']]);
+        // 4.0: a string property no longer JSON-encodes an array silently.
+        try {
+            $this->handler->handleArray(SortRequest::class, ['sort' => ['x']]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['sort' => [['rule' => 'string']]], $e->getErrors());
+        }
+    }
 
-        $this->assertSame('["x"]', $dto->sort);
+    public function testJsonCastEncodesStructuredInputIntoAString(): void
+    {
+        $dto = $this->handler->handleArray(JsonSettingsRequest::class, ['settings' => ['theme' => 'dark']]);
+
+        $this->assertSame('{"theme":"dark"}', $dto->settings);
+    }
+
+    public function testValuesThatCannotBeConvertedLosslesslyAreErrors(): void
+    {
+        try {
+            $this->handler->handleArray(StrictScalarsRequest::class, [
+                'qty'    => '12abc',
+                'price'  => '9,99',
+                'active' => 'maybe',
+                'label'  => true,
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame([
+                'qty'    => [['rule' => 'integer']],
+                'price'  => [['rule' => 'numeric']],
+                'active' => [['rule' => 'boolean']],
+                'label'  => [['rule' => 'string']],
+            ], $e->getErrors());
+        }
+    }
+
+    public function testEmptyStringForOptionalBoolMeansNoValue(): void
+    {
+        $dto = $this->handler->handleArray(StrictScalarsRequest::class, ['enabled' => '']);
+
+        $this->assertNull($dto->enabled);
     }
 
     // ===== application-supplied values =====
@@ -2655,4 +2693,19 @@ final class SharedRouteKeyRequest extends Request
     #[FromRoute('id')]
     #[Validate('required|exists:products,id')]
     public int $productId;
+}
+
+final class JsonSettingsRequest extends Request
+{
+    #[Cast('json')]
+    public ?string $settings = null;
+}
+
+final class StrictScalarsRequest extends Request
+{
+    public ?int $qty = null;
+    public ?float $price = null;
+    public ?bool $active = null;
+    public ?string $label = null;
+    public ?bool $enabled = null;
 }
