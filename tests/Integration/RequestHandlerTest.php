@@ -648,6 +648,25 @@ final class RequestHandlerTest extends TestCase
         $this->handler->handleArray(WrongObjectGeneratedRequest::class, []);
     }
 
+    public function testContextItemsAreTheDtosTheApplicationBuilt(): void
+    {
+        $line = new LineItemRequest();
+        $line->sku = 'A-1';
+
+        $dto = $this->handler->handleArray(ContextLinesRequest::class, [], context: ['lines' => [$line]]);
+
+        $this->assertSame([$line], $dto->lines, 'kept, not rebuilt');
+        $this->assertSame(['lines' => [['sku' => 'A-1', 'qty' => 1]]], $dto->toArray());
+    }
+
+    public function testContextItemsOfAnotherTypeThrow(): void
+    {
+        // 3.x built DTOs from the arrays; the application passes built ones now.
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Context value 'lines' holds array at key 0, but");
+        $this->handler->handleArray(ContextLinesRequest::class, [], context: ['lines' => [['sku' => 'A-1']]]);
+    }
+
     public function testRequestTypedContextValueIsKeptAsPassed(): void
     {
         $address = new AddressRequest();
@@ -3462,4 +3481,18 @@ final class WrongObjectGeneratedRequest extends Request
 {
     #[Generator(WrongObjectGenerator::class)]
     public AddressRequest $address;
+}
+
+final class LineItemRequest extends Request
+{
+    public ?string $sku = null;
+    public int $qty = 1;
+}
+
+final class ContextLinesRequest extends Request
+{
+    /** @var list<LineItemRequest> */
+    #[FromContext('lines')]
+    #[Items(LineItemRequest::class)]
+    public array $lines = [];
 }

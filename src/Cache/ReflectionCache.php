@@ -175,12 +175,16 @@ final class ReflectionCache
                 $properties,
                 static fn(PropertyMetadata $property): bool => $property->generator !== null
             ));
+            // Children are built only from client input: a #[FromContext]
+            // list holds the application's DTOs as they are.
             $transformed = array_keys(array_filter(
                 $properties,
                 static fn(PropertyMetadata $property): bool => $property->postProcessorKind !== null
                     || $property->customCasterClass !== null
-                    || $property->items !== null
-                    || $property->nested !== null
+                    || (
+                        ($property->items !== null || $property->nested !== null)
+                        && $property->source !== FieldSource::Context
+                    )
             ));
 
             $groups = [];

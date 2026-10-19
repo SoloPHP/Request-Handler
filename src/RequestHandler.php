@@ -289,6 +289,13 @@ final class RequestHandler
                 continue;
             }
 
+            // The application's value as it is — an #[Items] list included,
+            // whose DTOs it has built already.
+            if ($property->source === FieldSource::Context) {
+                $values[$name] = $this->castTrusted($property, $value, $className);
+                continue;
+            }
+
             if ($property->items !== null || $property->nested !== null) {
                 if ($value !== null) {
                     $childErrors[$name] = [];
@@ -299,11 +306,6 @@ final class RequestHandler
                 } elseif ($this->requiresValue($property)) {
                     $errors[$name] = [['rule' => 'required']];
                 }
-                continue;
-            }
-
-            if ($property->source === FieldSource::Context) {
-                $values[$name] = $this->castTrusted($property, $value, $className);
                 continue;
             }
 
@@ -373,7 +375,10 @@ final class RequestHandler
                 $values[$name] = $value;
             }
 
-            if ($property->items === null && $property->nested === null) {
+            if (
+                ($property->items === null && $property->nested === null)
+                || $property->source === FieldSource::Context
+            ) {
                 continue;
             }
 
@@ -672,6 +677,23 @@ final class RequestHandler
                 $property->name,
                 $property->type,
             ));
+        }
+
+        // #[Items] on a context list declares the DTOs the application built.
+        if ($property->items !== null && is_array($cast)) {
+            foreach ($cast as $key => $item) {
+                if (!$item instanceof $property->items) {
+                    throw new \UnexpectedValueException(sprintf(
+                        "%s holds %s at key %s, but %s::\$%s lists %s.",
+                        $this->describeTrusted($property),
+                        get_debug_type($item),
+                        $key,
+                        $className,
+                        $property->name,
+                        $property->items,
+                    ));
+                }
+            }
         }
 
         return $cast;
