@@ -133,6 +133,18 @@ final class BuiltInCasterTest extends TestCase
         $this->assertSame(['x'], $this->caster->cast('array', $objectKeys));
     }
 
+    public function testIterableCastKeepsAnIterable(): void
+    {
+        $generator = (static function (): \Generator {
+            yield 'a';
+        })();
+
+        $this->assertSame($generator, $this->caster->cast('iterable', $generator), 'not consumed');
+        $this->assertSame(['a'], $this->caster->cast('iterable', ['a']));
+        $this->assertSame(['a', 'b'], $this->caster->cast('iterable', 'a,b'));
+        $this->assertFalse(BuiltInCaster::isBuiltIn('iterable'), 'no #[Cast] vocabulary');
+    }
+
     public function testCastArrayFromObject(): void
     {
         $obj = new \stdClass();

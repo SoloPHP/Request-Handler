@@ -72,6 +72,10 @@ final class BuiltInCaster
             'string' => $this->toString($value),
             'array' => $this->toArray($value),
             'json' => $this->toJson($value),
+            // Type-driven only (no #[Cast]): an iterable already fits — a
+            // generator or cursor is kept, not consumed — the rest is read
+            // like an array.
+            'iterable' => is_iterable($value) ? $value : $this->toArray($value),
             default => throw new InvalidArgumentException("Unknown cast type: {$type}"),
         };
     }

@@ -852,7 +852,7 @@ final class ReflectionCache
      * - explicit `#[Caster(...)]`              → [null, casterClass, null]
      * - explicit `#[Cast('int'|…|'json')]`    → [castType, null, null]
      * - no attribute, scalar property type     → [propertyType, null, null]
-     * - no attribute, `iterable`               → ['array', null, null]
+     * - no attribute, `iterable`               → ['iterable', null, null]
      * - no attribute, BackedEnum property type → [null, null, enumClass]
      * - anything else                          → [null, null, null]
      *
@@ -878,7 +878,7 @@ final class ReflectionCache
         }
 
         if ($propertyType === 'iterable') {
-            return ['array', null, null];
+            return ['iterable', null, null];
         }
 
         if ($classType !== null && is_subclass_of($classType, BackedEnum::class)) {
