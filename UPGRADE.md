@@ -102,7 +102,7 @@ The class now comes from the property type, so the `datetime[:immutable][:format
 | `#[Cast('datetime:Y-m-d')] public DateTime $day;` | `#[DateFormat('Y-m-d')] public DateTime $day;` |
 | `#[Cast('datetime:immutable:Y-m-d')] public DateTimeImmutable $day;` | `#[DateFormat('Y-m-d')] public DateTimeImmutable $day;` |
 
-A `DateTimeInterface` property now holds a `DateTimeImmutable` (3.x: `DateTime`). An untyped or `mixed` property with `#[DateFormat]` gets a `DateTimeImmutable`.
+A `DateTimeInterface` property now holds a `DateTimeImmutable` (3.x: `DateTime`). An untyped or `mixed` property with `#[DateFormat]` gets a `DateTimeImmutable`. With a format, a JSON number is read in it like a string (`20240115` for `Ymd`) instead of as a Unix timestamp — declare `U` to accept timestamps.
 
 An impossible date or time — `"2024-02-31"`, `"23:61"` — is now a `date` / `date_format` error; 3.x stored what PHP's parser rolled it over into (2 March, the next hour).
 

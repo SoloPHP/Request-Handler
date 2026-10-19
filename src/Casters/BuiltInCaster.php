@@ -88,7 +88,8 @@ final class BuiltInCaster
      * (`2024-02-31`, `23:61`), which PHP would roll over.
      *
      * A format without time-of-day fields yields midnight: `createFromFormat()`
-     * would otherwise copy the current time into the unparsed fields.
+     * would otherwise copy the current time into the unparsed fields. With a
+     * format, a number is read in it like a string (`20240115` for `Ymd`).
      *
      * @param class-string<DateTime|DateTimeImmutable> $class
      */
@@ -104,7 +105,11 @@ final class BuiltInCaster
         }
 
         if (is_int($value)) {
-            return (new $class())->setTimestamp($value);
+            if ($format === null) {
+                return (new $class())->setTimestamp($value);
+            }
+            // The format says how to read the value — a number included.
+            $value = (string) $value;
         }
 
         if (!is_string($value) || $value === '') {
