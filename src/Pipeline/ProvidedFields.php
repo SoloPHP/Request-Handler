@@ -36,4 +36,13 @@ final class ProvidedFields
     {
         return self::$fields[$dto] ?? [];
     }
+
+    /**
+     * Whether `RequestHandler` built the DTO — and so recorded what the
+     * request supplied for it, possibly nothing.
+     */
+    public static function knows(Request $dto): bool
+    {
+        return isset(self::$fields[$dto]);
+    }
 }

@@ -37,7 +37,7 @@ public function toArray(bool $onlyProvided = false): array
 
 | Name | Type | Description |
 |------|------|-------------|
-| `$onlyProvided` | `bool` | Keep only the properties the request supplied — see [`provided()`](#provided). Applies to nested DTOs and `#[Items]` too |
+| `$onlyProvided` | `bool` | Keep only the properties the request supplied — see [`provided()`](#provided). Applies to the nested DTOs and `#[Items]` the handler built; a DTO the application passed in `context` is a value supplied as a whole |
 
 **Returns:** Associative array of property names to values.
 
