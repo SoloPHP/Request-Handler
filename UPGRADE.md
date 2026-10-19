@@ -50,6 +50,7 @@ The type-driven casts used PHP's own coercion, so the declared type silently rew
 | `int` | `true` | `1` | `['rule' => 'integer']` |
 | `float` | `"abc"` | `0.0` | `['rule' => 'numeric']` |
 | `float` | `false` | `0.0` | `['rule' => 'numeric']` |
+| `float` | `"1e400"` | `INF` | `['rule' => 'numeric']` |
 | `bool` | `"maybe"`, `2` | `true` | `['rule' => 'boolean']` |
 | `bool` | `""` | `false` | no value — `null`, the default, or `required` |
 | `string` | `true` | `"1"` | `['rule' => 'string']` |
