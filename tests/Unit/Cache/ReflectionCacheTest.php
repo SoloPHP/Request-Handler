@@ -15,6 +15,7 @@ use Solo\RequestHandler\Attributes\Generator;
 use Solo\RequestHandler\Attributes\Group;
 use Solo\RequestHandler\Attributes\Ignore;
 use Solo\RequestHandler\Attributes\Items;
+use Solo\RequestHandler\Attributes\NoTrim;
 use Solo\RequestHandler\Attributes\PostProcess;
 use Solo\RequestHandler\Attributes\PreProcess;
 use Solo\RequestHandler\Attributes\Source\FromBody;
@@ -112,7 +113,28 @@ final class ReflectionCacheTest extends TestCase
             'FromBody'  => [IgnoreWithFromBodyRequest::class, 'FromBody'],
             'Generator' => [IgnoreWithGeneratorRequest::class, 'Generator'],
             'EmptyToNull' => [IgnoreWithEmptyToNullRequest::class, 'EmptyToNull'],
+            'NoTrim' => [IgnoreWithNoTrimRequest::class, 'NoTrim'],
         ];
+    }
+
+    // ===== #[NoTrim] =====
+
+    public function testNoTrimOnAPropertyOrAClass(): void
+    {
+        $properties = $this->cache->get(NoTrimPropertyRequest::class)->properties;
+        $this->assertTrue($properties['snippet']->noTrim);
+        $this->assertFalse($properties['title']->noTrim);
+
+        $properties = $this->cache->get(NoTrimChildRequest::class)->properties;
+        $this->assertTrue($properties['body']->noTrim, 'inherited from the parent class');
+        $this->assertTrue($properties['extra']->noTrim);
+    }
+
+    public function testNoTrimWithGeneratorThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('#[Generator] and #[NoTrim]');
+        $this->cache->get(GeneratorWithNoTrimRequest::class);
     }
 
     // ===== #[EmptyToNull] =====
@@ -1450,5 +1472,38 @@ final class GeneratorWithEmptyToNullRequest extends Request
 {
     #[Generator(TestGenerator::class)]
     #[EmptyToNull]
+    public string $id;
+}
+
+final class IgnoreWithNoTrimRequest extends Request
+{
+    #[Ignore]
+    #[NoTrim]
+    public ?string $note = null;
+}
+
+final class NoTrimPropertyRequest extends Request
+{
+    #[NoTrim]
+    public string $snippet;
+
+    public string $title;
+}
+
+#[NoTrim]
+class NoTrimBaseRequest extends Request
+{
+    public string $body;
+}
+
+final class NoTrimChildRequest extends NoTrimBaseRequest
+{
+    public ?string $extra = null;
+}
+
+final class GeneratorWithNoTrimRequest extends Request
+{
+    #[Generator(TestGenerator::class)]
+    #[NoTrim]
     public string $id;
 }

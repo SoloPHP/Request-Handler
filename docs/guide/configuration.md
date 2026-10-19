@@ -26,13 +26,20 @@ By default, all string inputs are trimmed before validation:
 public string $name;
 ```
 
+**Opt a property — or a whole class — out with `#[NoTrim]`:**
+
+```php
+#[NoTrim]
+public string $snippet;   // whitespace kept as sent
+```
+
 **Disable globally:**
 
 ```php
 $handler = new RequestHandler($validator, autoTrim: false);
 ```
 
-**Or use `#[PreProcess]` for specific fields:**
+**And trim specific fields with `#[PreProcess]`:**
 
 ```php
 #[PreProcess('trim')]

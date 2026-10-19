@@ -21,6 +21,7 @@ use Solo\RequestHandler\Attributes\Generator;
 use Solo\RequestHandler\Attributes\Group;
 use Solo\RequestHandler\Attributes\Ignore;
 use Solo\RequestHandler\Attributes\Items;
+use Solo\RequestHandler\Attributes\NoTrim;
 use Solo\RequestHandler\Attributes\PostProcess;
 use Solo\RequestHandler\Attributes\PreProcess;
 use Solo\RequestHandler\Attributes\Source\FromBody;
@@ -126,6 +127,7 @@ final class ReflectionCache
         try {
             $reflection = new ReflectionClass($className);
             $emptyToNull = $this->classHasAttribute($reflection, EmptyToNull::class);
+            $noTrim = $this->classHasAttribute($reflection, NoTrim::class);
             $properties = [];
 
             foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
@@ -138,7 +140,7 @@ final class ReflectionCache
                     continue;
                 }
 
-                $metadata = $this->buildPropertyMetadata($property, $className, $emptyToNull);
+                $metadata = $this->buildPropertyMetadata($property, $className, $emptyToNull, $noTrim);
                 $properties[$metadata->name] = $metadata;
             }
 
@@ -180,6 +182,7 @@ final class ReflectionCache
             Caster::class      => 'Caster',
             DateFormat::class  => 'DateFormat',
             EmptyToNull::class => 'EmptyToNull',
+            NoTrim::class      => 'NoTrim',
             PreProcess::class  => 'PreProcess',
             PostProcess::class => 'PostProcess',
             Generator::class   => 'Generator',
@@ -222,11 +225,13 @@ final class ReflectionCache
      *                                       processors are looked up (and later called) on it,
      *                                       which may be a subclass of the declaring class.
      * @param bool         $classEmptyToNull `#[EmptyToNull]` on the class or a parent.
+     * @param bool         $classNoTrim      `#[NoTrim]` on the class or a parent.
      */
     private function buildPropertyMetadata(
         ReflectionProperty $property,
         string $requestClass,
         bool $classEmptyToNull,
+        bool $classNoTrim,
     ): PropertyMetadata {
         $name = $property->getName();
         $className = $property->getDeclaringClass()->getName();
@@ -242,6 +247,7 @@ final class ReflectionCache
         $group = $this->firstAttribute($property, Group::class);
         $excludeAttr = $this->firstAttribute($property, Exclude::class);
         $emptyToNull = $this->firstAttribute($property, EmptyToNull::class);
+        $noTrim = $this->firstAttribute($property, NoTrim::class);
 
         [$source, $sourceKey, $pathSegments] = $this->detectSource($property, $name, $className);
 
@@ -397,6 +403,7 @@ final class ReflectionCache
             dateFormat: $dateFormat?->format,
             nested: $nested,
             emptyToNull: $generator === null && ($classEmptyToNull || $emptyToNull !== null),
+            noTrim: $generator === null && ($classNoTrim || $noTrim !== null),
         );
     }
 
@@ -548,6 +555,7 @@ final class ReflectionCache
             Caster::class      => 'Caster',
             DateFormat::class  => 'DateFormat',
             EmptyToNull::class => 'EmptyToNull',
+            NoTrim::class      => 'NoTrim',
             PreProcess::class  => 'PreProcess',
             PostProcess::class => 'PostProcess',
             Items::class       => 'Items',
