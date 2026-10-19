@@ -158,15 +158,17 @@ final class ReflectionCacheTest extends TestCase
         $this->assertTrue($this->cache->get(EmptyToNullChildRequest::class)->properties['extra']->emptyToNull);
     }
 
-    public function testClassLevelInputAttributesSkipContextProperties(): void
+    public function testContextValuesAreKeptAsTheApplicationPassesThem(): void
     {
         $properties = $this->cache->get(ClientInputClassRequest::class)->properties;
 
         $this->assertTrue($properties['note']->emptyToNull);
         $this->assertTrue($properties['note']->noTrim);
-        $this->assertFalse($properties['tenant']->emptyToNull);
-        $this->assertFalse($properties['tenant']->noTrim);
+        $this->assertFalse($properties['tenant']->emptyToNull, 'a class-level #[EmptyToNull] leaves context out');
+        $this->assertTrue($properties['tenant']->noTrim, 'auto-trim never touches a context value');
         $this->assertTrue($properties['explicit']->emptyToNull, 'on the property itself it still applies');
+
+        $this->assertTrue($this->cache->get(ContextDtoRequest::class)->properties['address']->noTrim);
     }
 
     public function testRequestTypedContextPropertyIsNotNested(): void

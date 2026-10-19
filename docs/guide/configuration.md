@@ -18,7 +18,7 @@ public function __construct(
 
 ## Auto Trim
 
-By default, all string inputs are trimmed before validation:
+By default, every string the client sends is trimmed before validation. `#[FromContext]` values are the application's and stay as passed:
 
 ```php
 // Input: "  John Doe  " → Stored as: "John Doe"

@@ -165,7 +165,7 @@ Auto-trim (on by default) skips the property: the string reaches pre-processors,
 public string $snippet;   // "  echo 1;\n" stays as it is
 ```
 
-On a class it applies to every property of the class and its subclasses that the client sends (not to `#[FromContext]` or generated ones). With `#[EmptyToNull]`, a whitespace-only string is still read as no value. Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`.
+On a class it applies to every property of the class and its subclasses; `#[FromContext]` values are never auto-trimmed anyway. With `#[EmptyToNull]`, a whitespace-only string is still read as no value. Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`.
 
 ### `#[PreProcess(handler)]` and `#[PostProcess(handler, config: [...])]`
 

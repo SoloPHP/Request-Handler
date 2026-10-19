@@ -48,7 +48,8 @@ use Solo\RequestHandler\Request;
  * `date`, `date_format`) — decided once, at build time.
  *
  * `emptyToNull` (`#[EmptyToNull]` on the property or its class): a blank
- * string is read as null. `noTrim` (`#[NoTrim]`): auto-trim skips it.
+ * string is read as null. `noTrim`: auto-trim skips it — `#[NoTrim]`, or a
+ * `#[FromContext]` value, which is the application's.
  *
  * `typeGuard` is set for a union no cast applies to (`int|float`): a value
  * of a member type is kept, another one is converted to the first of

@@ -117,7 +117,7 @@ A blank string (`""` or only whitespace, also with auto-trim off) becomes `null`
 final class NoTrim {}
 ```
 
-Auto-trim skips the property: its string is kept as sent. On a class, it applies to every property of the class and of its subclasses that the client sends — `#[FromContext]` and generated ones aside. No effect when the handler was built with `autoTrim: false`. Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`, with `#[Ignore]` — `ignoreConflict`.
+Auto-trim skips the property: its string is kept as sent. On a class, it applies to every property of the class and of its subclasses (auto-trim never touches `#[FromContext]` values). No effect when the handler was built with `autoTrim: false`. Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`, with `#[Ignore]` — `ignoreConflict`.
 
 ### `#[PreProcess(string $handler)]`
 
