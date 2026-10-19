@@ -15,7 +15,7 @@ Most applications need only the checklist below. The sections after it explain e
 | Tests or clients expecting `['rule' => 'scalar']` | Expect the type's rule: `integer`, `numeric`, `boolean` or `string` |
 | Clients reading errors of `#[FromBody('path')]`, `#[FromRoute('key')]`, `#[FromContext('key')]` properties | Read them under the input key ([Error keys](#error-keys-follow-the-input)) |
 | `$handler->schema(...)` consumers | Read fields by input key; `exclude` is gone ([Schema](#schema-v2)) |
-| A property typed with a class that is not a Request subclass, enum or date | Give it a `#[Caster]`, processor, `#[Generator]` or `#[FromContext]` ([Class types](#class-typed-properties)) |
+| A property typed with a class that is not a Request subclass, enum or date — or with `object`, an intersection, a union of classes | Give it a `#[Caster]`, processor, `#[Generator]` or `#[FromContext]` ([Class types](#class-typed-properties)) |
 | `toArray()` overridden in a Request subclass | Declare `toArray(bool $onlyProvided = false): array` |
 | `AuthorizationException` | Remove — it was never thrown |
 | `Solo\RequestHandler\Cache\*`, `Casters\BuiltInCaster`, `Pipeline\*`, `Schema\SchemaBuilder`, `RuleParser`, `InputBags` used directly | Use the public API — these classes are now `@internal` |
@@ -109,7 +109,9 @@ public AddressRequest $address;           // required: null → ['address' => [[
 public ?AddressRequest $billing = null;
 ```
 
-Any **other class type** needs something that produces it — `#[Caster]`, a pre/post-processor, `#[Generator]` or `#[FromContext]` (backed enums and DateTime classes are produced by their type). Otherwise building the metadata throws `ConfigurationException::unproducibleType` — at the first use of the class, not at the first request carrying the field. This includes pure (non-backed) enums. An object passed for such a property in the `handleArray()` data belongs in `context`, read with `#[FromContext]`.
+Any **other class type** needs something that produces it — `#[Caster]`, a pre/post-processor, `#[Generator]` or `#[FromContext]` (backed enums and DateTime classes are produced by their type). Otherwise building the metadata throws `ConfigurationException::unproducibleType` — at the first use of the class, not at the first request carrying the field. This includes pure (non-backed) enums, `object`, intersection types and unions of classes only. An object passed for such a property in the `handleArray()` data belongs in `context`, read with `#[FromContext]`.
+
+A **union with a scalar member** and no `#[Cast]` (`int|float`, `int|string`) reached the property unconverted in 3.x: PHP coerced what it could and threw a `TypeError` for the rest. Now a value of a member type is kept, another one is converted to the first scalar member it fits without loss (`"5"` → `5` for `int|float`), and a value that fits none is a validation error — `numeric` for `int|float`, `string` for a union with `string`. An `iterable` property is cast like `array`.
 
 ## Schema v2
 

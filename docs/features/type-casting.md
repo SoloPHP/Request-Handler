@@ -18,7 +18,19 @@ public Status $status;            // BackedEnum — resolved by backing value
 public AddressRequest $address;   // Request subclass — a nested DTO (see Nested Objects)
 ```
 
-A property of any other class type needs something that produces it — `#[Caster]`, a pre/post-processor, a `#[Generator]` or `#[FromContext]`; otherwise building the metadata throws `ConfigurationException::unproducibleType`.
+An `iterable` property is cast like `array`. A property of any other class type — and one typed `object`, with an intersection, or with a union of classes only — needs something that produces it: `#[Caster]`, a pre/post-processor, a `#[Generator]` or `#[FromContext]`; otherwise building the metadata throws `ConfigurationException::unproducibleType`.
+
+### Union types
+
+A union with a scalar or `array` member and no `#[Cast]` keeps a value of one of its types and converts any other value to the first scalar member it fits without loss — `int`, then `float`, `string`, `bool`, PHP's own order:
+
+```php
+public int|float $amount;   // 5 → 5, "5" → 5, "5.5" → 5.5, "abc" → numeric error
+public int|string $code;    // "007" → "007" (a string already fits), 2.0 → 2
+public array|string $tags;  // ['a'] → ['a'], 7 → "7"
+```
+
+A value that fits no member is a validation error named after the widest member: `string`, then `numeric`, `integer`, `boolean`, `array`. `""` for a union without `string` means no value, as for a number.
 
 Casts are **lossless**: a value is converted only when nothing is lost on the way — `"42"` becomes `42`, but `"42abc"` does not become `42`. Everything else is a validation error.
 

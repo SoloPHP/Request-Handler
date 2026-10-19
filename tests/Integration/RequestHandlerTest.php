@@ -435,6 +435,73 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(' z ', $dto->c, 'a filled value is not trimmed');
     }
 
+    // ===== union types =====
+
+    public function testUnionKeepsAValueOfAMemberType(): void
+    {
+        $dto = $this->handler->handleArray(UnionTypesRequest::class, [
+            'amount' => 5,
+            'code'   => '007',
+            'tags'   => ['a'],
+        ]);
+
+        $this->assertSame(5, $dto->amount);
+        $this->assertSame('007', $dto->code, 'a string fits int|string as it is');
+        $this->assertSame(['a'], $dto->tags);
+    }
+
+    public function testUnionConvertsAnotherValueInPhpsOrderWithoutLoss(): void
+    {
+        $dto = $this->handler->handleArray(UnionTypesRequest::class, [
+            'amount' => '5',
+            'ratio'  => '2.5',
+            'code'   => 2.0,
+            'flag'   => 'yes',
+            'tags'   => 7,
+        ]);
+
+        $this->assertSame(5, $dto->amount, 'int before float');
+        $this->assertSame(2.5, $dto->ratio);
+        $this->assertSame(2, $dto->code, 'a whole float becomes the int member');
+        $this->assertTrue($dto->flag);
+        $this->assertSame('7', $dto->tags);
+    }
+
+    public function testValueThatFitsNoUnionMemberIsAnError(): void
+    {
+        // 3.x: a TypeError while populating the DTO — a 500.
+        try {
+            $this->handler->handleArray(UnionTypesRequest::class, [
+                'amount' => 'abc',
+                'ratio'  => [1],
+                'code'   => ['x'],
+                'flag'   => 'maybe',
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame([
+                'amount' => [['rule' => 'numeric']],
+                'ratio'  => [['rule' => 'numeric']],
+                'code'   => [['rule' => 'string']],
+                'flag'   => [['rule' => 'integer']],
+            ], $e->getErrors());
+        }
+    }
+
+    public function testEmptyStringForANumericUnionMeansNoValue(): void
+    {
+        $dto = $this->handler->handleArray(UnionTypesRequest::class, ['amount' => '']);
+
+        $this->assertSame(0, $dto->amount);
+    }
+
+    public function testContextValueThatFitsNoUnionMemberThrows(): void
+    {
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Context value 'limit' does not fit");
+        $this->handler->handleArray(ContextUnionRequest::class, [], context: ['limit' => 'many']);
+    }
+
     // ===== #[EmptyToNull] =====
 
     public function testBlankStringBecomesNullForTheValidatorAndTheProperty(): void
@@ -3049,4 +3116,21 @@ final class NoTrimClassRequest extends Request
 
     #[EmptyToNull]
     public ?string $c = null;
+}
+
+final class UnionTypesRequest extends Request
+{
+    public int|float $amount = 0;
+    public int|float $ratio = 0;
+    public int|string $code = 0;
+    public int|bool $flag = false;
+
+    /** @var array<mixed>|string */
+    public array|string $tags = '';
+}
+
+final class ContextUnionRequest extends Request
+{
+    #[FromContext('limit')]
+    public int|float $limit;
 }

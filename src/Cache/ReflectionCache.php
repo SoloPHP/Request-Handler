@@ -71,6 +71,33 @@ final class ReflectionCache
     ];
 
     /**
+     * Built-in types a value read from request input can have: a property
+     * typed with one — or with a union containing one — needs no producer.
+     */
+    private const array INPUT_TYPES = ['int', 'float', 'string', 'bool', 'true', 'false', 'array', 'iterable', 'mixed'];
+
+    /**
+     * Scalar union members a value of another type is converted to, in PHP's
+     * own coercion order.
+     */
+    private const array UNION_CASTS = ['int', 'float', 'string', 'bool'];
+
+    /**
+     * Union member → the error when a value fits no member, widest member
+     * first: a string accepts any scalar, a float any number.
+     */
+    private const array UNION_FAILURES = [
+        'string'   => 'string',
+        'float'    => 'numeric',
+        'int'      => 'integer',
+        'bool'     => 'boolean',
+        'true'     => 'boolean',
+        'false'    => 'boolean',
+        'array'    => 'array',
+        'iterable' => 'array',
+    ];
+
+    /**
      * Date type (lower-case) → the class a date property is built as.
      * `DateTimeInterface` gets the immutable implementation.
      */
@@ -353,21 +380,29 @@ final class ReflectionCache
             $nested = $classType;
         }
 
-        // Fail fast on a class type nothing can produce from request input:
-        // otherwise the first request carrying the field ends in a TypeError.
-        if (
-            $classType !== null
-            && $nested === null
-            && $dateClass === null
-            && $enumClass === null
-            && $resolvedCasterClass === null
-            && $preProcessorKind === null
-            && $postProcessorKind === null
-            && $generator === null
-            && $source !== FieldSource::Context
-        ) {
-            throw ConfigurationException::unproducibleType($className, $name, $classType);
+        // Fail fast on a type nothing can produce from request input — a
+        // class, `object`, an intersection, a union of classes: otherwise the
+        // first request carrying the field ends in a TypeError.
+        $produced = $nested !== null
+            || $dateClass !== null
+            || $enumClass !== null
+            || $effectiveCastType !== null
+            || $resolvedCasterClass !== null
+            || $preProcessorKind !== null
+            || $postProcessorKind !== null
+            || $generator !== null
+            || $source === FieldSource::Context;
+
+        if (!$produced && !$this->holdsClientInput($property->getType())) {
+            throw ConfigurationException::unproducibleType($className, $name, (string) $phpType);
         }
+
+        [$typeGuard, $unionCasts, $unionFailure] = $effectiveCastType === null
+            && $enumClass === null
+            && $dateClass === null
+            && $resolvedCasterClass === null
+            ? $this->unionCast($property->getType())
+            : [null, [], null];
 
         return new PropertyMetadata(
             name: $name,
@@ -397,14 +432,74 @@ final class ReflectionCache
             preProcessorGuard: $preProcessorGuard,
             postProcessorGuard: $postProcessorGuard,
             enumClass: $enumClass,
-            castFailure: $this->castFailure($effectiveCastType, $dateClass, $dateFormat?->format, $enumClass),
+            castFailure: $unionFailure
+                ?? $this->castFailure($effectiveCastType, $dateClass, $dateFormat?->format, $enumClass),
             groupMapTo: $group?->mapTo,
             dateClass: $dateClass,
             dateFormat: $dateFormat?->format,
             nested: $nested,
             emptyToNull: $generator === null && ($classEmptyToNull || $emptyToNull !== null),
             noTrim: $generator === null && ($classNoTrim || $noTrim !== null),
+            typeGuard: $typeGuard,
+            unionCasts: $unionCasts,
         );
+    }
+
+    /**
+     * Whether a value read from request input can have the type: untyped,
+     * `mixed`, a scalar, `array` / `iterable`, or a union with one of those.
+     */
+    private function holdsClientInput(?\ReflectionType $type): bool
+    {
+        if ($type === null) {
+            return true;
+        }
+
+        foreach ($type instanceof \ReflectionUnionType ? $type->getTypes() : [$type] as $member) {
+            if (
+                $member instanceof \ReflectionNamedType
+                && in_array(strtolower($member->getName()), self::INPUT_TYPES, true)
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A union no cast applies to (`int|float`, `int|string`): the guard that
+     * keeps a value of a member type, the scalar members another value is
+     * converted to, and the error when none fits. Nothing for other types.
+     *
+     * @return array{0: ?ParameterTypeGuard, 1: list<string>, 2: array{rule: string}|null}
+     */
+    private function unionCast(?\ReflectionType $type): array
+    {
+        if (!$type instanceof \ReflectionUnionType || !$this->holdsClientInput($type)) {
+            return [null, [], null];
+        }
+
+        $members = [];
+        foreach ($type->getTypes() as $member) {
+            if ($member instanceof \ReflectionNamedType) {
+                $members[] = strtolower($member->getName());
+            }
+        }
+
+        $failure = null;
+        foreach (self::UNION_FAILURES as $member => $rule) {
+            if (in_array($member, $members, true)) {
+                $failure = ['rule' => $rule];
+                break;
+            }
+        }
+
+        return [
+            ParameterTypeGuard::fromType($type),
+            array_values(array_intersect(self::UNION_CASTS, $members)),
+            $failure,
+        ];
     }
 
     /**
@@ -737,6 +832,7 @@ final class ReflectionCache
      * - explicit `#[Caster(...)]`              → [null, casterClass, null]
      * - explicit `#[Cast('int'|…|'json')]`    → [castType, null, null]
      * - no attribute, scalar property type     → [propertyType, null, null]
+     * - no attribute, `iterable`               → ['array', null, null]
      * - no attribute, BackedEnum property type → [null, null, enumClass]
      * - anything else                          → [null, null, null]
      *
@@ -759,6 +855,10 @@ final class ReflectionCache
 
         if ($propertyType !== null && BuiltInCaster::isBuiltIn($propertyType)) {
             return [$propertyType, null, null];
+        }
+
+        if ($propertyType === 'iterable') {
+            return ['array', null, null];
         }
 
         if ($classType !== null && is_subclass_of($classType, BackedEnum::class)) {
