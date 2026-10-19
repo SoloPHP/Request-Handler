@@ -197,7 +197,7 @@ final class ConfigurationException extends Exception
     ): self {
         return new self(sprintf(
             "Property %s::\$%s has #[Cast('%s')] which is neither a built-in type " .
-            "(int, float, bool, string, array, datetime[:immutable][:format]) nor a known class.",
+            "(int, float, bool, string, array) nor a known class.",
             $className,
             $propertyName,
             $castType
@@ -214,12 +214,63 @@ final class ConfigurationException extends Exception
     ): self {
         return new self(sprintf(
             "Property %s::\$%s has #[Cast('%s')] but that is a class name. " .
-            "#[Cast] accepts built-in types only (int, float, bool, string, array, datetime[:immutable][:format]). " .
+            "#[Cast] accepts built-in types only (int, float, bool, string, array). " .
             "For custom caster classes use #[Caster(%s::class)].",
             $className,
             $propertyName,
             $castType,
             $castType
+        ));
+    }
+
+    /**
+     * #[Cast('datetime…')] — removed in 4.0: dates are cast by the property type.
+     */
+    public static function castDateTimeRemoved(
+        string $className,
+        string $propertyName,
+        string $castType
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has #[Cast('%s')]: datetime casts were removed in 4.0. " .
+            "Type the property DateTimeImmutable / DateTime / DateTimeInterface — the class " .
+            "comes from the type — and add #[DateFormat('…')] for a fixed format.",
+            $className,
+            $propertyName,
+            $castType
+        ));
+    }
+
+    /**
+     * #[DateFormat] on a property whose type cannot hold a date.
+     */
+    public static function dateFormatRequiresDateType(
+        string $className,
+        string $propertyName,
+        string $propertyType
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has #[DateFormat] but type '%s'. " .
+            "Use DateTimeImmutable, DateTime, DateTimeInterface (or an untyped / mixed property).",
+            $className,
+            $propertyName,
+            $propertyType
+        ));
+    }
+
+    /**
+     * #[DateFormat] together with an attribute that produces the value another way.
+     */
+    public static function dateFormatConflict(
+        string $className,
+        string $propertyName,
+        string $conflictingAttribute
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has both #[DateFormat] and #[%s]. They are mutually exclusive.",
+            $className,
+            $propertyName,
+            $conflictingAttribute
         ));
     }
 

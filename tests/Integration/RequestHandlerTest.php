@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 use Solo\RequestHandler\Attributes\Cast;
 use Solo\RequestHandler\Attributes\Caster;
+use Solo\RequestHandler\Attributes\DateFormat;
 use Solo\RequestHandler\Attributes\Exclude;
 use Solo\RequestHandler\Attributes\Generator;
 use Solo\RequestHandler\Attributes\Group;
@@ -1349,13 +1350,12 @@ final class RequestHandlerTest extends TestCase
             'immutable' => '2024-01-15',
             'mutable'   => '2024-01-15 10:00',
             'either'    => '2024-01-15',
-            'adapted'   => '2024-01-15',
         ]);
 
         $this->assertInstanceOf(\DateTimeImmutable::class, $dto->immutable);
         $this->assertInstanceOf(\DateTime::class, $dto->mutable);
-        $this->assertInstanceOf(\DateTime::class, $dto->either);
-        $this->assertInstanceOf(\DateTimeImmutable::class, $dto->adapted);
+        // 4.0: DateTimeInterface gets the immutable implementation.
+        $this->assertInstanceOf(\DateTimeImmutable::class, $dto->either);
     }
 
     public function testMutableDateTimeFromContextIsConvertedForImmutableProperty(): void
@@ -2245,10 +2245,10 @@ final class JsonItemsRequest extends Request
 
 final class DateTimeFormatsRequest extends Request
 {
-    #[Cast('datetime:Y-m-d H:i:s')]
+    #[DateFormat('Y-m-d H:i:s')]
     public \DateTime $eventTime;
 
-    #[Cast('datetime:immutable:Y-m-d')]
+    #[DateFormat('Y-m-d')]
     public ?\DateTimeImmutable $day = null;
 }
 
@@ -2257,15 +2257,11 @@ final class TypeDrivenDateTimeRequest extends Request
     public \DateTimeImmutable $immutable;
     public \DateTime $mutable;
     public \DateTimeInterface $either;
-
-    #[Cast('datetime')] // mutable spec, adapted to the immutable property type
-    public \DateTimeImmutable $adapted;
 }
 
 final class ContextClockRequest extends Request
 {
     #[FromContext('now')]
-    #[Cast('datetime:immutable')]
     public \DateTimeImmutable $now;
 }
 

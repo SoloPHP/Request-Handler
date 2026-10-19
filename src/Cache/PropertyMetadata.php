@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Solo\RequestHandler\Cache;
 
 use BackedEnum;
+use DateTime;
+use DateTimeImmutable;
 use ReflectionProperty;
 use Solo\RequestHandler\FieldSource;
 use Solo\RequestHandler\Pipeline\ParameterTypeGuard;
@@ -35,6 +37,9 @@ use Solo\RequestHandler\Request;
  * `enumClass` is set when the declared type is a `BackedEnum`; the value is
  * resolved through `tryFrom()` instead of a built-in cast.
  *
+ * `dateClass` is set for a date property: the class built from the input,
+ * read in `dateFormat` when `#[DateFormat]` gives one.
+ *
  * `rejectsArrayInput` and `castFailure` are the built-in cast's policy,
  * decided once: whether an array input is a `scalar` error, and the error to
  * report when non-empty input casts to null (`in`, `date`, `date_format`).
@@ -50,6 +55,7 @@ final readonly class PropertyMetadata
      * @param list<string>|null               $pathSegments
      * @param class-string<BackedEnum>|null   $enumClass
      * @param array{rule: string, params?: list<string>}|null $castFailure
+     * @param class-string<DateTime|DateTimeImmutable>|null    $dateClass
      */
     public function __construct(
         public string $name,
@@ -82,6 +88,8 @@ final readonly class PropertyMetadata
         public bool $rejectsArrayInput = false,
         public ?array $castFailure = null,
         public ?string $groupMapTo = null,
+        public ?string $dateClass = null,
+        public ?string $dateFormat = null,
     ) {
     }
 }

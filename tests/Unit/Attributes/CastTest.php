@@ -12,8 +12,8 @@ final class CastTest extends TestCase
 {
     public function testAcceptsNonEmptyType(): void
     {
-        $attr = new Cast('datetime:immutable:Y-m-d');
-        $this->assertSame('datetime:immutable:Y-m-d', $attr->type);
+        $attr = new Cast('float');
+        $this->assertSame('float', $attr->type);
     }
 
     public function testRejectsEmptyType(): void
