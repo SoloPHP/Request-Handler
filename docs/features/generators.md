@@ -98,7 +98,7 @@ final class DatabaseSequenceGenerator implements GeneratorInterface
     }
 }
 
-// Register with dependencies
+// Built by the PSR-11 container passed to RequestHandler — or registered:
 $handler->register(
     DatabaseSequenceGenerator::class,
     new DatabaseSequenceGenerator($connection)

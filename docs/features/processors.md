@@ -178,7 +178,7 @@ final class CurrencyFormatter implements ProcessorInterface
 
 ## Processors with Dependencies
 
-Register processor instances for dependency injection:
+Processors with constructor dependencies come from the PSR-11 container passed to `RequestHandler` (`new RequestHandler($validator, container: $container)`), or from an instance you register:
 
 ```php
 final class TransliteratorProcessor implements ProcessorInterface
@@ -200,7 +200,7 @@ $handler->register(
 );
 ```
 
-A handler class that is abstract or needs constructor arguments and has no registered instance fails on first use with `ConfigurationException::handlerNotInstantiable`, which names the `register()` call to add.
+A handler class that is abstract or needs constructor arguments, is not registered and is not in the container fails on first use with `ConfigurationException::handlerNotInstantiable`. See [Dependency Injection](/guide/configuration#dependency-injection).
 
 ---
 

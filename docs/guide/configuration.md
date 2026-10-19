@@ -6,6 +6,7 @@
 public function __construct(
     ValidatorInterface $validator,
     bool $autoTrim = true,
+    ?ContainerInterface $container = null,
 )
 ```
 
@@ -13,6 +14,7 @@ public function __construct(
 |-----------|------|---------|-------------|
 | `$validator` | `ValidatorInterface` | required | Validator instance |
 | `$autoTrim` | `bool` | `true` | Auto-trim whitespace from string inputs |
+| `$container` | `?Psr\Container\ContainerInterface` | `null` | Resolves processor, caster and generator classes — see [Dependency Injection](#dependency-injection) |
 
 ## Auto Trim
 
@@ -40,6 +42,28 @@ public string $name;
 A string trimmed to `""` stays `""` for a `string` property. To read it as no value — `null` or the default — add [`#[EmptyToNull]`](/features/field-attribute#emptytonull) to the property or the class.
 
 ## Dependency Injection
+
+Processor, caster and generator classes are resolved by class name, in this order:
+
+1. an instance passed to `register()`;
+2. the entry of the PSR-11 container given to the constructor, when `has(Class::class)` is true;
+3. a new instance built without arguments.
+
+A class that needs constructor arguments must come from 1 or 2 — otherwise its first use throws `ConfigurationException::handlerNotInstantiable`. Each class is resolved once per handler and reused.
+
+### From a PSR-11 container
+
+Pass your application's container — handlers with dependencies come from it, no wiring per class:
+
+```php
+$handler = new RequestHandler($validator, container: $container);
+
+// SequenceGenerator(Connection $connection) is built by the container
+#[Generator(SequenceGenerator::class)]
+public int $id;
+```
+
+### Registering instances
 
 Register processor/caster/generator instances with constructor dependencies:
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler;
 
+use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use ReflectionProperty;
 use Solo\Contracts\Validator\ValidatorInterface;
@@ -48,18 +49,25 @@ final class RequestHandler
     /** `Request::$provided`, written when a DTO is populated. */
     private readonly ReflectionProperty $provided;
 
+    /**
+     * @param ContainerInterface|null $container Resolves processor, caster and
+     *        generator classes by class name — for those with constructor
+     *        dependencies. An instance passed to `register()` takes precedence.
+     */
     public function __construct(
         private readonly ValidatorInterface $validator,
         private readonly bool $autoTrim = true,
+        ?ContainerInterface $container = null,
     ) {
         $this->cache = ReflectionCache::shared();
         $this->builtInCaster = new BuiltInCaster();
-        $this->processors = new ProcessorRegistry();
+        $this->processors = new ProcessorRegistry($container);
         $this->provided = new ReflectionProperty(Request::class, 'provided');
     }
 
     /**
      * Register a processor/caster/generator instance for dependency injection.
+     * It takes precedence over the container's entry for the class.
      *
      * @param class-string $className
      */

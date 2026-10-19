@@ -10,9 +10,9 @@ use Exception;
  * Thrown when an invalid Request class configuration is detected
  *
  * This exception is thrown during metadata building to catch configuration
- * errors early, before any requests are processed. The one runtime case is
- * `handlerNotInstantiable()`: whether a handler class needs a registered
- * instance is only known when it is first used.
+ * errors early, before any requests are processed. The runtime cases are
+ * `handlerNotInstantiable()` and `containerEntryMismatch()`: how a handler
+ * class is resolved is only known when it is first used.
  */
 final class ConfigurationException extends Exception
 {
@@ -480,9 +480,22 @@ final class ConfigurationException extends Exception
     {
         return new self(sprintf(
             "Cannot instantiate %s automatically: it is abstract, has a non-public constructor " .
-            "or requires constructor arguments. Register an instance with " .
-            "RequestHandler::register(%s::class, \$instance).",
+            "or requires constructor arguments. Provide it through the container passed to " .
+            "RequestHandler, or register an instance with RequestHandler::register(%s::class, \$instance).",
             $handlerClass,
+            $handlerClass
+        ));
+    }
+
+    /**
+     * The container's entry for a handler class is not an instance of it.
+     */
+    public static function containerEntryMismatch(string $handlerClass, string $entryType): self
+    {
+        return new self(sprintf(
+            "The container entry for %s is a %s, not an instance of %s.",
+            $handlerClass,
+            $entryType,
             $handlerClass
         ));
     }

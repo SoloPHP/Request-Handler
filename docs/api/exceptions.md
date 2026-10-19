@@ -372,16 +372,23 @@ public ?array $items = null;
 
 #### handlerNotInstantiable
 
-Thrown on first use — not at build time — because a processor, caster or generator class that is abstract or needs constructor arguments is valid configuration once an instance is registered for it.
+Thrown on first use — not at build time — because a processor, caster or generator class that is abstract or needs constructor arguments is valid configuration once the container provides it or an instance is registered for it.
 
 ```php
-// ❌ CurrencyCaster requires a CurrencyConverter, nothing registered
+// ❌ CurrencyCaster requires a CurrencyConverter, nothing provides one
 #[Caster(CurrencyCaster::class)]
 public Money $price;
 
-// ✅
+// ✅ The container builds it
+$handler = new RequestHandler($validator, container: $container);
+
+// ✅ Or register an instance
 $handler->register(CurrencyCaster::class, new CurrencyCaster($converter));
 ```
+
+#### containerEntryMismatch
+
+Thrown on first use when the container's entry for a handler class is not an instance of that class — say, an alias pointing at the wrong service.
 
 ### Usage Pattern
 

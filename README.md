@@ -16,6 +16,7 @@ Type-safe Request DTOs for PHP 8.3+ with focused per-property attributes, declar
 - **All errors at once** — validator errors, cast failures and nested errors come back in one `ValidationException`, keyed by the input the client sent (`display_name`, `customer.id`, `lines.0.qty`); generators and post-processors run only for valid input
 - **PATCH-ready** — `provided()` / `isProvided()` tell a field the client sent (even as `null`) from one left at its default; `toArray(onlyProvided: true)` is the change set
 - **Generators** — auto-generate UUIDs, sequences, custom values via `#[Generator]`
+- **PSR-11 ready** — processors, casters and generators with dependencies come from your container: `new RequestHandler($validator, container: $container)`
 - **Pre/post processing** — `#[PreProcess]` / `#[PostProcess]` for transformation
 - **Nested DTOs** — a property typed with a Request subclass is a nested object, `#[Items]` makes a list of them; errors come back as `address.city`, `lines.0.qty`
 - **Fail-fast** — misconfigurations throw `ConfigurationException` at metadata-build time (nested item classes included), not on the first request that happens to exercise them
@@ -148,6 +149,7 @@ Fields are keyed by their **input key** — the key the client sends and errors 
 
 - PHP 8.3+
 - PSR-7 HTTP Message implementation
+- PSR-11 container (optional) — for processors, casters and generators with constructor dependencies
 - Validator implementing `Solo\Contracts\Validator\ValidatorInterface`
 
 We recommend [solophp/validator](https://github.com/SoloPHP/Validator).

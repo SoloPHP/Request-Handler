@@ -28,6 +28,8 @@ use Solo\RequestHandler\ProcessContext;
 use Solo\RequestHandler\Request;
 use Solo\RequestHandler\RequestHandler;
 use Solo\Contracts\Validator\ValidatorInterface;
+use Psr\Container\ContainerInterface;
+use Psr\Container\NotFoundExceptionInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 #[AllowMockObjectsWithoutExpectations]
@@ -576,6 +578,51 @@ final class RequestHandlerTest extends TestCase
         $dto = $this->handler->handleBody(RegisteredGeneratorRequest::class, $request);
 
         $this->assertSame('injected_prefix_generated', $dto->id);
+    }
+
+    public function testContainerProvidesHandlersWithDependencies(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+        $container = new ArrayContainer([
+            TestGeneratorWithDependency::class => new TestGeneratorWithDependency('from_container'),
+        ]);
+        $handler = new RequestHandler($this->validator, container: $container);
+
+        $dto = $handler->handleArray(RegisteredGeneratorRequest::class, ['name' => 'Test']);
+        $this->assertSame('from_container_generated', $dto->id);
+
+        $handler->handleArray(RegisteredGeneratorRequest::class, ['name' => 'Again']);
+        $this->assertSame(1, $container->gets, 'the entry is resolved once per handler');
+
+        // A registered instance takes precedence over the container.
+        $other = new RequestHandler($this->validator, container: $container);
+        $other->register(TestGeneratorWithDependency::class, new TestGeneratorWithDependency('registered'));
+        $dto = $other->handleArray(RegisteredGeneratorRequest::class, ['name' => 'Test']);
+        $this->assertSame('registered_generated', $dto->id);
+        $this->assertSame(1, $container->gets);
+    }
+
+    public function testClassesTheContainerLacksAreBuiltWithoutArguments(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+        $handler = new RequestHandler($this->validator, container: new ArrayContainer([]));
+
+        $dto = $handler->handleArray(GeneratorWithOptionsRequest::class, ['name' => 'Test']);
+
+        $this->assertSame('users_123', $dto->id);
+    }
+
+    public function testContainerEntryOfTheWrongTypeIsAConfigurationError(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+        $handler = new RequestHandler(
+            $this->validator,
+            container: new ArrayContainer([TestGeneratorWithDependency::class => new \stdClass()]),
+        );
+
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('is a stdClass, not an instance of');
+        $handler->handleArray(RegisteredGeneratorRequest::class, ['name' => 'Test']);
     }
 
     public function testProcessorReceivesContext(): void
@@ -1454,7 +1501,7 @@ final class RequestHandlerTest extends TestCase
     public function testUnregisteredHandlerWithDependenciesFailsClearly(): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('Register an instance');
+        $this->expectExceptionMessage('Provide it through the container passed to RequestHandler, or register');
         $this->handler->handleArray(RegisteredGeneratorRequest::class, ['name' => 'x']);
     }
 
@@ -2922,4 +2969,30 @@ final class PatchOrderRequest extends Request
 final class ProvidedNameClashRequest extends Request
 {
     public ?string $provided = null;
+}
+
+final class ArrayContainer implements ContainerInterface
+{
+    public int $gets = 0;
+
+    /** @param array<string, mixed> $entries */
+    public function __construct(private readonly array $entries)
+    {
+    }
+
+    public function get(string $id): mixed
+    {
+        if (!$this->has($id)) {
+            throw new class ("No entry {$id}") extends \RuntimeException implements NotFoundExceptionInterface {
+            };
+        }
+        $this->gets++;
+
+        return $this->entries[$id];
+    }
+
+    public function has(string $id): bool
+    {
+        return array_key_exists($id, $this->entries);
+    }
 }
