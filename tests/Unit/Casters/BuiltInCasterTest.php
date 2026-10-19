@@ -185,6 +185,20 @@ final class BuiltInCasterTest extends TestCase
         $this->assertNotNull($this->caster->castDate(DateTimeImmutable::class, 'Y-m-d+', '2024-01-15 extra'));
     }
 
+    public function testFormatAppliesToANumberToo(): void
+    {
+        $compact = $this->caster->castDate(DateTimeImmutable::class, 'Ymd', 20240115);
+        $this->assertInstanceOf(DateTimeImmutable::class, $compact);
+        $this->assertSame('2024-01-15 00:00:00', $compact->format('Y-m-d H:i:s'));
+
+        $timestamp = $this->caster->castDate(DateTimeImmutable::class, 'U', 1700000000);
+        $this->assertInstanceOf(DateTimeImmutable::class, $timestamp);
+        $this->assertSame(1700000000, $timestamp->getTimestamp());
+
+        // Not a timestamp behind the format's back.
+        $this->assertNull($this->caster->castDate(DateTimeImmutable::class, 'Y-m-d', 1700000000));
+    }
+
     public function testCastDateFormatContainingColons(): void
     {
         $casted = $this->caster->castDate(DateTimeImmutable::class, 'Y-m-d H:i:s', '2024-01-15 10:30:45');

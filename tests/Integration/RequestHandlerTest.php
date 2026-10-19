@@ -453,6 +453,13 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
+    public function testDateFormatReadsAJsonNumber(): void
+    {
+        $dto = $this->handler->handleArray(CompactDateRequest::class, ['day' => 20240115]);
+
+        $this->assertSame('2024-01-15', $dto->day?->format('Y-m-d'));
+    }
+
     public function testYearTypedIntoADateFieldIsADateError(): void
     {
         try {
@@ -3410,4 +3417,10 @@ final class UntrimmedClassRequest extends Request
 
     #[FromContext('token')]
     public string $token;
+}
+
+final class CompactDateRequest extends Request
+{
+    #[DateFormat('Ymd')]
+    public ?\DateTimeImmutable $day = null;
 }

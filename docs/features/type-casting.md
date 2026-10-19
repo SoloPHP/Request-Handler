@@ -173,7 +173,7 @@ public DateTimeImmutable $birthDate;   // "1990-05-01" → 1990-05-01 00:00:00
 public DateTime $eventTime;            // formats may contain ':'
 ```
 
-A format without time-of-day fields yields midnight. Other fields the format does not parse keep `createFromFormat()` semantics and come from the current date — `m-d` is in the current year; add `!` or `|` to the format to reset them yourself (`!Y-m` is the first of the month).
+A number is read in the format like a string — `20240115` for `#[DateFormat('Ymd')]`; declare `U` to accept a Unix timestamp. A format without time-of-day fields yields midnight. Other fields the format does not parse keep `createFromFormat()` semantics and come from the current date — `m-d` is in the current year; add `!` or `|` to the format to reset them yourself (`!Y-m` is the first of the month).
 
 `#[DateFormat]` on an untyped or `mixed` property produces a `DateTimeImmutable`; on any other non-date type it is a `ConfigurationException`. It cannot be combined with `#[Cast]`, `#[Caster]` or `#[Items]`.
 
