@@ -143,6 +143,19 @@ final class SchemaBuilderTest extends TestCase
         );
     }
 
+    public function testPropertiesSharingAnInputKeyAreAllDescribed(): void
+    {
+        $schema = $this->build(SchemaSharedKeyRequest::class);
+
+        $this->assertSame(['id'], array_keys($schema));
+        $this->assertSame('id', $schema['id']['property']);
+        $this->assertArrayHasKey('also', $schema['id']);
+        $this->assertCount(1, $schema['id']['also']);
+        $this->assertSame('productId', $schema['id']['also'][0]['property']);
+        $this->assertContains(['name' => 'exists', 'args' => ['products', 'id']], $schema['id']['also'][0]['rules']);
+        $this->assertArrayNotHasKey('also', $this->build(SchemaFixtureRequest::class)['name']);
+    }
+
     public function testRecursiveClassIsReferenced(): void
     {
         $schema = $this->build(SchemaTreeRequest::class);
@@ -258,4 +271,15 @@ final class SchemaIdGenerator implements GeneratorInterface
     {
         return 'id';
     }
+}
+
+final class SchemaSharedKeyRequest extends Request
+{
+    #[FromRoute]
+    #[Validate('required|integer')]
+    public int $id;
+
+    #[FromRoute('id')]
+    #[Validate('required|exists:products,id')]
+    public int $productId;
 }
