@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Pipeline;
 
+use Psr\Container\ContainerInterface;
 use Solo\RequestHandler\Cache\ProcessorKind;
 use Solo\RequestHandler\Contracts\CasterInterface;
 use Solo\RequestHandler\Contracts\GeneratorInterface;
@@ -12,9 +13,12 @@ use Solo\RequestHandler\Exceptions\ConfigurationException;
 use Solo\RequestHandler\ProcessContext;
 
 /**
- * Lazily instantiates and caches processor / caster / generator instances
- * for the lifetime of the owning `RequestHandler`, and dispatches them by
- * their pre-classified `ProcessorKind`.
+ * Lazily resolves and caches processor / caster / generator instances for
+ * the lifetime of the owning `RequestHandler`, and dispatches them by their
+ * pre-classified `ProcessorKind`.
+ *
+ * A class resolves to the instance registered for it, else the container's
+ * entry for the class name, else a new instance built without arguments.
  *
  * @internal
  */
@@ -22,6 +26,11 @@ final class ProcessorRegistry
 {
     /** @var array<class-string, ProcessorInterface|CasterInterface|GeneratorInterface|object> */
     private array $instances = [];
+
+    public function __construct(
+        private readonly ?ContainerInterface $container = null,
+    ) {
+    }
 
     /**
      * Register a pre-built instance — used when the processor/caster/generator
@@ -106,13 +115,31 @@ final class ProcessorRegistry
     private function getOrCreate(string $className): object
     {
         /** @var class-string $className */
-        return $this->instances[$className] ??= $this->instantiate($className);
+        return $this->instances[$className] ??= $this->resolve($className);
+    }
+
+    /**
+     * @param class-string $className
+     */
+    private function resolve(string $className): object
+    {
+        if ($this->container === null || !$this->container->has($className)) {
+            return $this->instantiate($className);
+        }
+
+        $entry = $this->container->get($className);
+        if (!$entry instanceof $className) {
+            throw ConfigurationException::containerEntryMismatch($className, get_debug_type($entry));
+        }
+
+        return $entry;
     }
 
     /**
      * Whether a class can be built without arguments is only decidable here:
      * an abstract class, or one with constructor dependencies, is valid
-     * configuration as long as an instance was registered for it.
+     * configuration as long as an instance was registered for it or the
+     * container provides one.
      *
      * @param class-string $className
      */

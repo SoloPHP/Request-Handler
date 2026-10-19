@@ -215,7 +215,7 @@ public Money $price;
 
 ### Caster with Dependencies
 
-Register caster instance for dependency injection:
+A caster with constructor dependencies comes from the PSR-11 container passed to `RequestHandler`, or from a registered instance:
 
 ```php
 final class CurrencyCaster implements CasterInterface
