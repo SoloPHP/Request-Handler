@@ -9,12 +9,13 @@ namespace Solo\RequestHandler;
  *
  * Source is normally inferred from the handle* method being called
  * (`handleBody` → Body, `handleQuery` → Query). Properties that need a
- * non-default source declare it via `#[FromRoute]` or `#[FromContext]`.
+ * non-default source declare it via `#[FromRoute]`, `#[FromContext]` or
+ * `#[FromBody]`. The backing value is the name `schema()` reports.
  */
-enum FieldSource
+enum FieldSource: string
 {
-    case Body;
-    case Query;
-    case Route;
-    case Context;
+    case Body = 'body';
+    case Query = 'query';
+    case Route = 'route';
+    case Context = 'context';
 }

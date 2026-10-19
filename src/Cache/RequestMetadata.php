@@ -8,6 +8,8 @@ use ReflectionClass;
 
 /**
  * Cached metadata for a request class
+ *
+ * @internal
  */
 final readonly class RequestMetadata
 {
@@ -18,6 +20,7 @@ final readonly class RequestMetadata
      * @param list<string>                      $generated   Names of `#[Generator]` properties
      * @param list<string>                      $transformed Names of properties with a post-processor,
      *                                                       custom caster or `#[Items]`
+     * @param array<string, list<string>>       $groups      `#[Group]` name → member property names
      */
     public function __construct(
         public string $className,
@@ -25,6 +28,7 @@ final readonly class RequestMetadata
         public ReflectionClass $reflection,
         public array $generated = [],
         public array $transformed = [],
+        public array $groups = [],
     ) {
     }
 }

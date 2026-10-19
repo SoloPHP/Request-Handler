@@ -20,6 +20,7 @@ namespace Solo\RequestHandler;
  * (e.g. `in:nullable,active` must NOT be read as a `nullable` rule).
  *
  * @phpstan-type NormalizedRule array{name: string, args: list<string>}
+ * @internal
  */
 final class RuleParser
 {

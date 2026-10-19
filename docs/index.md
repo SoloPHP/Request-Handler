@@ -105,4 +105,4 @@ echo $dto->sku;    // string — auto-generated UUID
 composer require solophp/request-handler
 ```
 
-**Requirements:** PHP 8.2+, PSR-7 HTTP Message
+**Requirements:** PHP 8.3+, PSR-7 HTTP Message

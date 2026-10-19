@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use Solo\RequestHandler\Attributes\Exclude;
 use Solo\RequestHandler\Attributes\Group;
 use Solo\RequestHandler\Attributes\Ignore;
+use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Request;
 
 final class RequestTest extends TestCase
@@ -132,40 +133,26 @@ final class RequestTest extends TestCase
 
     public function testClearGroupCacheAll(): void
     {
-        $dto = new StaticGroupRequest();
-        $dto->search = 'test';
-        $dto->group('criteria');
-
-        $reflection = new \ReflectionClass(Request::class);
-        $cacheProperty = $reflection->getProperty('groupCache');
-        $this->assertNotEmpty($cacheProperty->getValue());
+        $registry = ReflectionCache::shared();
+        $static = $registry->get(StaticGroupRequest::class);
+        $multi = $registry->get(MultiGroupRequest::class);
 
         Request::clearCache();
 
-        $this->assertEmpty($cacheProperty->getValue());
+        $this->assertNotSame($static, $registry->get(StaticGroupRequest::class));
+        $this->assertNotSame($multi, $registry->get(MultiGroupRequest::class));
     }
 
     public function testClearGroupCacheSpecificClass(): void
     {
-        $dto1 = new StaticGroupRequest();
-        $dto1->search = 'test1';
-        $dto1->group('criteria');
-
-        $dto2 = new MultiGroupRequest();
-        $dto2->search = 'test2';
-        $dto2->group('criteria');
-
-        $reflection = new \ReflectionClass(Request::class);
-        $cacheProperty = $reflection->getProperty('groupCache');
-        $cache = $cacheProperty->getValue();
-        $this->assertArrayHasKey(StaticGroupRequest::class, $cache);
-        $this->assertArrayHasKey(MultiGroupRequest::class, $cache);
+        $registry = ReflectionCache::shared();
+        $static = $registry->get(StaticGroupRequest::class);
+        $multi = $registry->get(MultiGroupRequest::class);
 
         Request::clearCache(StaticGroupRequest::class);
 
-        $cache = $cacheProperty->getValue();
-        $this->assertArrayNotHasKey(StaticGroupRequest::class, $cache);
-        $this->assertArrayHasKey(MultiGroupRequest::class, $cache);
+        $this->assertNotSame($static, $registry->get(StaticGroupRequest::class));
+        $this->assertSame($multi, $registry->get(MultiGroupRequest::class));
     }
 
     public function testGroupFlattensAssociativeArrays(): void

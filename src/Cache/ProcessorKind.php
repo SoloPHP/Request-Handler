@@ -9,6 +9,8 @@ namespace Solo\RequestHandler\Cache;
  *
  * Resolved once at metadata build time so runtime dispatch is a single match
  * rather than a chain of function_exists/class_exists/method_exists checks.
+ *
+ * @internal
  */
 enum ProcessorKind
 {

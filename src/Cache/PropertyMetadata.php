@@ -38,6 +38,8 @@ use Solo\RequestHandler\Request;
  * `rejectsArrayInput` and `castFailure` are the built-in cast's policy,
  * decided once: whether an array input is a `scalar` error, and the error to
  * report when non-empty input casts to null (`in`, `date`, `date_format`).
+ *
+ * @internal
  */
 final readonly class PropertyMetadata
 {
@@ -58,7 +60,6 @@ final readonly class PropertyMetadata
         public bool $hasDefault,
         public mixed $defaultValue,
         public ?string $validationRules,
-        public ?string $castType,
         public ?string $effectiveCastType,
         public ?string $customCasterClass,
         public ?string $preProcessor,
@@ -80,6 +81,7 @@ final readonly class PropertyMetadata
         public ?string $enumClass = null,
         public bool $rejectsArrayInput = false,
         public ?array $castFailure = null,
+        public ?string $groupMapTo = null,
     ) {
     }
 }

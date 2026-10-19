@@ -16,7 +16,7 @@ final class ValidationException extends Exception
      */
     public function __construct(
         private readonly array $errors = [],
-        ?Exception $previous = null
+        ?\Throwable $previous = null
     ) {
         $message = empty($errors)
             ? "Validation failed"

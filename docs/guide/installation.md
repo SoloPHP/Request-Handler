@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- PHP 8.2 or higher
+- PHP 8.3 or higher
 - PSR-7 HTTP Message implementation
 - Validator implementing `Solo\Contracts\Validator\ValidatorInterface`
 
@@ -19,7 +19,7 @@ composer require solophp/request-handler
 ```json
 {
     "require": {
-        "php": ">=8.2",
+        "php": "^8.3",
         "psr/http-message": "^2.0",
         "solophp/contracts": "^1.3"
     }

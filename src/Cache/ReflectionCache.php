@@ -41,9 +41,16 @@ use Solo\RequestHandler\RuleParser;
  * attributes (`#[FromRoute]` and `#[FromContext]`) are optional — without
  * one the property uses the default source dictated by the `handle*`
  * method invoked.
+ *
+ * Metadata is immutable per class, so one process-wide registry —
+ * `shared()` — serves both `RequestHandler` and the `Request` accessors.
+ *
+ * @internal
  */
 final class ReflectionCache
 {
+    private static ?self $shared = null;
+
     /**
      * Built-in cast type → acceptable PHP types for the target property.
      *
@@ -53,7 +60,7 @@ final class ReflectionCache
      * widens losslessly into a float property, a float result does not
      * narrow into an int one; `mixed` accepts every cast.
      */
-    private const CAST_COMPATIBILITY = [
+    private const array CAST_COMPATIBILITY = [
         'int'     => ['int', 'float'],
         'integer' => ['int', 'float'],
         'float'   => ['float'],
@@ -70,7 +77,7 @@ final class ReflectionCache
      * Drives the type-driven spec, the adaptation of an explicit spec and its
      * compatibility check.
      */
-    private const DATETIME_TYPES = [
+    private const array DATETIME_TYPES = [
         'datetimeimmutable' => true,
         'datetime'          => false,
         'datetimeinterface' => null,
@@ -87,12 +94,30 @@ final class ReflectionCache
      */
     private array $building = [];
 
+    public static function shared(): self
+    {
+        return self::$shared ??= new self();
+    }
+
     /**
      * @param class-string $className
      */
     public function get(string $className): RequestMetadata
     {
         return $this->cache[$className] ??= $this->build($className);
+    }
+
+    /**
+     * Forget built metadata — for one class, or all when null.
+     */
+    public function clear(?string $className = null): void
+    {
+        if ($className === null) {
+            $this->cache = [];
+            return;
+        }
+
+        unset($this->cache[$className]);
     }
 
     /**
@@ -131,7 +156,14 @@ final class ReflectionCache
                     || $property->items !== null
             ));
 
-            return new RequestMetadata($className, $properties, $reflection, $generated, $transformed);
+            $groups = [];
+            foreach ($properties as $name => $property) {
+                if ($property->group !== null) {
+                    $groups[$property->group][] = $name;
+                }
+            }
+
+            return new RequestMetadata($className, $properties, $reflection, $generated, $transformed, $groups);
         } finally {
             unset($this->building[$className]);
         }
@@ -283,7 +315,6 @@ final class ReflectionCache
             hasDefault: $hasDefault,
             defaultValue: $defaultValue,
             validationRules: $rules,
-            castType: $castType,
             effectiveCastType: $effectiveCastType,
             customCasterClass: $resolvedCasterClass,
             preProcessor: $preProcess?->handler,
@@ -305,6 +336,7 @@ final class ReflectionCache
             enumClass: $enumClass,
             rejectsArrayInput: $rejectsArrayInput,
             castFailure: $this->castFailure($effectiveCastType, $enumClass),
+            groupMapTo: $group?->mapTo,
         );
     }
 

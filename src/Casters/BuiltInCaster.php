@@ -12,10 +12,12 @@ use ReflectionEnum;
 
 /**
  * Handles built-in type casting
+ *
+ * @internal
  */
 final class BuiltInCaster
 {
-    private const BUILT_IN_TYPES = [
+    private const array BUILT_IN_TYPES = [
         'int' => true,
         'integer' => true,
         'float' => true,

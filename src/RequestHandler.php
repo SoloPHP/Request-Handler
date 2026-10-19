@@ -48,7 +48,7 @@ final class RequestHandler
         private readonly ValidatorInterface $validator,
         private readonly bool $autoTrim = true,
     ) {
-        $this->cache = new ReflectionCache();
+        $this->cache = ReflectionCache::shared();
         $this->builtInCaster = new BuiltInCaster();
         $this->processors = new ProcessorRegistry();
     }
