@@ -560,8 +560,8 @@ final class RequestHandler
 
     /**
      * Built-in, type-driven and enum casts — the conversions that can reject
-     * client input. A value that cannot be converted sets `$error` (the
-     * metadata's `scalar` / `castFailure` error) instead of becoming `1`,
+     * client input. A value that cannot be converted without loss sets
+     * `$error` (the metadata's `castFailure`) instead of becoming `0`, `1`,
      * `null` or an uninitialised property.
      *
      * @param array{rule: string, params?: list<string>}|null     $error
@@ -572,11 +572,6 @@ final class RequestHandler
         $error = null;
 
         if ($value === null) {
-            return null;
-        }
-
-        if (is_array($value) && $property->rejectsArrayInput) {
-            $error = ['rule' => 'scalar'];
             return null;
         }
 

@@ -43,9 +43,9 @@ use Solo\RequestHandler\Request;
  * `nested` is set for a property typed with a Request subclass: the value is
  * processed as a nested DTO, like one `#[Items]` element.
  *
- * `rejectsArrayInput` and `castFailure` are the built-in cast's policy,
- * decided once: whether an array input is a `scalar` error, and the error to
- * report when non-empty input casts to null (`in`, `date`, `date_format`).
+ * `castFailure` is the error reported when the built-in cast cannot convert
+ * non-empty input (`integer`, `numeric`, `boolean`, `string`, `json`, `in`,
+ * `date`, `date_format`) — decided once, at build time.
  *
  * @internal
  */
@@ -89,7 +89,6 @@ final readonly class PropertyMetadata
         public ?ParameterTypeGuard $preProcessorGuard = null,
         public ?ParameterTypeGuard $postProcessorGuard = null,
         public ?string $enumClass = null,
-        public bool $rejectsArrayInput = false,
         public ?array $castFailure = null,
         public ?string $groupMapTo = null,
         public ?string $dateClass = null,

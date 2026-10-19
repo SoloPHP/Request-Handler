@@ -20,27 +20,34 @@ public AddressRequest $address;   // Request subclass — a nested DTO (see Nest
 
 A property of any other class type needs something that produces it — `#[Caster]`, a pre/post-processor, a `#[Generator]` or `#[FromContext]`; otherwise building the metadata throws `ConfigurationException::unproducibleType`.
 
+Casts are **lossless**: a value is converted only when nothing is lost on the way — `"42"` becomes `42`, but `"42abc"` does not become `42`. Everything else is a validation error.
+
 ## Cast Failures Are Validation Errors
 
-A value that cannot become the declared type is reported in the `ValidationException`, together with the validator's errors, instead of turning into `1`, `null` or an uninitialised property:
+A value that cannot become the declared type is reported in the `ValidationException`, together with the validator's errors, instead of being coerced into something the client did not send:
 
 | Input | Error |
 |-------|-------|
-| Array for an `int` / `float` / `bool` property (`?page[]=5`) | `['rule' => 'scalar']` |
+| Not an integer for an `int` property (`"12abc"`, `"1.5"`, `[5]`) | `['rule' => 'integer']` |
+| Not a number for a `float` property (`"9,99"`, `[1.5]`) | `['rule' => 'numeric']` |
+| Not a boolean form for a `bool` property (`"maybe"`, `2`) | `['rule' => 'boolean']` |
+| An array, object or boolean for a `string` property | `['rule' => 'string']` |
 | Unparseable date, no format | `['rule' => 'date']` |
 | Unparseable date for `#[DateFormat('<format>')]` | `['rule' => 'date_format', 'params' => ['<format>']]` |
 | Value matching no enum case | `['rule' => 'in', 'params' => [...backing values]]` |
 | `""` or `null` for a non-nullable property without a default | `['rule' => 'required']` |
 
-An empty string keeps its meaning "no value": it becomes `null` for `int`, `float`, DateTime and enum properties — `null` on a nullable property, the default on one that has a default, and the `required` error otherwise. A field that already failed validation is not cast, so it reports the validator's error only.
+The `int`, `float` and `bool` casts accept exactly what the `integer`, `numeric` and `boolean` rules of [solophp/validator](https://github.com/solophp/validator) accept, and report the same error codes — so the type alone already rejects `"12abc"`; a matching rule in `#[Validate]` stays harmless.
 
-An array for a `string` property is JSON-encoded (see [String](#string)), except when it comes from a `#[FromBody]` dot-path: there it means the path stops at a sub-object, and it is a `scalar` error. Properties with a pre/post-processor or a custom caster get the value those produce, so they may accept arrays.
+An empty string keeps its meaning "no value": it becomes `null` for `int`, `float`, `bool`, DateTime and enum properties — `null` on a nullable property, the default on one that has a default, and the `required` error otherwise. A field that already failed validation is not cast, so it reports the validator's error only.
+
+An array for a `string` property is a `string` error — including a `#[FromBody]` dot-path that stops at a sub-object. To store structured input in a string property (a JSON column, say), declare [`#[Cast('json')]`](#json). Properties with a pre/post-processor or a custom caster get the value those produce, so they may accept anything.
 
 Values the application supplies — `#[FromContext]` and generators — are not client input: one that does not fit the declared type throws `UnexpectedValueException` instead of producing a validation error.
 
 ## Explicit Casting (`#[Cast]`)
 
-Use `#[Cast]` when the declared type does not say which scalar to produce — a union or `mixed` property. It accepts `int`, `float`, `bool`, `string` and `array` (the 3.x aliases `integer`, `double`, `boolean` are gone); dates are cast by their type, see [Dates](#dates):
+Use `#[Cast]` when the declared type does not say what to produce — a union or `mixed` property — or to JSON-encode into a string. It accepts `int`, `float`, `bool`, `string`, `array` and `json` (the 3.x aliases `integer`, `double`, `boolean` are gone); dates are cast by their type, see [Dates](#dates):
 
 ```php
 use Solo\RequestHandler\Attributes\Cast;
@@ -50,6 +57,9 @@ public int|float $amount;
 
 #[Cast('array')]
 public mixed $payload = null;
+
+#[Cast('json')]
+public ?string $settings = null;   // ['theme' => 'dark'] → '{"theme":"dark"}'
 ```
 
 ---
@@ -58,42 +68,52 @@ public mixed $payload = null;
 
 ### Integer
 
-```php
-$caster->cast('int', '123');    // 123
-$caster->cast('int', true);     // 1
-$caster->cast('int', false);    // 0
-$caster->cast('int', 'abc');    // 0
-```
+| Input | Result |
+|-------|--------|
+| `123`, `"123"`, `"-5"`, `"+7"` | `123`, `123`, `-5`, `7` |
+| `true` / `false` | `1` / `0` |
+| A whole float (`2.0`) | `2` |
+| `"12abc"`, `"1.5"`, `"1e3"`, `"05"`, `2.5`, an array | `integer` error |
+
+Strings follow `FILTER_VALIDATE_INT`: digits with an optional sign — no fraction, exponent or leading zero.
 
 ### Float
 
-```php
-$caster->cast('float', '12.34'); // 12.34
-$caster->cast('float', '100');   // 100.0
-$caster->cast('float', true);    // 1.0
-```
+| Input | Result |
+|-------|--------|
+| `12.34`, `"12.34"`, `"1e3"` | `12.34`, `12.34`, `1000.0` |
+| `5`, `true` | `5.0`, `1.0` |
+| `"9,99"`, `"abc"`, an array | `numeric` error |
 
 ### Boolean
 
 | Input | Result |
 |-------|--------|
-| `true`, `"true"`, `"1"`, `"on"`, `"yes"` | `true` |
-| `false`, `"false"`, `"0"`, `"off"`, `"no"`, `""` | `false` |
-| Any other non-empty string | `true` |
-
-```php
-$caster->cast('bool', 'yes');   // true
-$caster->cast('bool', 'no');    // false
-$caster->cast('bool', '1');     // true
-$caster->cast('bool', '');      // false
-```
+| `true`, `1`, `"true"`, `"1"`, `"yes"`, `"on"` (any case) | `true` |
+| `false`, `0`, `"false"`, `"0"`, `"no"`, `"off"` (any case) | `false` |
+| `""` | no value — `null`, the default, or `required` |
+| Anything else (`"maybe"`, `2`, `1.0`) | `boolean` error |
 
 ### String
 
-```php
-$caster->cast('string', 123);           // "123"
-$caster->cast('string', ['a' => 1]);    // '{"a":1}'
-```
+| Input | Result |
+|-------|--------|
+| `"abc"` | `"abc"` |
+| `123`, `1.5` | `"123"`, `"1.5"` |
+| A `Stringable` object | its string |
+| An array, `true` / `false`, any other object | `string` error |
+
+### JSON
+
+Only by `#[Cast('json')]`, on a `string` (or untyped / `mixed`) property:
+
+| Input | Result |
+|-------|--------|
+| `['theme' => 'dark']` | `'{"theme":"dark"}'` |
+| `'{"theme":"dark"}'` (a string) | kept as it is |
+| `true`, `5` | `'true'`, `'5'` |
+
+A string is not checked to be valid JSON — add a validation rule of your own if it must be.
 
 ### Array
 
@@ -104,12 +124,12 @@ Smart conversion logic:
 3. **Single**: Non-empty string wrapped in array
 4. **Empty**: Empty string becomes `[]`
 
-```php
-$caster->cast('array', '["a","b"]');    // ["a", "b"]
-$caster->cast('array', 'a, b, c');      // ["a", "b", "c"]
-$caster->cast('array', 'single');       // ["single"]
-$caster->cast('array', '');             // []
-```
+| Input | Result |
+|-------|--------|
+| `'["a","b"]'` | `["a", "b"]` |
+| `'a, b, c'` | `["a", "b", "c"]` |
+| `'single'` | `["single"]` |
+| `''` | `[]` |
 
 ---
 
@@ -237,30 +257,18 @@ final class JsonDecoder implements ProcessorInterface
 
 ## Null and Empty String Handling
 
-`null` returns `null` for all built-in casters:
-
-```php
-$caster->cast('int', null);     // null
-$caster->cast('string', null);  // null
-$caster->cast('array', null);   // null
-```
+`null` is never cast: a nullable property gets `null`, one with a default keeps its default, and any other property reports `required`.
 
 Empty string `""` is handled per type:
 
 | Type | `""` Result | Reason |
 |------|-------------|--------|
-| `int`, `float` | `null` | Not a valid number |
-| date types | `null` | Not a valid date |
+| `int`, `float`, `bool` | no value | Not a number / boolean |
+| date types, enums | no value | Not a date / case |
 | `string` | `""` | Preserved as-is |
-| `bool` | `false` | Treated as falsy |
 | `array` | `[]` | Empty collection |
 
-```php
-$caster->cast('int', '');       // null
-$caster->cast('string', '');    // ""
-$caster->cast('bool', '');      // false
-$caster->cast('array', '');     // []
-```
+"No value" means `null` on a nullable property, the default on one that has a default, and the `required` error otherwise.
 
 ---
 

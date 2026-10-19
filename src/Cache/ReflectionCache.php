@@ -65,6 +65,7 @@ final class ReflectionCache
         'bool'   => ['bool'],
         'string' => ['string'],
         'array'  => ['array', 'iterable'],
+        'json'   => ['string'],
     ];
 
     /**
@@ -335,15 +336,6 @@ final class ReflectionCache
             throw ConfigurationException::unproducibleType($className, $name, $classType);
         }
 
-        // An array is garbage for an int/float/bool. A string JSON-encodes it
-        // (documented cast behaviour) — unless it came from a #[FromBody]
-        // dot-path, where it means the path stops at a sub-object.
-        $rejectsArrayInput = $effectiveCastType !== null
-            && (
-                BuiltInCaster::rejectsArray($effectiveCastType)
-                || ($pathSegments !== null && $effectiveCastType === 'string')
-            );
-
         return new PropertyMetadata(
             name: $name,
             source: $source,
@@ -372,8 +364,7 @@ final class ReflectionCache
             preProcessorGuard: $preProcessorGuard,
             postProcessorGuard: $postProcessorGuard,
             enumClass: $enumClass,
-            rejectsArrayInput: $rejectsArrayInput,
-            castFailure: $this->castFailure($dateClass, $dateFormat?->format, $enumClass),
+            castFailure: $this->castFailure($effectiveCastType, $dateClass, $dateFormat?->format, $enumClass),
             groupMapTo: $group?->mapTo,
             dateClass: $dateClass,
             dateFormat: $dateFormat?->format,
@@ -424,14 +415,19 @@ final class ReflectionCache
     }
 
     /**
-     * The validation error reported when a built-in cast turns non-empty input
-     * into null. Null for casts that cannot fail (int, float, bool, string, array).
+     * The validation error reported when a built-in cast cannot convert
+     * non-empty input — named like the validator rule for that type. Null for
+     * an array cast, which accepts any input.
      *
      * @param class-string<BackedEnum>|null $enumClass
      * @return array{rule: string, params?: list<string>}|null
      */
-    private function castFailure(?string $dateClass, ?string $dateFormat, ?string $enumClass): ?array
-    {
+    private function castFailure(
+        ?string $effectiveCastType,
+        ?string $dateClass,
+        ?string $dateFormat,
+        ?string $enumClass
+    ): ?array {
         if ($enumClass !== null) {
             return [
                 'rule' => 'in',
@@ -442,11 +438,18 @@ final class ReflectionCache
             ];
         }
 
-        if ($dateClass === null) {
-            return null;
+        if ($dateClass !== null) {
+            return $dateFormat === null ? ['rule' => 'date'] : ['rule' => 'date_format', 'params' => [$dateFormat]];
         }
 
-        return $dateFormat === null ? ['rule' => 'date'] : ['rule' => 'date_format', 'params' => [$dateFormat]];
+        return match ($effectiveCastType) {
+            'int' => ['rule' => 'integer'],
+            'float' => ['rule' => 'numeric'],
+            'bool' => ['rule' => 'boolean'],
+            'string' => ['rule' => 'string'],
+            'json' => ['rule' => 'json'],
+            default => null,
+        };
     }
 
     /**
@@ -695,7 +698,7 @@ final class ReflectionCache
      * Dates are resolved separately (`resolveDateClass`).
      *
      * - explicit `#[Caster(...)]`              → [null, casterClass, null]
-     * - explicit `#[Cast('scalar')]`           → [castType, null, null]
+     * - explicit `#[Cast('int'|…|'json')]`    → [castType, null, null]
      * - no attribute, scalar property type     → [propertyType, null, null]
      * - no attribute, BackedEnum property type → [null, null, enumClass]
      * - anything else                          → [null, null, null]

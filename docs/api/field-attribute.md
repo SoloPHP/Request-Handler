@@ -46,7 +46,7 @@ final class FromBody
 
 Reads from the body bag via a dot-path (`'customer.id'`, `'address.city'`). A single-segment path acts as a flat key remap (`#[FromBody('display_name')]` on `public string $name`). Validation errors for the property are reported under the path (`customer.id`, `display_name`).
 
-Malformed paths (leading/trailing dot, empty segment like `'a..b'`) throw `InvalidArgumentException`. Resolving the dot-path to an array while the property is a scalar (string included) yields a `ValidationException` with `['field' => [['rule' => 'scalar']]]` — unless a pre/post-processor or custom caster converts the array; when the field has rules, the validator's error (e.g. `integer`) is reported instead.
+Malformed paths (leading/trailing dot, empty segment like `'a..b'`) throw `InvalidArgumentException`. A dot-path that stops at a sub-object while the property is a scalar fails the property's cast like any other array (`integer`, `numeric`, `boolean` or `string`) — unless a pre/post-processor or custom caster converts the array, or `#[Cast('json')]` encodes it.
 
 ---
 
@@ -75,7 +75,7 @@ final class Cast
 }
 ```
 
-Scalar cast: `int`, `float`, `bool`, `string` or `array` (case-insensitive). Needed only where the declared type does not imply one — a union or `mixed` property.
+Built-in cast: `int`, `float`, `bool`, `string`, `array` or `json` (case-insensitive). Needed only where the declared type does not imply one — a union or `mixed` property — and for `json`, which encodes a structured value into a `string` (or untyped / `mixed`) property; a string is kept as it is.
 
 Passing a class name throws `ConfigurationException::castExpectsBuiltInType` at metadata-build time — use `#[Caster]` for custom logic. A `datetime…` spec throws `ConfigurationException::castDateTimeRemoved` (dates follow the property type; see `#[DateFormat]`). Other unknown strings throw `ConfigurationException::unknownCastType`. Mutually exclusive with `#[Caster]`, `#[DateFormat]` and `#[Items]`.
 
