@@ -571,16 +571,19 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(['k' => 'v'], $dto->tags);
     }
 
-    public function testIterableFromContextKeepsItsItems(): void
+    public function testIterableFromContextIsKeptAsPassed(): void
     {
-        $feed = (static function (): \Generator {
-            yield 'a';
-            yield 'b';
+        // A cursor may be endless or single-pass: it must not be read here.
+        $reads = new \ArrayObject();
+        $feed = (static function () use ($reads): \Generator {
+            $reads->append('started');
+            yield 1;
         })();
 
         $dto = $this->handler->handleArray(IterableRequest::class, [], context: ['feed' => $feed]);
 
-        $this->assertSame(['a', 'b'], $dto->feed, 'a generator is not turned into []');
+        $this->assertSame($feed, $dto->feed);
+        $this->assertCount(0, $reads, 'not consumed');
     }
 
     public function testChainedGeneratorFromContextKeepsEveryItem(): void

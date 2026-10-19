@@ -18,7 +18,7 @@ public Status $status;            // BackedEnum — resolved by backing value
 public AddressRequest $address;   // Request subclass — a nested DTO (see Nested Objects)
 ```
 
-An `iterable` property is cast like `array`. A property of any other class type — and one typed `object`, with an intersection, or with a union of classes only — needs something that produces it: `#[Caster]`, a pre/post-processor, a `#[Generator]` or `#[FromContext]`; otherwise building the metadata throws `ConfigurationException::unproducibleType`.
+An `iterable` property keeps an array or a Traversable as it is — a generator is not consumed — and reads anything else like `array`. A property of any other class type — and one typed `object`, with an intersection, or with a union of classes only — needs something that produces it: `#[Caster]`, a pre/post-processor, a `#[Generator]` or `#[FromContext]`; otherwise building the metadata throws `ConfigurationException::unproducibleType`.
 
 ### Union types
 

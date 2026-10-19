@@ -694,9 +694,12 @@ final class ReflectionCacheTest extends TestCase
         $this->assertSame(['string', 'bool'], $properties['nickname']->unionCasts);
     }
 
-    public function testIterableIsCastLikeAnArray(): void
+    public function testIterableHasItsOwnCast(): void
     {
-        $this->assertSame('array', $this->cache->get(UnionCastRequest::class)->properties['list']->effectiveCastType);
+        $property = $this->cache->get(UnionCastRequest::class)->properties['list'];
+
+        $this->assertSame('iterable', $property->effectiveCastType);
+        $this->assertNull($property->castFailure, 'reading like an array never fails');
     }
 
     public function testClassTypesWithAProducerAreAccepted(): void
