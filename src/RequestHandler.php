@@ -795,24 +795,30 @@ final class RequestHandler
      */
     private function populateInstance(Request $instance, RequestMetadata $metadata, array $data): Request
     {
-        foreach ($data as $name => $value) {
-            $property = $metadata->properties[$name];
+        // Absent keys never reach $data: what is assigned here — or reset to
+        // its default — is what the request supplied. Declaration order.
+        $provided = [];
 
-            // Runtime guard: skip null assignment to non-nullable properties so the DTO
-            // remains uninitialized rather than throwing TypeError during populate.
-            if ($value === null && !$property->isNullable) {
+        foreach ($metadata->properties as $name => $property) {
+            if (!array_key_exists($name, $data)) {
                 continue;
             }
 
-            $property->reflection->setValue($instance, $value);
+            $value = $data[$name];
+            if ($value !== null || $property->isNullable) {
+                $property->reflection->setValue($instance, $value);
+            } elseif (!$property->hasDefault) {
+                // Runtime guard: null for a property that can hold neither null
+                // nor a default (a post-processor's or caster's result) leaves
+                // it uninitialised rather than throwing a TypeError — and it
+                // is not provided.
+                continue;
+            }
+
+            $provided[$name] = true;
         }
 
-        // Every property with a value here was supplied by the request (or
-        // generated) — absent keys never reach $data. Declaration order.
-        $this->provided->setValue(
-            $instance,
-            array_fill_keys(array_keys(array_intersect_key($metadata->properties, $data)), true)
-        );
+        $this->provided->setValue($instance, $provided);
 
         return $instance;
     }
