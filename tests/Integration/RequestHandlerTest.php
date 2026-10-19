@@ -557,6 +557,45 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
+    public function testIterableIsCastLikeAnArray(): void
+    {
+        $cases = [
+            'a,b'       => ['a', 'b'],
+            '["x","y"]' => ['x', 'y'],
+        ];
+        foreach ($cases as $input => $expected) {
+            $this->assertSame($expected, $this->handler->handleArray(IterableRequest::class, ['tags' => $input])->tags);
+        }
+
+        $dto = $this->handler->handleArray(IterableRequest::class, ['tags' => ['k' => 'v']]);
+        $this->assertSame(['k' => 'v'], $dto->tags);
+    }
+
+    public function testIterableFromContextKeepsItsItems(): void
+    {
+        $feed = (static function (): \Generator {
+            yield 'a';
+            yield 'b';
+        })();
+
+        $dto = $this->handler->handleArray(IterableRequest::class, [], context: ['feed' => $feed]);
+
+        $this->assertSame(['a', 'b'], $dto->feed, 'a generator is not turned into []');
+    }
+
+    public function testUnionWithOnlyArrayAmongInputTypesReportsArray(): void
+    {
+        $dto = $this->handler->handleArray(IterableRequest::class, ['data' => ['a']]);
+        $this->assertSame(['a'], $dto->data);
+
+        try {
+            $this->handler->handleArray(IterableRequest::class, ['data' => 'x']);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['data' => [['rule' => 'array']]], $e->getErrors());
+        }
+    }
+
     public function testEmptyStringForANumericUnionMeansNoValue(): void
     {
         $dto = $this->handler->handleArray(UnionTypesRequest::class, ['amount' => '']);
@@ -3535,4 +3574,17 @@ final class TermsRequest extends Request
 {
     public true $accepted;
     public string|false $nickname = false;
+}
+
+final class IterableRequest extends Request
+{
+    /** @var iterable<mixed> */
+    public iterable $tags = [];
+
+    /** @var iterable<mixed>|null */
+    #[FromContext('feed')]
+    public ?iterable $feed = null;
+
+    /** @var array<mixed>|\ArrayObject<int|string, mixed> */
+    public array|\ArrayObject $data = [];
 }

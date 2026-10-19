@@ -141,6 +141,7 @@ Smart conversion logic:
 2. **CSV**: Comma-separated string is split
 3. **Single**: Non-empty string wrapped in array
 4. **Empty**: Empty string becomes `[]`
+5. **Traversable** (a value from context, say a generator): its items
 
 | Input | Result |
 |-------|--------|
