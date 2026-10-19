@@ -233,7 +233,7 @@ final class RequestHandler
                 continue;
             }
 
-            if ($this->autoTrim && is_string($value)) {
+            if ($this->autoTrim && !$property->noTrim && is_string($value)) {
                 $value = trim($value);
             }
             // #[EmptyToNull]: a blank string is no value — for the validator

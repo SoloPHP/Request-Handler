@@ -92,6 +92,7 @@ $dto->toArray();   // ['id'=>…, 'name'=>…, 'price'=>…, 'stock'=>…, 'tena
 | `#[DateFormat('Y-m-d')]` | Fixed input format for a date property — the class follows the type |
 | `#[Caster(MoneyCaster::class)]` | Custom `CasterInterface` implementation |
 | `#[EmptyToNull]` | A blank string is no value — `null`, the default or `required` (property or class) |
+| `#[NoTrim]` | Auto-trim skips it — the string is kept as sent (property or class) |
 | `#[PreProcess(MyProc::class)]` | Run handler BEFORE validation |
 | `#[PostProcess(MyProc::class, config: [...])]` | Run handler AFTER validation, with optional config |
 | `#[Generator(UuidGenerator::class, options: [...])]` | Value is generated, not read from any source |

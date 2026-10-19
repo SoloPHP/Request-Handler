@@ -31,6 +31,7 @@ For values that don't fit the four bags (Body, Query, Route, Context) — reques
 | `#[DateFormat('Y-m-d')]` | Fixed input format for a date property (class from the type) |
 | `#[Caster(MoneyCaster::class)]` | Custom `CasterInterface` implementation |
 | `#[EmptyToNull]` | A blank string is no value (`null` / default / `required`); also on a class |
+| `#[NoTrim]` | Auto-trim skips the property — the string is kept as sent; also on a class |
 | `#[PreProcess(handler)]` | Run handler BEFORE validation |
 | `#[PostProcess(handler, config: [...])]` | Run handler AFTER validation, with optional config |
 | `#[Generator(GenClass::class, options: [...])]` | Value is generated, not read from any source |
@@ -153,6 +154,18 @@ final class UpdateLeadRequest extends Request { /* ... */ }
 ```
 
 Only strings are blank: `[]` stays an array (and fails a `string` property's cast). Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`.
+
+### `#[NoTrim]`
+
+Auto-trim (on by default) skips the property: the string reaches pre-processors, the validator and the property as sent. For values whose surrounding whitespace means something — code, Markdown, a fixed-width field:
+
+```php
+#[NoTrim]
+#[Validate('required|string')]
+public string $snippet;   // "  echo 1;\n" stays as it is
+```
+
+On a class it applies to every property of the class and its subclasses. With `#[EmptyToNull]`, a whitespace-only string is still read as no value. Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`.
 
 ### `#[PreProcess(handler)]` and `#[PostProcess(handler, config: [...])]`
 

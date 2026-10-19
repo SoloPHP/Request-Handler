@@ -15,6 +15,7 @@ use Solo\RequestHandler\Attributes\Generator;
 use Solo\RequestHandler\Attributes\Group;
 use Solo\RequestHandler\Attributes\Ignore;
 use Solo\RequestHandler\Attributes\Items;
+use Solo\RequestHandler\Attributes\NoTrim;
 use Solo\RequestHandler\Attributes\PostProcess;
 use Solo\RequestHandler\Attributes\PreProcess;
 use Solo\RequestHandler\Attributes\Source\FromBody;
@@ -398,6 +399,40 @@ final class RequestHandlerTest extends TestCase
 
         $this->assertSame('Test', $dto->name);
         $this->assertSame(['  tag1  ', '  tag2  '], $dto->tags);
+    }
+
+    public function testNoTrimKeepsTheStringAsSent(): void
+    {
+        $this->validator->expects($this->once())
+            ->method('validate')
+            ->with(['snippet' => "  echo 1;\n", 'title' => 'Hi'], ['snippet' => 'required|string'])
+            ->willReturn([]);
+
+        $dto = $this->handler->handleArray(NoTrimRequest::class, ['snippet' => "  echo 1;\n", 'title' => '  Hi  ']);
+
+        $this->assertSame("  echo 1;\n", $dto->snippet);
+        $this->assertSame('Hi', $dto->title);
+    }
+
+    public function testNoTrimOnAClass(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleArray(NoTrimClassRequest::class, ['a' => ' x ', 'b' => ' y ']);
+
+        $this->assertSame([' x ', ' y '], [$dto->a, $dto->b]);
+    }
+
+    public function testNoTrimWithEmptyToNullStillReadsBlankAsNull(): void
+    {
+        $this->validator->method('validate')->willReturn([]);
+
+        $dto = $this->handler->handleArray(NoTrimClassRequest::class, ['a' => '   ', 'c' => '   ']);
+        $this->assertSame('   ', $dto->a, 'no #[EmptyToNull]: kept as sent');
+        $this->assertNull($dto->c, 'blank is still no value');
+
+        $dto = $this->handler->handleArray(NoTrimClassRequest::class, ['c' => ' z ']);
+        $this->assertSame(' z ', $dto->c, 'a filled value is not trimmed');
     }
 
     // ===== #[EmptyToNull] =====
@@ -2995,4 +3030,23 @@ final class ArrayContainer implements ContainerInterface
     {
         return array_key_exists($id, $this->entries);
     }
+}
+
+final class NoTrimRequest extends Request
+{
+    #[NoTrim]
+    #[Validate('required|string')]
+    public string $snippet;
+
+    public ?string $title = null;
+}
+
+#[NoTrim]
+final class NoTrimClassRequest extends Request
+{
+    public ?string $a = null;
+    public ?string $b = null;
+
+    #[EmptyToNull]
+    public ?string $c = null;
 }

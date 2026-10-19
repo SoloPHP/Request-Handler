@@ -48,7 +48,7 @@ use Solo\RequestHandler\Request;
  * `date`, `date_format`) — decided once, at build time.
  *
  * `emptyToNull` (`#[EmptyToNull]` on the property or its class): a blank
- * string is read as null.
+ * string is read as null. `noTrim` (`#[NoTrim]`): auto-trim skips it.
  *
  * @internal
  */
@@ -98,6 +98,7 @@ final readonly class PropertyMetadata
         public ?string $dateFormat = null,
         public ?string $nested = null,
         public bool $emptyToNull = false,
+        public bool $noTrim = false,
     ) {
     }
 }
