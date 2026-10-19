@@ -661,6 +661,19 @@ final class RequestHandler
             ));
         }
 
+        // A class-typed value is passed through uncast: check it here rather
+        // than let the assignment raise a TypeError.
+        if ($cast !== null && $property->trustedGuard?->accepts($cast) === false) {
+            throw new \UnexpectedValueException(sprintf(
+                "%s is %s, which does not fit %s::\$%s (%s).",
+                $this->describeTrusted($property),
+                get_debug_type($cast),
+                $className,
+                $property->name,
+                $property->type,
+            ));
+        }
+
         return $cast;
     }
 

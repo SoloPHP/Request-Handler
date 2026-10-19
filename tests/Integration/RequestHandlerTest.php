@@ -633,6 +633,21 @@ final class RequestHandlerTest extends TestCase
         $this->handler->handleArray(NullGeneratedRequest::class, []);
     }
 
+    public function testClassTypedContextValueOfAnotherTypeThrows(): void
+    {
+        // Not built from the array: a TypeError before this check.
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Context value 'address' is array, which does not fit");
+        $this->handler->handleArray(ContextAddressRequest::class, [], context: ['address' => ['city' => 'Kyiv']]);
+    }
+
+    public function testGeneratedObjectOfAnotherClassThrows(): void
+    {
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage('is stdClass, which does not fit');
+        $this->handler->handleArray(WrongObjectGeneratedRequest::class, []);
+    }
+
     public function testRequestTypedContextValueIsKeptAsPassed(): void
     {
         $address = new AddressRequest();
@@ -3433,4 +3448,18 @@ final class CompactDateRequest extends Request
 {
     #[DateFormat('Ymd')]
     public ?\DateTimeImmutable $day = null;
+}
+
+final class WrongObjectGenerator implements GeneratorInterface
+{
+    public function generate(array $options = []): mixed
+    {
+        return new \stdClass();
+    }
+}
+
+final class WrongObjectGeneratedRequest extends Request
+{
+    #[Generator(WrongObjectGenerator::class)]
+    public AddressRequest $address;
 }
