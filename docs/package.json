@@ -1,6 +1,6 @@
 {
   "name": "solo-request-handler-docs",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "type": "module",
   "description": "Documentation for Solo Request Handler",
   "scripts": {

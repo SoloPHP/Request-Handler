@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Cache;
 
+use BackedEnum;
 use ReflectionClass;
+use ReflectionFunction;
+use ReflectionFunctionAbstract;
 use ReflectionMethod;
 use ReflectionProperty;
 use Solo\RequestHandler\Attributes\Cast;
@@ -26,6 +29,7 @@ use Solo\RequestHandler\Contracts\GeneratorInterface;
 use Solo\RequestHandler\Contracts\ProcessorInterface;
 use Solo\RequestHandler\Exceptions\ConfigurationException;
 use Solo\RequestHandler\FieldSource;
+use Solo\RequestHandler\Pipeline\ParameterTypeGuard;
 use Solo\RequestHandler\Request;
 use Solo\RequestHandler\RuleParser;
 
@@ -45,21 +49,43 @@ final class ReflectionCache
      *
      * Used by `isCastCompatible`. Keys mirror the entries in
      * `BuiltInCaster::BUILT_IN_TYPES`; `datetime[:...]` is handled
-     * separately because the spec has a variable suffix.
+     * separately because the spec has a variable suffix. An int result
+     * widens losslessly into a float property, a float result does not
+     * narrow into an int one; `mixed` accepts every cast.
      */
     private const CAST_COMPATIBILITY = [
-        'int'     => ['int'],
-        'integer' => ['int'],
-        'float'   => ['float', 'int'],
-        'double'  => ['float', 'int'],
+        'int'     => ['int', 'float'],
+        'integer' => ['int', 'float'],
+        'float'   => ['float'],
+        'double'  => ['float'],
         'bool'    => ['bool'],
         'boolean' => ['bool'],
         'string'  => ['string'],
-        'array'   => ['array'],
+        'array'   => ['array', 'iterable'],
+    ];
+
+    /**
+     * DateTime type (lower-case) → whether it needs an immutable instance:
+     * true = DateTimeImmutable only, false = DateTime only, null = either.
+     * Drives the type-driven spec, the adaptation of an explicit spec and its
+     * compatibility check.
+     */
+    private const DATETIME_TYPES = [
+        'datetimeimmutable' => true,
+        'datetime'          => false,
+        'datetimeinterface' => null,
     ];
 
     /** @var array<class-string, RequestMetadata> */
     private array $cache = [];
+
+    /**
+     * Classes whose metadata is being built — guards the eager `#[Items]`
+     * validation against self-referencing trees.
+     *
+     * @var array<string, true>
+     */
+    private array $building = [];
 
     /**
      * @param class-string $className
@@ -74,24 +100,41 @@ final class ReflectionCache
      */
     private function build(string $className): RequestMetadata
     {
-        $reflection = new ReflectionClass($className);
-        $properties = [];
+        $this->building[$className] = true;
 
-        foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
-            if ($property->isStatic()) {
-                continue;
+        try {
+            $reflection = new ReflectionClass($className);
+            $properties = [];
+
+            foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+                if ($property->isStatic()) {
+                    continue;
+                }
+
+                if (!empty($property->getAttributes(Ignore::class))) {
+                    $this->assertIgnoreHasNoCompanions($property, $className);
+                    continue;
+                }
+
+                $metadata = $this->buildPropertyMetadata($property, $className);
+                $properties[$metadata->name] = $metadata;
             }
 
-            if (!empty($property->getAttributes(Ignore::class))) {
-                $this->assertIgnoreHasNoCompanions($property, $className);
-                continue;
-            }
+            $generated = array_keys(array_filter(
+                $properties,
+                static fn(PropertyMetadata $property): bool => $property->generator !== null
+            ));
+            $transformed = array_keys(array_filter(
+                $properties,
+                static fn(PropertyMetadata $property): bool => $property->postProcessorKind !== null
+                    || $property->customCasterClass !== null
+                    || $property->items !== null
+            ));
 
-            $metadata = $this->buildPropertyMetadata($property);
-            $properties[$metadata->name] = $metadata;
+            return new RequestMetadata($className, $properties, $reflection, $generated, $transformed);
+        } finally {
+            unset($this->building[$className]);
         }
-
-        return new RequestMetadata($className, $properties, $reflection);
     }
 
     /**
@@ -123,7 +166,12 @@ final class ReflectionCache
         }
     }
 
-    private function buildPropertyMetadata(ReflectionProperty $property): PropertyMetadata
+    /**
+     * @param class-string $requestClass The class being built — static-method
+     *                                   processors are looked up (and later called) on it,
+     *                                   which may be a subclass of the declaring class.
+     */
+    private function buildPropertyMetadata(ReflectionProperty $property, string $requestClass): PropertyMetadata
     {
         $name = $property->getName();
         $className = $property->getDeclaringClass()->getName();
@@ -159,7 +207,7 @@ final class ReflectionCache
         $hasDefault = $property->hasDefaultValue();
         $defaultValue = $hasDefault ? $property->getDefaultValue() : null;
 
-        [$phpType, $isNullable] = $this->resolvePropertyType($property->getType());
+        [$phpType, $isNullable, $classType] = $this->resolvePropertyType($property->getType());
 
         $isRequired = $this->hasRule($rules, 'required');
         $validatesWhenAbsent = RuleParser::hasNamePrefix($rules, 'required');
@@ -172,6 +220,7 @@ final class ReflectionCache
             throw ConfigurationException::requiredWithDefault($className, $name);
         }
 
+        $adaptedCastType = null;
         if ($castType !== null) {
             if (!BuiltInCaster::isBuiltIn($castType)) {
                 if (class_exists($castType)) {
@@ -179,7 +228,8 @@ final class ReflectionCache
                 }
                 throw ConfigurationException::unknownCastType($className, $name, $castType);
             }
-            if ($phpType !== null && !$this->isCastCompatible($castType, $phpType)) {
+            $adaptedCastType = $this->adaptDateTimeSpec($castType, $classType);
+            if ($phpType !== null && !$this->isCastCompatible($adaptedCastType, $phpType)) {
                 throw ConfigurationException::castTypeMismatch($className, $name, $castType, $phpType);
             }
         }
@@ -188,8 +238,10 @@ final class ReflectionCache
             throw ConfigurationException::invalidCaster($className, $name, $customCasterClass);
         }
 
-        $preProcessorKind = $this->classifyProcessor($preProcess?->handler, $className, $name, 'preProcess');
-        $postProcessorKind = $this->classifyProcessor($postProcess?->handler, $className, $name, 'postProcess');
+        [$preProcessorKind, $preProcessorGuard] =
+            $this->classifyProcessor($preProcess?->handler, $requestClass, $className, $name, 'preProcess');
+        [$postProcessorKind, $postProcessorGuard] =
+            $this->classifyProcessor($postProcess?->handler, $requestClass, $className, $name, 'postProcess');
 
         if ($items !== null) {
             $this->validateItems($items->class, $className, $name);
@@ -206,7 +258,21 @@ final class ReflectionCache
             }
         }
 
-        [$effectiveCastType, $resolvedCasterClass] = $this->resolveCast($castType, $customCasterClass, $phpType);
+        [$effectiveCastType, $resolvedCasterClass, $enumClass] = $this->resolveCast(
+            $adaptedCastType,
+            $customCasterClass,
+            $phpType,
+            $classType
+        );
+
+        // An array is garbage for an int/float/bool. A string JSON-encodes it
+        // (documented cast behaviour) — unless it came from a #[FromBody]
+        // dot-path, where it means the path stops at a sub-object.
+        $rejectsArrayInput = $effectiveCastType !== null
+            && (
+                BuiltInCaster::rejectsArray($effectiveCastType)
+                || ($pathSegments !== null && strtolower($effectiveCastType) === 'string')
+            );
 
         return new PropertyMetadata(
             name: $name,
@@ -234,7 +300,40 @@ final class ReflectionCache
             exclude: $excludeAttr !== null,
             items: $items?->class,
             pathSegments: $pathSegments,
+            preProcessorGuard: $preProcessorGuard,
+            postProcessorGuard: $postProcessorGuard,
+            enumClass: $enumClass,
+            rejectsArrayInput: $rejectsArrayInput,
+            castFailure: $this->castFailure($effectiveCastType, $enumClass),
         );
+    }
+
+    /**
+     * The validation error reported when a built-in cast turns non-empty input
+     * into null. Null for casts that cannot fail (int, float, bool, string, array).
+     *
+     * @param class-string<BackedEnum>|null $enumClass
+     * @return array{rule: string, params?: list<string>}|null
+     */
+    private function castFailure(?string $effectiveCastType, ?string $enumClass): ?array
+    {
+        if ($enumClass !== null) {
+            return [
+                'rule' => 'in',
+                'params' => array_map(
+                    static fn(BackedEnum $case): string => (string) $case->value,
+                    $enumClass::cases()
+                ),
+            ];
+        }
+
+        if ($effectiveCastType === null || !BuiltInCaster::isDateTime($effectiveCastType)) {
+            return null;
+        }
+
+        $format = BuiltInCaster::parseDateTimeSpec($effectiveCastType)['format'];
+
+        return $format === null ? ['rule' => 'date'] : ['rule' => 'date_format', 'params' => [$format]];
     }
 
     /**
@@ -327,7 +426,11 @@ final class ReflectionCache
     }
 
     /**
-     * @return array{0: ?string, 1: bool}
+     * Returns [type string, nullable, class name]. The class name is set only
+     * for a single named class type — the one shape that can be an enum or a
+     * DateTime, so unions, intersections and `mixed` never probe the autoloader.
+     *
+     * @return array{0: ?string, 1: bool, 2: ?string}
      */
     private function resolvePropertyType(?\ReflectionType $type): array
     {
@@ -336,7 +439,7 @@ final class ReflectionCache
                 static fn(\ReflectionNamedType $t) => $t->getName(),
                 array_filter($type->getTypes(), static fn($t) => $t instanceof \ReflectionNamedType)
             );
-            return [implode('|', $names), $type->allowsNull()];
+            return [implode('|', $names), $type->allowsNull(), null];
         }
         if ($type instanceof \ReflectionIntersectionType) {
             $names = array_map(
@@ -344,12 +447,12 @@ final class ReflectionCache
                 array_filter($type->getTypes(), static fn($t) => $t instanceof \ReflectionNamedType)
             );
             // Intersection types cannot include `null` — they're never nullable.
-            return [implode('&', $names), false];
+            return [implode('&', $names), false, null];
         }
         if ($type instanceof \ReflectionNamedType) {
-            return [$type->getName(), $type->allowsNull()];
+            return [$type->getName(), $type->allowsNull(), $type->isBuiltin() ? null : $type->getName()];
         }
-        return [null, true];
+        return [null, true, null];
     }
 
     /**
@@ -365,55 +468,103 @@ final class ReflectionCache
     }
 
     /**
-     * Validate processor and return its dispatch kind. Throws if invalid.
+     * Validate a pre/post-process handler and resolve how to dispatch it.
      *
      * Resolution order: class-string → method-on-Request → global function.
      * If the unqualified name BOTH names a global function AND exists as a
      * static method on the Request class (e.g. `'trim'`), we throw
      * `ambiguousProcessor` rather than silently picking one — the user must
      * disambiguate by renaming or by passing a class-string explicitly.
+     *
+     * Methods are looked up on `$requestClass` (the class being built), which
+     * is also the class they are called on — a subclass may supply the hook
+     * for a property declared on its parent. Messages name `$declaringClass`.
+     *
+     * @return array{0: ?ProcessorKind, 1: ?ParameterTypeGuard}
      */
     private function classifyProcessor(
         ?string $processor,
-        string $className,
+        string $requestClass,
+        string $declaringClass,
         string $propertyName,
         string $type
-    ): ?ProcessorKind {
+    ): array {
         if ($processor === null) {
-            return null;
+            return [null, null];
         }
 
         if (class_exists($processor)) {
             $interfaces = class_implements($processor) ?: [];
             if (isset($interfaces[ProcessorInterface::class])) {
-                return ProcessorKind::ProcessorInterface;
+                return [ProcessorKind::ProcessorInterface, null];
             }
             if (isset($interfaces[CasterInterface::class])) {
-                return ProcessorKind::CasterInterface;
+                return [ProcessorKind::CasterInterface, null];
             }
-            throw ConfigurationException::invalidProcessor($className, $propertyName, $type, $processor);
+            throw ConfigurationException::invalidProcessor($declaringClass, $propertyName, $type, $processor);
         }
 
         $isFunc = function_exists($processor);
-        $isMethod = method_exists($className, $processor);
+        $isMethod = method_exists($requestClass, $processor);
 
         if ($isFunc && $isMethod) {
-            throw ConfigurationException::ambiguousProcessor($className, $propertyName, $type, $processor);
+            throw ConfigurationException::ambiguousProcessor($declaringClass, $propertyName, $type, $processor);
         }
 
         if ($isMethod) {
-            $method = new ReflectionMethod($className, $processor);
+            $method = new ReflectionMethod($requestClass, $processor);
             if (!$method->isStatic()) {
-                throw ConfigurationException::processorMethodNotStatic($className, $propertyName, $type, $processor);
+                throw ConfigurationException::processorMethodNotStatic(
+                    $declaringClass,
+                    $propertyName,
+                    $type,
+                    $processor
+                );
             }
-            return ProcessorKind::StaticMethod;
+            if (!$method->isPublic()) {
+                throw ConfigurationException::processorMethodNotPublic(
+                    $declaringClass,
+                    $propertyName,
+                    $type,
+                    $processor
+                );
+            }
+            return [ProcessorKind::StaticMethod, $this->callableGuard($method, $declaringClass, $propertyName, $type)];
         }
 
         if ($isFunc) {
-            return ProcessorKind::Func;
+            $function = new ReflectionFunction($processor);
+            return [ProcessorKind::Func, $this->callableGuard($function, $declaringClass, $propertyName, $type)];
         }
 
-        throw ConfigurationException::invalidProcessor($className, $propertyName, $type, $processor);
+        throw ConfigurationException::invalidProcessor($declaringClass, $propertyName, $type, $processor);
+    }
+
+    /**
+     * Function and static-method handlers receive exactly one argument — the
+     * value — so they must be callable with one. The first parameter's type
+     * becomes a runtime guard: input of another type (a pre-processor sees raw
+     * client input) skips the handler instead of raising a TypeError.
+     */
+    private function callableGuard(
+        ReflectionFunctionAbstract $callable,
+        string $declaringClass,
+        string $propertyName,
+        string $type
+    ): ?ParameterTypeGuard {
+        // User functions ignore surplus arguments; internal ones reject them.
+        $takesNoArgument = $callable->getNumberOfParameters() === 0 && $callable->isInternal();
+
+        if ($callable->getNumberOfRequiredParameters() > 1 || $takesNoArgument) {
+            throw ConfigurationException::invalidProcessorSignature(
+                $declaringClass,
+                $propertyName,
+                $type,
+                $callable->getName()
+            );
+        }
+
+        return ParameterTypeGuard::fromType(($callable->getParameters()[0] ?? null)?->getType());
     }
 
     private function isCasterClass(string $class): bool
@@ -426,42 +577,92 @@ final class ReflectionCache
     }
 
     /**
-     * Resolve cast configuration. Returns [effectiveCastType, customCasterClass].
+     * Resolve cast configuration. Returns [effectiveCastType, customCasterClass, enumClass].
      *
-     * - explicit `#[Caster(...)]`           → [null, casterClass]
-     * - explicit `#[Cast('built-in')]`      → [castType, null]
-     * - no attribute, type-driven default   → [propertyType, null] if built-in, else [null, null]
+     * - explicit `#[Caster(...)]`              → [null, casterClass, null]
+     * - explicit `#[Cast('built-in')]`         → [castType, null, null] (already adapted to the property type)
+     * - no attribute, built-in property type   → [propertyType, null, null]
+     * - no attribute, DateTime family          → ['datetime' | 'datetime:immutable', null, null]
+     * - no attribute, BackedEnum property type → [null, null, enumClass]
+     * - anything else                          → [null, null, null]
      *
-     * @return array{0: ?string, 1: ?string}
+     * @return array{0: ?string, 1: ?string, 2: ?class-string<BackedEnum>}
      */
-    private function resolveCast(?string $castType, ?string $customCasterClass, ?string $propertyType): array
-    {
+    private function resolveCast(
+        ?string $castType,
+        ?string $customCasterClass,
+        ?string $propertyType,
+        ?string $classType
+    ): array {
         if ($customCasterClass !== null) {
-            return [null, $customCasterClass];
+            return [null, $customCasterClass, null];
         }
 
         if ($castType !== null) {
-            // castType is validated upstream to be a built-in; safe to return as-is.
-            return [$castType, null];
+            // castType is validated upstream to be a built-in.
+            return [$castType, null, null];
         }
 
-        if ($propertyType !== null && BuiltInCaster::isBuiltIn($propertyType)) {
-            return [$propertyType, null];
+        if ($propertyType === null) {
+            return [null, null, null];
         }
 
-        return [null, null];
+        if (BuiltInCaster::isBuiltIn($propertyType)) {
+            return [$propertyType, null, null];
+        }
+
+        if ($classType === null) {
+            return [null, null, null];
+        }
+
+        $dateTimeType = strtolower($classType);
+        if (array_key_exists($dateTimeType, self::DATETIME_TYPES)) {
+            return [self::DATETIME_TYPES[$dateTimeType] === true ? 'datetime:immutable' : 'datetime', null, null];
+        }
+
+        if (is_subclass_of($classType, BackedEnum::class)) {
+            return [null, null, $classType];
+        }
+
+        return [null, null, null];
     }
 
     /**
-     * Built-in cast compatibility check. castType is guaranteed built-in by upstream validation.
+     * A mutable `datetime[:format]` cast on a property typed exactly
+     * `DateTimeImmutable` would produce an unassignable `DateTime` — produce
+     * the immutable class the property demands instead.
+     */
+    private function adaptDateTimeSpec(string $castType, ?string $classType): string
+    {
+        if (
+            $classType === null
+            || (self::DATETIME_TYPES[strtolower($classType)] ?? null) !== true
+            || !BuiltInCaster::isDateTime($castType)
+        ) {
+            return $castType;
+        }
+
+        $spec = BuiltInCaster::parseDateTimeSpec($castType);
+
+        return $spec['immutable']
+            ? $castType
+            : 'datetime:immutable' . ($spec['format'] !== null ? ':' . $spec['format'] : '');
+    }
+
+    /**
+     * Built-in cast compatibility check. castType is guaranteed built-in by
+     * upstream validation and already adapted to the property type.
      */
     private function isCastCompatible(string $castType, string $propertyType): bool
     {
-        if (str_starts_with($castType, 'datetime')) {
-            $isImmutable = str_contains($castType, 'immutable');
-            $allowedTypes = $isImmutable
-                ? ['DateTimeImmutable', 'DateTimeInterface']
-                : ['DateTime', 'DateTimeImmutable', 'DateTimeInterface'];
+        if (BuiltInCaster::isDateTime($castType)) {
+            $immutable = BuiltInCaster::parseDateTimeSpec($castType)['immutable'];
+            $allowedTypes = ['object'];
+            foreach (self::DATETIME_TYPES as $type => $needsImmutable) {
+                if ($needsImmutable === null || $needsImmutable === $immutable) {
+                    $allowedTypes[] = $type;
+                }
+            }
 
             return $this->isTypeInUnion($propertyType, $allowedTypes);
         }
@@ -476,18 +677,12 @@ final class ReflectionCache
     }
 
     /**
-     * @param array<string> $allowedTypes
+     * @param array<string> $allowedTypes Lower-case type names.
      */
     private function isTypeInUnion(string $propertyType, array $allowedTypes): bool
     {
-        $propertyType = ltrim($propertyType, '?');
-        $propertyTypes = array_filter(
-            explode('|', $propertyType),
-            static fn($t) => $t !== 'null'
-        );
-
-        foreach ($propertyTypes as $type) {
-            if (in_array($type, $allowedTypes, true)) {
+        foreach (explode('|', strtolower($propertyType)) as $type) {
+            if ($type === 'mixed' || in_array($type, $allowedTypes, true)) {
                 return true;
             }
         }
@@ -507,6 +702,13 @@ final class ReflectionCache
 
         if (!(new ReflectionClass($items))->isInstantiable()) {
             throw ConfigurationException::abstractClass($className, $propertyName, 'Items', $items);
+        }
+
+        // Fail fast on the item class too — otherwise its misconfiguration
+        // surfaces only when a request first carries items. A class already
+        // being built (self-referencing tree) is validated by that build.
+        if (!isset($this->building[$items])) {
+            $this->get($items);
         }
     }
 

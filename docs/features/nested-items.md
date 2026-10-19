@@ -15,10 +15,10 @@ final class OrderItemRequest extends Request
     #[Validate('required|string|max:255')]
     public string $product;
 
-    #[Validate('required|integer|min:1')]
+    #[Validate('required|integer|min_value:1')]
     public int $quantity;
 
-    #[Validate('required|numeric|min:0')]
+    #[Validate('required|numeric|min_value:0')]
     public float $price;
 }
 
@@ -81,7 +81,20 @@ try {
 }
 ```
 
-All items are validated before throwing — you get errors for every invalid item in a single exception.
+Everything is validated before throwing: the parent's own fields, every item, and every `#[Items]` property. A single `ValidationException` carries all errors, in declaration order — each items property is followed by its nested errors:
+
+```php
+$e->getErrors();
+// [
+//     'customer'         => [['rule' => 'required']],
+//     'items.0.product'  => [['rule' => 'required']],
+//     'items.1.quantity' => [['rule' => 'min', 'params' => ['1']]],
+// ]
+```
+
+Generators and post-processors of the parent and of the items run only after the whole tree has passed. When a post-processor produces the items array (e.g. decodes a JSON string), the items are validated after it runs — their errors are reported once the rest of the input is valid.
+
+The item class is validated together with its parent when metadata is built: a misconfigured item class fails the parent's first `handle*()` or `schema()` call even if the request carries no items. Self-referencing trees (`#[Items(CategoryRequest::class)]` inside `CategoryRequest`) are supported.
 
 Non-array elements produce a dedicated error:
 
@@ -110,10 +123,10 @@ final class OrderItemRequest extends Request
     #[Validate('required|string|max:255')]
     public string $product;
 
-    #[Validate('required|integer|min:1')]
+    #[Validate('required|integer|min_value:1')]
     public int $quantity;
 
-    #[Validate('required|numeric|min:0')]
+    #[Validate('required|numeric|min_value:0')]
     #[PostProcess(RoundCents::class)]
     public float $price;
 
@@ -140,7 +153,7 @@ final class LineItemRequest extends Request
     #[Validate('required|integer|exists:products,id')]
     public int $productId;
 
-    #[Validate('required|integer|min:1')]
+    #[Validate('required|integer|min_value:1')]
     public int $quantity;
 }
 
@@ -222,7 +235,7 @@ final class OrderItemRequest extends Request
     #[Validate('required|integer|exists:products,id')]
     public int $productId;
 
-    #[Validate('required|integer|min:1|max:99')]
+    #[Validate('required|integer|min_value:1|max_value:99')]
     public int $quantity;
 }
 

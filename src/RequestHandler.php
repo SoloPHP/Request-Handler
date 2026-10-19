@@ -6,13 +6,16 @@ namespace Solo\RequestHandler;
 
 use Psr\Http\Message\ServerRequestInterface;
 use Solo\Contracts\Validator\ValidatorInterface;
+use Solo\RequestHandler\Cache\ProcessorKind;
 use Solo\RequestHandler\Cache\PropertyMetadata;
 use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Cache\RequestMetadata;
 use Solo\RequestHandler\Casters\BuiltInCaster;
 use Solo\RequestHandler\Contracts\GeneratorInterface;
 use Solo\RequestHandler\Exceptions\ValidationException;
+use Solo\RequestHandler\Pipeline\ParameterTypeGuard;
 use Solo\RequestHandler\Pipeline\ProcessorRegistry;
+use Solo\RequestHandler\Pipeline\ResolvedRequest;
 use Solo\RequestHandler\Schema\SchemaBuilder;
 
 /**
@@ -32,6 +35,8 @@ use Solo\RequestHandler\Schema\SchemaBuilder;
  *     context: ['authenticatedUserId' => $auth->id()],
  * );
  * ```
+ *
+ * @phpstan-import-type ValidationErrors from ValidationException
  */
 final class RequestHandler
 {
@@ -153,237 +158,497 @@ final class RequestHandler
     }
 
     /**
+     * Three passes, each only once the previous one left no error anywhere in
+     * the tree: resolve() reads and validates client input, transform() runs
+     * the application's post-processors and custom casters, hydrate() runs
+     * generators and builds the DTOs. Side effects therefore never happen for
+     * a request that is rejected.
+     *
      * @template T of Request
      * @param class-string<T> $className
      * @return T
      */
     private function processRawData(string $className, FieldSource $defaultSource, InputBags $bags): Request
     {
+        $resolved = $this->resolve($className, $defaultSource, $bags);
+
+        if ($resolved->errors === []) {
+            $resolved = $this->transform($resolved);
+        }
+
+        if ($resolved->errors !== []) {
+            throw new ValidationException($resolved->errors);
+        }
+
+        /** @var T */
+        return $this->hydrate($resolved);
+    }
+
+    /**
+     * First pass: read, pre-process, validate and cast — everything that can
+     * fail on client input. Every error in the tree is collected, nested items
+     * included.
+     *
+     * @param class-string<Request> $className
+     */
+    private function resolve(string $className, FieldSource $defaultSource, InputBags $bags): ResolvedRequest
+    {
         $metadata = $this->cache->get($className);
-        /** @var T $instance */
-        $instance = $metadata->reflection->newInstanceWithoutConstructor();
 
         /** @var array<string, mixed>  $validationData */
         $validationData = [];
         /** @var array<string, string> $validationRules */
         $validationRules = [];
-        /** @var array<string, mixed>  $presentFields */
-        $presentFields = [];
+        /** @var array<string, mixed>  $values */
+        $values = [];
+        /** @var ValidationErrors $errors */
+        $errors = [];
 
-        foreach ($metadata->properties as $property) {
+        foreach ($metadata->properties as $name => $property) {
             if ($property->generator !== null) {
-                /** @var class-string<GeneratorInterface> $generatorClass */
-                $generatorClass = $property->generator;
-                $presentFields[$property->name] = $this->processors->runGenerator(
-                    $generatorClass,
-                    $property->generatorOptions
-                );
                 continue;
             }
 
             $hasValueInRequest = false;
             $value = $bags->lookup($property, $defaultSource, $hasValueInRequest);
 
-            // FromBody dot-path resolved to an array but the property is a
-            // plain scalar — user pointed at a sub-object, not a leaf. Throw
-            // a path-pinned error instead of letting it muddle through.
-            if (
-                $hasValueInRequest
-                && $property->pathSegments !== null
-                && is_array($value)
-                && in_array($property->type, ['string', 'int', 'integer', 'float', 'double', 'bool', 'boolean'], true)
-            ) {
-                throw new ValidationException([$property->name => [['rule' => 'scalar']]]);
+            if (!$hasValueInRequest) {
+                // Missing key — enrol into validation only for properties whose
+                // rules can fire without a value: literal 'required' and the
+                // conditional-presence family (required_if, required_with, ...).
+                // Those may carry a default (`?string $x = null` with
+                // `required_if:kind,company`): the absence itself is what has to
+                // be validated, with the default as the value.
+                if ($property->validatesWhenAbsent && $property->validationRules !== null) {
+                    $validationData[$name] = $property->defaultValue;
+                    $validationRules[$name] = $property->validationRules;
+                }
+                continue;
             }
 
             if ($this->autoTrim && is_string($value)) {
                 $value = trim($value);
             }
 
-            if (!$hasValueInRequest) {
-                // A default normally means "absent is fine, nothing to check".
-                // Conditional-presence rules are the exception: `?string $x = null`
-                // carrying `required_if:kind,company` says the field may be
-                // omitted in general but not for that kind, so the absence itself
-                // is what has to be validated.
-                if ($property->hasDefault && !$property->validatesWhenAbsent) {
-                    continue;
-                }
-                // Missing key — enrol into validation only for properties whose
-                // rules can fire without a value ('required' and the
-                // required_* family). Other rules have nothing to validate.
-                $this->collectValidation(
-                    $property,
-                    $property->hasDefault ? $property->defaultValue : null,
-                    $validationData,
-                    $validationRules
-                );
-                continue;
-            }
-
-            // Explicit null or "" was in the request — always feed validator if
-            // any rules are declared, so 'nullable', 'in:', 'email', etc. fire
-            // (rather than silently passing as they would with collectValidation,
-            // which only enrols when isRequired).
             if ($value === null || $value === '') {
-                $presentFields[$property->name] = $value === '' || $property->isNullable
-                    ? $value
-                    : ($property->hasDefault ? $property->defaultValue : null);
-                if ($property->validationRules !== null) {
-                    $validationData[$property->name] = $value;
-                    $validationRules[$property->name] = $property->validationRules;
+                $values[$name] = $value === '' || $property->isNullable ? $value : $property->defaultValue;
+            } else {
+                // Pre-processors see raw client input; runHook() skips a
+                // function/static-method handler that cannot take its type.
+                if ($property->preProcessorKind !== null) {
+                    try {
+                        $value = $this->runHook(
+                            $property->preProcessor,
+                            $property->preProcessorKind,
+                            $property->preProcessorGuard,
+                            [],
+                            $value,
+                            $className,
+                            $bags,
+                        );
+                    } catch (ValidationException $e) {
+                        $errors = $this->mergeErrors($errors, $e->getErrors());
+                        continue;
+                    }
                 }
-                continue;
+                $values[$name] = $value;
             }
 
-            if ($property->preProcessorKind !== null) {
-                /** @var string $handler */
-                $handler = $property->preProcessor;
-                $value = $this->processors->runProcessor(
-                    $handler,
-                    $property->preProcessorKind,
-                    $value,
-                    $className,
-                    new ProcessContext([], $bags->route, $bags->context),
-                );
-            }
-
+            // Every value the request carries is part of the validation
+            // payload — cross-field rules (`same:`, `required_if:`, `{tenantId}`)
+            // may reference fields that declare no rules of their own. An
+            // explicit null or "" is fed in too, so 'nullable', 'in:', 'email',
+            // etc. fire rather than silently passing.
+            $validationData[$name] = $value;
             if ($property->validationRules !== null) {
-                $validationData[$property->name] = $value;
-                $validationRules[$property->name] = $property->validationRules;
+                $validationRules[$name] = $property->validationRules;
             }
-
-            $presentFields[$property->name] = $value;
         }
 
         if (!empty($validationRules)) {
-            $this->validate($validationData, $validationRules);
+            $errors = $this->mergeErrors($errors, $this->validator->validate($validationData, $validationRules));
         }
 
-        foreach ($presentFields as $name => $value) {
+        /** @var array<string, ValidationErrors> $itemErrors */
+        $itemErrors = [];
+        $items = [];
+
+        foreach ($values as $name => $value) {
             $property = $metadata->properties[$name];
 
-            if ($property->postProcessorKind === null && $property->items === null) {
-                $value = $this->castValue($value, $property);
-            }
-
-            if ($property->postProcessorKind !== null) {
-                /** @var string $handler */
-                $handler = $property->postProcessor;
-                $value = $this->processors->runProcessor(
-                    $handler,
-                    $property->postProcessorKind,
-                    $value,
-                    $className,
-                    new ProcessContext($property->postProcessConfig, $bags->route, $bags->context),
-                );
-            }
-
-            if ($property->items !== null && $value !== null) {
-                $value = $this->processItems($property->items, $value, $name, $bags->context);
-            }
-
-            $presentFields[$name] = $value;
-        }
-
-        return $this->populateInstance($instance, $metadata, $presentFields);
-    }
-
-    /**
-     * Process array items through a Request class.
-     *
-     * Non-array values yield a structured validation error rather than a TypeError.
-     * Only the outer context is propagated (see `InputBags::forItem()`).
-     *
-     * @param class-string<Request> $itemsClass
-     * @param array<string, mixed>  $context
-     * @return array<int, Request>
-     * @throws ValidationException
-     */
-    private function processItems(string $itemsClass, mixed $items, string $fieldName, array $context): array
-    {
-        if (!is_array($items)) {
-            throw new ValidationException([$fieldName => [['rule' => 'array']]]);
-        }
-
-        $allErrors = [];
-        $processedItems = [];
-
-        foreach ($items as $index => $itemData) {
-            if (!is_array($itemData)) {
-                $allErrors["{$fieldName}.{$index}"] = [['rule' => 'array']];
+            if (isset($errors[$name]) || $this->decidedInTransform($property)) {
                 continue;
             }
 
-            try {
-                $processedItems[] = $this->processRawData(
-                    $itemsClass,
-                    FieldSource::Body,
-                    InputBags::forItem($itemData, $context),
+            if ($property->items !== null) {
+                if ($value !== null) {
+                    $itemErrors[$name] = [];
+                    $items[$name] = $this->resolveItems(
+                        $property->items,
+                        $value,
+                        $name,
+                        $bags->context,
+                        $itemErrors[$name]
+                    );
+                } elseif ($this->requiresValue($property)) {
+                    $errors[$name] = [['rule' => 'required']];
+                }
+                continue;
+            }
+
+            if ($property->source === FieldSource::Context) {
+                $values[$name] = $this->castTrusted($property, $value, $className);
+                continue;
+            }
+
+            $values[$name] = $value = $this->castBuiltIn($value, $property, $error);
+
+            if ($error !== null) {
+                $errors[$name] = [$error];
+            } elseif ($value === null && $this->requiresValue($property)) {
+                // An explicit null or "" for a property that can hold neither
+                // and has no default to fall back on: the field needs a value.
+                $errors[$name] = [['rule' => 'required']];
+            }
+        }
+
+        $errors = $this->orderErrors($metadata, $errors, $itemErrors);
+
+        return new ResolvedRequest($metadata, $bags, $values, $items, $errors);
+    }
+
+    /**
+     * Second pass, for an input free of errors: the application's
+     * post-processors and custom casters, over the whole tree. Items produced
+     * by a post-processor are resolved here. A ValidationException thrown by
+     * that code is collected — under the item path for nested items — rather
+     * than aborting the pass.
+     */
+    private function transform(ResolvedRequest $resolved): ResolvedRequest
+    {
+        $metadata = $resolved->metadata;
+        if ($metadata->transformed === []) {
+            return $resolved;
+        }
+
+        $values = $resolved->values;
+        $items = $resolved->items;
+        /** @var ValidationErrors $errors */
+        $errors = [];
+        /** @var array<string, ValidationErrors> $itemErrors */
+        $itemErrors = [];
+
+        foreach ($metadata->transformed as $name) {
+            if (!array_key_exists($name, $values)) {
+                continue;
+            }
+            $value = $values[$name];
+            $property = $metadata->properties[$name];
+
+            if ($this->decidedInTransform($property)) {
+                try {
+                    if ($property->postProcessorKind !== null) {
+                        $value = $this->runHook(
+                            $property->postProcessor,
+                            $property->postProcessorKind,
+                            $property->postProcessorGuard,
+                            $property->postProcessConfig,
+                            $value,
+                            $metadata->className,
+                            $resolved->bags,
+                        );
+                    } elseif ($property->customCasterClass !== null && $value !== null) {
+                        $value = $this->processors->invokeCaster($property->customCasterClass, $value);
+                    }
+                } catch (ValidationException $e) {
+                    $errors = $this->mergeErrors($errors, $e->getErrors());
+                    continue;
+                }
+                $values[$name] = $value;
+            }
+
+            if ($property->items === null) {
+                continue;
+            }
+
+            $itemErrors[$name] = [];
+            // Items split from a post-processor's output exist only now.
+            if ($this->decidedInTransform($property) && $value !== null) {
+                $items[$name] = $this->resolveItems(
+                    $property->items,
+                    $value,
+                    $name,
+                    $resolved->bags->context,
+                    $itemErrors[$name]
                 );
-            } catch (ValidationException $e) {
-                foreach ($e->getErrors() as $field => $messages) {
-                    $allErrors["{$fieldName}.{$index}.{$field}"] = $messages;
+            }
+            if ($itemErrors[$name] === [] && isset($items[$name])) {
+                foreach ($items[$name] as $index => $item) {
+                    $items[$name][$index] = $item = $this->transform($item);
+                    if ($item->errors !== []) {
+                        $itemErrors[$name] += $this->prefixErrors($item->errors, "{$name}.{$index}.");
+                    }
                 }
             }
         }
 
-        if (!empty($allErrors)) {
-            throw new ValidationException($allErrors);
-        }
+        $errors = $this->orderErrors($metadata, $errors, $itemErrors);
 
-        return $processedItems;
+        return new ResolvedRequest($metadata, $resolved->bags, $values, $items, $errors);
     }
 
     /**
-     * Enrol a missing field into validation only when its rules can fire
-     * without a value — literal 'required' or any conditional-presence
-     * (required_*) rule.
-     *
-     * @param array<string, mixed>  $validationData
-     * @param array<string, string> $validationRules
+     * Third pass: generators, then the DTOs themselves.
      */
-    private function collectValidation(
-        PropertyMetadata $property,
-        mixed $value,
-        array &$validationData,
-        array &$validationRules,
-    ): void {
-        if (($property->isRequired || $property->validatesWhenAbsent) && $property->validationRules !== null) {
-            $validationData[$property->name] = $value;
-            $validationRules[$property->name] = $property->validationRules;
+    private function hydrate(ResolvedRequest $resolved): Request
+    {
+        $metadata = $resolved->metadata;
+        $values = $resolved->values;
+        /** @var ValidationErrors $errors */
+        $errors = [];
+
+        foreach ($resolved->items as $name => $items) {
+            $hydrated = [];
+            foreach ($items as $index => $item) {
+                try {
+                    $hydrated[] = $this->hydrate($item);
+                } catch (ValidationException $e) {
+                    $errors += $this->prefixErrors($e->getErrors(), "{$name}.{$index}.");
+                }
+            }
+            $values[$name] = $hydrated;
         }
+
+        if ($errors !== []) {
+            throw new ValidationException($errors);
+        }
+
+        foreach ($metadata->generated as $name) {
+            $property = $metadata->properties[$name];
+            /** @var class-string<GeneratorInterface> $generatorClass */
+            $generatorClass = $property->generator;
+            $generated = $this->processors->runGenerator($generatorClass, $property->generatorOptions);
+            $values[$name] = $this->castTrusted($property, $generated, $metadata->className);
+        }
+
+        /** @var Request $instance */
+        $instance = $metadata->reflection->newInstanceWithoutConstructor();
+
+        return $this->populateInstance($instance, $metadata, $values);
     }
 
-    private function castValue(mixed $value, PropertyMetadata $property): mixed
+    /**
+     * Resolve array items through a Request class.
+     *
+     * Non-array values yield a structured validation error rather than a TypeError.
+     * Only the outer context is propagated (see `InputBags::forItem()`).
+     * Items keep their input keys so later passes report errors under the
+     * same path; hydrate() turns them into a list.
+     *
+     * @param class-string<Request> $itemsClass
+     * @param array<string, mixed>  $context
+     * @param ValidationErrors      $errors Receives dot-path keyed item errors.
+     * @return array<int|string, ResolvedRequest>
+     */
+    private function resolveItems(
+        string $itemsClass,
+        mixed $items,
+        string $fieldName,
+        array $context,
+        array &$errors,
+    ): array {
+        if (!is_array($items)) {
+            $errors[$fieldName] = [['rule' => 'array']];
+            return [];
+        }
+
+        $resolvedItems = [];
+
+        foreach ($items as $index => $itemData) {
+            if (!is_array($itemData)) {
+                $errors["{$fieldName}.{$index}"] = [['rule' => 'array']];
+                continue;
+            }
+
+            // A ValidatorInterface implementation may throw instead of
+            // returning its errors; keep those under the item path too.
+            try {
+                $item = $this->resolve($itemsClass, FieldSource::Body, InputBags::forItem($itemData, $context));
+            } catch (ValidationException $e) {
+                $errors += $this->prefixErrors($e->getErrors(), "{$fieldName}.{$index}.");
+                continue;
+            }
+
+            if ($item->errors !== []) {
+                $errors += $this->prefixErrors($item->errors, "{$fieldName}.{$index}.");
+            }
+            $resolvedItems[$index] = $item;
+        }
+
+        return $resolvedItems;
+    }
+
+    /**
+     * Built-in, type-driven and enum casts — the conversions that can reject
+     * client input. A value that cannot be converted sets `$error` (the
+     * metadata's `scalar` / `castFailure` error) instead of becoming `1`,
+     * `null` or an uninitialised property.
+     *
+     * @param array{rule: string, params?: list<string>}|null     $error
+     * @param-out array{rule: string, params?: list<string>}|null $error
+     */
+    private function castBuiltIn(mixed $value, PropertyMetadata $property, ?array &$error): mixed
     {
+        $error = null;
+
         if ($value === null) {
             return null;
         }
 
-        if ($property->customCasterClass !== null) {
-            return $this->processors->invokeCaster($property->customCasterClass, $value);
+        if (is_array($value) && $property->rejectsArrayInput) {
+            $error = ['rule' => 'scalar'];
+            return null;
         }
 
-        if ($property->effectiveCastType !== null) {
-            return $this->builtInCaster->cast($property->effectiveCastType, $value);
+        $cast = match (true) {
+            $property->enumClass !== null => $this->builtInCaster->castEnum($property->enumClass, $value),
+            $property->effectiveCastType !== null => $this->builtInCaster->cast($property->effectiveCastType, $value),
+            default => $value,
+        };
+
+        if ($cast === null && $value !== '') {
+            $error = $property->castFailure;
         }
 
-        return $value;
+        return $cast;
     }
 
     /**
-     * @param array<string, mixed>  $data
-     * @param array<string, string> $rules
-     * @throws ValidationException
+     * Cast a value the application supplied (context, generator). One that
+     * does not fit the declared type is a programming error, not a client
+     * mistake, so it raises instead of becoming a validation error.
      */
-    private function validate(array $data, array $rules): void
+    private function castTrusted(PropertyMetadata $property, mixed $value, string $className): mixed
     {
-        $errors = $this->validator->validate($data, $rules);
+        $cast = $this->castBuiltIn($value, $property, $error);
 
-        if (!empty($errors)) {
-            throw new ValidationException($errors);
+        if ($error !== null) {
+            throw new \UnexpectedValueException(sprintf(
+                "%s does not fit %s::\$%s (%s).",
+                $property->generator !== null
+                    ? "Value generated by {$property->generator}"
+                    : "Context value '{$property->sourceKey}'",
+                $className,
+                $property->name,
+                $error['rule'],
+            ));
         }
+
+        return $cast;
+    }
+
+    /**
+     * Whether a post-processor or custom caster decides the final value —
+     * and, for items, what is split into items. Those run in transform().
+     */
+    private function decidedInTransform(PropertyMetadata $property): bool
+    {
+        return $property->postProcessorKind !== null || $property->customCasterClass !== null;
+    }
+
+    /**
+     * A property that can hold neither null nor fall back to a default.
+     */
+    private function requiresValue(PropertyMetadata $property): bool
+    {
+        return !$property->isNullable && !$property->hasDefault;
+    }
+
+    /**
+     * Run a pre/post-process handler — or return the value unchanged when
+     * there is none, or when its guard rejects the value's type.
+     *
+     * @param array<string, mixed> $config
+     * @param class-string         $className
+     */
+    private function runHook(
+        ?string $handler,
+        ?ProcessorKind $kind,
+        ?ParameterTypeGuard $guard,
+        array $config,
+        mixed $value,
+        string $className,
+        InputBags $bags,
+    ): mixed {
+        if ($handler === null || $kind === null || !($guard?->accepts($value) ?? true)) {
+            return $value;
+        }
+
+        return $this->processors->runProcessor(
+            $handler,
+            $kind,
+            $value,
+            $className,
+            new ProcessContext($config, $bags->route, $bags->context),
+        );
+    }
+
+    /**
+     * @param ValidationErrors        $errors
+     * @param array<array-key, mixed> $more
+     * @return ValidationErrors
+     */
+    private function mergeErrors(array $errors, array $more): array
+    {
+        foreach ($more as $field => $messages) {
+            /** @var list<array{rule: string, params?: string[]}> $messages */
+            $errors[(string) $field] = array_merge($errors[(string) $field] ?? [], $messages);
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @param array<array-key, mixed> $errors
+     * @return ValidationErrors
+     */
+    private function prefixErrors(array $errors, string $prefix): array
+    {
+        $prefixed = [];
+        foreach ($errors as $field => $messages) {
+            /** @var list<array{rule: string, params?: string[]}> $messages */
+            $prefixed[$prefix . $field] = $messages;
+        }
+
+        return $prefixed;
+    }
+
+    /**
+     * Errors in property declaration order, each items property followed by
+     * its nested errors — the order a form presents the fields in.
+     *
+     * @param ValidationErrors                $errors
+     * @param array<string, ValidationErrors> $itemErrors
+     * @return ValidationErrors
+     */
+    private function orderErrors(RequestMetadata $metadata, array $errors, array $itemErrors): array
+    {
+        // Hot path: runs twice per request, almost always without errors.
+        $itemErrors = array_filter($itemErrors);
+        if ($itemErrors === [] && count($errors) < 2) {
+            return $errors;
+        }
+
+        $ordered = [];
+        foreach ($metadata->properties as $name => $_) {
+            if (isset($errors[$name])) {
+                $ordered[$name] = $errors[$name];
+            }
+            $ordered += $itemErrors[$name] ?? [];
+        }
+
+        // Keys reported for something other than a property.
+        return $ordered + $errors;
     }
 
     /**

@@ -10,7 +10,9 @@ use Exception;
  * Thrown when an invalid Request class configuration is detected
  *
  * This exception is thrown during metadata building to catch configuration
- * errors early, before any requests are processed.
+ * errors early, before any requests are processed. The one runtime case is
+ * `handlerNotInstantiable()`: whether a handler class needs a registered
+ * instance is only known when it is first used.
  */
 final class ConfigurationException extends Exception
 {
@@ -356,6 +358,61 @@ final class ConfigurationException extends Exception
             $propertyName,
             $processorType,
             $methodName
+        ));
+    }
+
+    /**
+     * Processor handler refers to a static method that is not public — the handler cannot call it.
+     */
+    public static function processorMethodNotPublic(
+        string $className,
+        string $propertyName,
+        string $processorType,
+        string $methodName
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has %s '%s' that exists on the Request class as a NON-public method. " .
+            "Make it public static.",
+            $className,
+            $propertyName,
+            $processorType,
+            $methodName
+        ));
+    }
+
+    /**
+     * Function / static-method processor cannot be called with the value as its only argument.
+     *
+     * Example: #[PreProcess('explode')] — explode() needs two arguments.
+     */
+    public static function invalidProcessorSignature(
+        string $className,
+        string $propertyName,
+        string $processorType,
+        string $processorName
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s has %s '%s' that cannot be called with a single argument (the value). " .
+            "Wrap it in a static method or a ProcessorInterface class.",
+            $className,
+            $propertyName,
+            $processorType,
+            $processorName
+        ));
+    }
+
+    /**
+     * Processor / caster / generator class cannot be instantiated without arguments
+     * and no instance was registered for it.
+     */
+    public static function handlerNotInstantiable(string $handlerClass): self
+    {
+        return new self(sprintf(
+            "Cannot instantiate %s automatically: it is abstract, has a non-public constructor " .
+            "or requires constructor arguments. Register an instance with " .
+            "RequestHandler::register(%s::class, \$instance).",
+            $handlerClass,
+            $handlerClass
         ));
     }
 }

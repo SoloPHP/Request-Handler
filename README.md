@@ -11,12 +11,13 @@ Type-safe Request DTOs for PHP 8.2+ with focused per-property attributes, declar
 - **Per-property source binding** — default source comes from the handle method (`handleBody` → Body, `handleQuery` → Query); `#[FromRoute]` and `#[FromContext]` override per property. No implicit merging, no surprises.
 - **Attribute-composed DTOs** — each concern is its own focused attribute: `#[Validate]`, `#[Cast]`, `#[PostProcess]`, `#[Generator]`, `#[Items]`, …
 - **Convention over configuration** — every public non-static property is managed; attributes only add behaviour
-- **Automatic type casting** — driven by the property's declared type; built-ins for int, float, bool, string, array, DateTime + custom casters
-- **Validation rules** — passed verbatim to your `ValidatorInterface`; route and context values land in the validation payload as regular fields, so cross-field rules (`exists:…,scope_col,{field}`) work without special syntax
+- **Automatic type casting** — driven by the property's declared type: int, float, bool, string, array, `DateTime` / `DateTimeImmutable`, backed enums + custom casters. Arrays sent for int/float/bool fields, unparseable dates and unknown enum values are validation errors rather than `1`, `null` or an uninitialised property
+- **Validation rules** — passed verbatim to your `ValidatorInterface`; every field present in the request — route and context values included, with or without rules of their own — lands in the validation payload, so cross-field rules (`exists:…,scope_col,{field}`) work without special syntax
+- **All errors at once** — validator errors, cast failures and nested-item errors come back in one `ValidationException`; generators and post-processors run only for valid input
 - **Generators** — auto-generate UUIDs, sequences, custom values via `#[Generator]`
 - **Pre/post processing** — `#[PreProcess]` / `#[PostProcess]` for transformation
 - **Nested items** — `#[Items]` validates arrays of nested Request DTOs with dot-notation error paths
-- **Fail-fast** — every misconfiguration throws `ConfigurationException` at metadata-build time, not at first request
+- **Fail-fast** — misconfigurations throw `ConfigurationException` at metadata-build time (nested item classes included), not on the first request that happens to exercise them
 - **Schema export** — `schema()` emits JSON-serializable per-field metadata (type, nullability, requiredness incl. conditional `required_if`, normalized rules) so the frontend can treat the backend as the single source of truth
 
 ## Installation
@@ -43,10 +44,10 @@ final class UpdateProductRequest extends Request
     #[Validate('required|string|max:255')]
     public string $name;
 
-    #[Validate('required|numeric|min:0')]
+    #[Validate('required|numeric|min_value:0')]
     public float $price;
 
-    #[Validate('nullable|integer|min:0')]
+    #[Validate('integer|min_value:0')]
     public int $stock = 0;
 
     #[FromContext('tenantId')]

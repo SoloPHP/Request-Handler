@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Cache;
 
+use BackedEnum;
 use ReflectionProperty;
 use Solo\RequestHandler\FieldSource;
+use Solo\RequestHandler\Pipeline\ParameterTypeGuard;
 use Solo\RequestHandler\Request;
 
 /**
@@ -25,14 +27,27 @@ use Solo\RequestHandler\Request;
  * `pathSegments` is non-null only when the property is sourced via
  * `#[FromBody('a.b.c')]` — in that case `InputBags::lookup` walks the body
  * bag segment by segment instead of doing a flat array_key_exists lookup.
+ *
+ * `preProcessorGuard` / `postProcessorGuard` are set for function and
+ * static-method handlers whose first parameter is typed: a value the handler
+ * cannot accept skips it rather than raising a TypeError.
+ *
+ * `enumClass` is set when the declared type is a `BackedEnum`; the value is
+ * resolved through `tryFrom()` instead of a built-in cast.
+ *
+ * `rejectsArrayInput` and `castFailure` are the built-in cast's policy,
+ * decided once: whether an array input is a `scalar` error, and the error to
+ * report when non-empty input casts to null (`in`, `date`, `date_format`).
  */
 final readonly class PropertyMetadata
 {
     /**
-     * @param array<string, mixed>       $postProcessConfig
-     * @param array<string, mixed>       $generatorOptions
-     * @param class-string<Request>|null $items
-     * @param list<string>|null          $pathSegments
+     * @param array<string, mixed>            $postProcessConfig
+     * @param array<string, mixed>            $generatorOptions
+     * @param class-string<Request>|null      $items
+     * @param list<string>|null               $pathSegments
+     * @param class-string<BackedEnum>|null   $enumClass
+     * @param array{rule: string, params?: list<string>}|null $castFailure
      */
     public function __construct(
         public string $name,
@@ -60,6 +75,11 @@ final readonly class PropertyMetadata
         public bool $exclude = false,
         public ?string $items = null,
         public ?array $pathSegments = null,
+        public ?ParameterTypeGuard $preProcessorGuard = null,
+        public ?ParameterTypeGuard $postProcessorGuard = null,
+        public ?string $enumClass = null,
+        public bool $rejectsArrayInput = false,
+        public ?array $castFailure = null,
     ) {
     }
 }

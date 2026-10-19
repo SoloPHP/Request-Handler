@@ -85,7 +85,7 @@ A single-segment path acts as a flat key remap:
 public string $name;
 ```
 
-Malformed paths (leading/trailing dot, empty segment) throw `InvalidArgumentException` at construction. If the path resolves to an array but the property is a scalar, a structured `ValidationException` is raised (`['field' => [['rule' => 'scalar']]]`).
+Malformed paths (leading/trailing dot, empty segment) throw `InvalidArgumentException` at construction. If the path resolves to an array but the property is a scalar (string included), a structured `ValidationException` is raised (`['field' => [['rule' => 'scalar']]]`) — unless a pre/post-processor or custom caster converts the array; when the field has rules, the validator's error (e.g. `integer`) is reported instead.
 
 ---
 

@@ -7,12 +7,33 @@ The library automatically casts input values based on property types, with optio
 When no `#[Cast]` or `#[Caster]` is specified, values are cast based on the property type:
 
 ```php
-public int $count;      // Cast to int
-public float $price;    // Cast to float
-public bool $active;    // Cast to bool
-public string $name;    // Cast to string
-public array $tags;     // Cast to array
+public int $count;                // Cast to int
+public float $price;              // Cast to float
+public bool $active;              // Cast to bool
+public string $name;              // Cast to string
+public array $tags;               // Cast to array
+public DateTimeImmutable $at;     // Parsed into DateTimeImmutable
+public DateTime $legacyAt;        // Parsed into DateTime (also for DateTimeInterface)
+public Status $status;            // BackedEnum — resolved by backing value
 ```
+
+## Cast Failures Are Validation Errors
+
+A value that cannot become the declared type is reported in the `ValidationException`, together with the validator's errors, instead of turning into `1`, `null` or an uninitialised property:
+
+| Input | Error |
+|-------|-------|
+| Array for an `int` / `float` / `bool` property (`?page[]=5`) | `['rule' => 'scalar']` |
+| Unparseable date, no format | `['rule' => 'date']` |
+| Unparseable date for `datetime:<format>` | `['rule' => 'date_format', 'params' => ['<format>']]` |
+| Value matching no enum case | `['rule' => 'in', 'params' => [...backing values]]` |
+| `""` or `null` for a non-nullable property without a default | `['rule' => 'required']` |
+
+An empty string keeps its meaning "no value": it becomes `null` for `int`, `float`, DateTime and enum properties — `null` on a nullable property, the default on one that has a default, and the `required` error otherwise. A field that already failed validation is not cast, so it reports the validator's error only.
+
+An array for a `string` property is JSON-encoded (see [String](#string)), except when it comes from a `#[FromBody]` dot-path: there it means the path stops at a sub-object, and it is a `scalar` error. Properties with a pre/post-processor or a custom caster get the value those produce, so they may accept arrays.
+
+Values the application supplies — `#[FromContext]` and generators — are not client input: one that does not fit the declared type throws `UnexpectedValueException` instead of producing a validation error.
 
 ## Explicit Casting (`#[Cast]`)
 
@@ -103,20 +124,25 @@ $caster->cast('array', '');             // []
 #[Cast('datetime')]
 public DateTime $createdAt;
 
-// Accepts: ISO strings, timestamps, DateTime objects
+// Accepts: date strings, Unix timestamps (int or digit string), DateTime objects
 // "2024-01-15" → DateTime
-// 1705276800 → DateTime
+// 1705276800   → DateTime
+// "1705276800" → DateTime
 ```
+
+`#[Cast]` is only needed for a format or to pick a class the type does not imply — a `DateTimeImmutable` / `DateTime` / `DateTimeInterface` property is parsed without it.
 
 ### DateTime with Format
 
 ```php
 #[Cast('datetime:Y-m-d')]
-public DateTime $birthDate;
+public DateTime $birthDate;      // "1990-05-01" → 1990-05-01 00:00:00
 
 #[Cast('datetime:Y-m-d H:i:s')]
-public DateTime $eventTime;
+public DateTime $eventTime;      // formats may contain ':'
 ```
+
+A format without time-of-day fields (`Y-m-d`, `d.m.Y`) yields midnight. Other fields the format does not parse keep `createFromFormat()` semantics and come from the current date — `m-d` is in the current year; add `!` or `|` to a format to reset them yourself (`!Y-m` is the first of the month).
 
 ### DateTimeImmutable
 
@@ -126,7 +152,31 @@ public DateTimeImmutable $timestamp;
 
 #[Cast('datetime:immutable:Y-m-d')]
 public DateTimeImmutable $date;
+
+#[Cast('datetime:Y-m-d')]          // the property type implies immutable
+public DateTimeImmutable $day;
 ```
+
+An immutable spec also converts a `DateTime` object (e.g. a clock passed via `context`) into `DateTimeImmutable`. `datetime:immutable` on a property typed `DateTime` is a `ConfigurationException`.
+
+---
+
+## Enums
+
+A property typed with a `BackedEnum` is resolved through its backing value — no attribute needed. Int-backed enums also accept numeric strings, since query strings carry no ints:
+
+```php
+enum Status: string { case Draft = 'draft'; case Published = 'published'; }
+enum Priority: int { case Low = 1; case High = 2; }
+
+public Status $status;                        // "published" → Status::Published
+public Priority $priority = Priority::Low;    // "2"         → Priority::High
+public ?Status $filter = null;                // ""          → null
+
+// "archived" → ['status' => [['rule' => 'in', 'params' => ['draft', 'published']]]]
+```
+
+Enum instances passed through `context` are kept as they are. Pure (non-backed) enums still need a `#[Caster]`.
 
 ---
 

@@ -8,6 +8,7 @@ use Solo\RequestHandler\Cache\ProcessorKind;
 use Solo\RequestHandler\Contracts\CasterInterface;
 use Solo\RequestHandler\Contracts\GeneratorInterface;
 use Solo\RequestHandler\Contracts\ProcessorInterface;
+use Solo\RequestHandler\Exceptions\ConfigurationException;
 use Solo\RequestHandler\ProcessContext;
 
 /**
@@ -77,7 +78,7 @@ final class ProcessorRegistry
     }
 
     /**
-     * Apply a `CasterInterface` directly (used by `RequestHandler::castValue`
+     * Apply a `CasterInterface` directly (used by `RequestHandler::transform()`
      * for `#[Caster]`-marked properties).
      */
     public function invokeCaster(string $handler, mixed $value): mixed
@@ -103,6 +104,28 @@ final class ProcessorRegistry
     private function getOrCreate(string $className): object
     {
         /** @var class-string $className */
-        return $this->instances[$className] ??= new $className();
+        return $this->instances[$className] ??= $this->instantiate($className);
+    }
+
+    /**
+     * Whether a class can be built without arguments is only decidable here:
+     * an abstract class, or one with constructor dependencies, is valid
+     * configuration as long as an instance was registered for it.
+     *
+     * @param class-string $className
+     */
+    private function instantiate(string $className): object
+    {
+        $reflection = new \ReflectionClass($className);
+        $constructor = $reflection->getConstructor();
+
+        if (
+            !$reflection->isInstantiable()
+            || ($constructor !== null && $constructor->getNumberOfRequiredParameters() > 0)
+        ) {
+            throw ConfigurationException::handlerNotInstantiable($className);
+        }
+
+        return $reflection->newInstance();
     }
 }

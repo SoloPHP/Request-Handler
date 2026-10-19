@@ -25,22 +25,22 @@ features:
     details: Each concern is its own focused attribute — #[Validate], #[Cast], #[PostProcess], #[Generator], #[Items], …
   - icon: 🔄
     title: Automatic type casting
-    details: Driven by declared type. Built-ins for int, float, bool, string, array, DateTime + custom casters.
+    details: Driven by declared type — int, float, bool, string, array, DateTime, backed enums + custom casters. Unconvertible input is a validation error, not garbage.
   - icon: ✅
     title: Validation rules
-    details: Rules passed verbatim to your ValidatorInterface. Route and context values land in the validation payload as regular fields.
+    details: Rules passed verbatim to your ValidatorInterface. Every field present in the request — route and context included — lands in the validation payload. All errors come back at once.
   - icon: ⚡
     title: Generators
     details: Auto-generate field values (UUIDs, sequences) via #[Generator] with custom options.
   - icon: 🔧
     title: Pre/post processing
-    details: Transform values before validation or after casting via #[PreProcess] / #[PostProcess].
+    details: Transform values before validation or after it via #[PreProcess] / #[PostProcess].
   - icon: 🪆
     title: Nested items
     details: Validate arrays of nested DTOs via #[Items] with dot-notation error paths.
   - icon: 🛡️
     title: Fail-fast
-    details: Every misconfiguration throws ConfigurationException at metadata-build time, not at first request.
+    details: Misconfigurations throw ConfigurationException at metadata-build time, nested item classes included.
   - icon: 📐
     title: Schema export
     details: schema() emits JSON-serializable per-field metadata (type, nullability, requiredness incl. required_if, normalized rules) — the backend as a single source of truth for the frontend.
@@ -77,10 +77,10 @@ final class UpdateProductRequest extends Request
     #[Validate('required|string|max:255')]
     public string $name;
 
-    #[Validate('required|numeric|min:0')]
+    #[Validate('required|numeric|min_value:0')]
     public float $price;
 
-    #[Validate('nullable|integer|min:0')]
+    #[Validate('integer|min_value:0')]
     public int $stock = 0;
 
     #[Generator(UuidGenerator::class)]
