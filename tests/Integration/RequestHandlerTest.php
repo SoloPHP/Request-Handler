@@ -809,16 +809,35 @@ final class RequestHandlerTest extends TestCase
 
         $dto = $handler->handleArray(RegisteredGeneratorRequest::class, ['name' => 'Test']);
         $this->assertSame('from_container_generated', $dto->id);
-
-        $handler->handleArray(RegisteredGeneratorRequest::class, ['name' => 'Again']);
-        $this->assertSame(1, $container->gets, 'the entry is resolved once per handler');
+        $this->assertSame(1, $container->gets);
 
         // A registered instance takes precedence over the container.
         $other = new RequestHandler($this->validator, container: $container);
         $other->register(TestGeneratorWithDependency::class, new TestGeneratorWithDependency('registered'));
         $dto = $other->handleArray(RegisteredGeneratorRequest::class, ['name' => 'Test']);
         $this->assertSame('registered_generated', $dto->id);
-        $this->assertSame(1, $container->gets);
+        $this->assertSame(1, $container->gets, 'the container was not asked');
+    }
+
+    public function testContainerEntryIsFetchedOnEveryUse(): void
+    {
+        // The handler may outlive a request (a container singleton under a
+        // long-running server): the container, not the handler, decides
+        // whether an entry is shared, built per call or request-scoped.
+        $this->validator->method('validate')->willReturn([]);
+        $built = 0;
+        $container = new ArrayContainer([
+            TestGeneratorWithDependency::class => static function () use (&$built): TestGeneratorWithDependency {
+                return new TestGeneratorWithDependency('call' . ++$built);
+            },
+        ]);
+        $handler = new RequestHandler($this->validator, container: $container);
+
+        $first = $handler->handleArray(RegisteredGeneratorRequest::class, ['name' => 'A']);
+        $second = $handler->handleArray(RegisteredGeneratorRequest::class, ['name' => 'B']);
+
+        $this->assertSame('call1_generated', $first->id);
+        $this->assertSame('call2_generated', $second->id);
     }
 
     public function testClassesTheContainerLacksAreBuiltWithoutArguments(): void
@@ -3210,8 +3229,10 @@ final class ArrayContainer implements ContainerInterface
             };
         }
         $this->gets++;
+        $entry = $this->entries[$id];
 
-        return $this->entries[$id];
+        // A closure is a factory: a new instance per get().
+        return $entry instanceof \Closure ? $entry() : $entry;
     }
 
     public function has(string $id): bool

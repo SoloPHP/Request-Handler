@@ -56,7 +56,7 @@ Processor, caster and generator classes are resolved by class name, in this orde
 2. the entry of the PSR-11 container given to the constructor, when `has(Class::class)` is true;
 3. a new instance built without arguments.
 
-A class that needs constructor arguments must come from 1 or 2 — otherwise its first use throws `ConfigurationException::handlerNotInstantiable`. Each class is resolved once per handler and reused.
+A class that needs constructor arguments must come from 1 or 2 — otherwise its first use throws `ConfigurationException::handlerNotInstantiable`. A registered instance, or one built without arguments, is kept for the handler's lifetime; a container entry is fetched from the container on every use, so the container's own scoping — shared, built per call, request-scoped — applies even when the handler outlives a request.
 
 ### From a PSR-11 container
 
