@@ -435,6 +435,16 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(' z ', $dto->c, 'a filled value is not trimmed');
     }
 
+    public function testYearTypedIntoADateFieldIsADateError(): void
+    {
+        try {
+            $this->handler->handleArray(TypeDrivenDateTimeRequest::class, ['immutable' => '2024']);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['immutable' => [['rule' => 'date']]], $e->getErrors());
+        }
+    }
+
     // ===== union types =====
 
     public function testUnionKeepsAValueOfAMemberType(): void

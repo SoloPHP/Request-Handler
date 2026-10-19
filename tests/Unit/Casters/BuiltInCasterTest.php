@@ -156,6 +156,22 @@ final class BuiltInCasterTest extends TestCase
         $this->assertSame(1700000000, $fromString->getTimestamp());
     }
 
+    public function testDigitsAreADateOrATimestampButNeverATimeOfDay(): void
+    {
+        $compact = $this->caster->castDate(DateTimeImmutable::class, null, '20240115');
+        $this->assertInstanceOf(DateTimeImmutable::class, $compact);
+        $this->assertSame('2024-01-15 00:00:00', $compact->format('Y-m-d H:i:s'));
+
+        // The parser would read these as 20:24, 12:30 and 20:24:01 today.
+        foreach (['2024', '1230', '202401'] as $digits) {
+            $this->assertNull($this->caster->castDate(DateTimeImmutable::class, null, $digits), $digits);
+        }
+
+        // Other strings keep the parser's meaning, a time of day included.
+        $this->assertNotNull($this->caster->castDate(DateTimeImmutable::class, null, '10:30'));
+        $this->assertNotNull($this->caster->castDate(DateTimeImmutable::class, null, 'tomorrow'));
+    }
+
     public function testCastDateFormatContainingColons(): void
     {
         $casted = $this->caster->castDate(DateTimeImmutable::class, 'Y-m-d H:i:s', '2024-01-15 10:30:45');

@@ -98,6 +98,8 @@ The class now comes from the property type, so the `datetime[:immutable][:format
 
 A `DateTimeInterface` property now holds a `DateTimeImmutable` (3.x: `DateTime`). An untyped or `mixed` property with `#[DateFormat]` gets a `DateTimeImmutable`.
 
+A string of digits PHP's parser reads as a time of day — `"2024"` → 20:24 today, `"1230"` → 12:30 — is now a `date` error. Digits that spell a date (`"20240115"`) and Unix timestamps (`"1705276800"`) are read as before.
+
 `#[Cast]` takes `int`, `float`, `bool`, `string`, `array` and `json`; the aliases `integer`, `double` and `boolean` are gone.
 
 ## Class-typed properties

@@ -75,6 +75,11 @@ final class BuiltInCaster
      * timestamp or another DateTime object. Null when the value cannot be
      * read as a date — and for "" (no value).
      *
+     * Without a format, a string of digits is a date when it spells one
+     * (`20240115`) and a Unix timestamp when the parser rejects it
+     * (`1700000000`); digits the parser takes for a time of day (`2024` →
+     * 20:24 today) are not a date.
+     *
      * A format without time-of-day fields yields midnight: `createFromFormat()`
      * would otherwise copy the current time into the unparsed fields.
      *
@@ -110,13 +115,17 @@ final class BuiltInCaster
                 : $parsed;
         }
 
+        $digits = preg_match('/^-?\d+$/', $value) === 1;
+
         try {
-            return new $class($value);
+            $date = new $class($value);
         } catch (\Exception) {
             // The DateTime parser rejects a bare Unix timestamp ('1700000000'),
             // which is how query strings and form fields deliver one.
-            return preg_match('/^-?\d+$/', $value) === 1 ? (new $class())->setTimestamp((int) $value) : null;
+            return $digits ? (new $class())->setTimestamp((int) $value) : null;
         }
+
+        return $digits && date_parse($value)['year'] === false ? null : $date;
     }
 
     /**

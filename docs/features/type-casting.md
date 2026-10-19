@@ -158,6 +158,8 @@ public ?DateTimeInterface $seenAt = null;  // a DateTimeImmutable
 // objects passed via context — converted to the declared class.
 ```
 
+A string of digits is a date when it spells one (`"20240115"`) and a Unix timestamp when PHP's parser cannot read it (`"1705276800"`). Digits the parser would take for a time of day — `"2024"` is 20:24 today — are a `date` error.
+
 ### Fixed format — `#[DateFormat]`
 
 ```php
