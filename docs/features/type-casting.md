@@ -32,6 +32,13 @@ public array|string $tags;  // ['a'] → ['a'], 7 → "7"
 
 A value that fits no member is a validation error named after the widest member: `string`, then `numeric`, `integer`, `boolean`, `array`. `""` for a union without `string` means no value, as for a number.
 
+The literal types `true` and `false` — alone or in a union — are reached through the bool cast, then kept only when the result is the literal:
+
+```php
+public true $acceptTerms;         // true, "1", "yes", "on" → true; "0", false → boolean error
+public string|false $nickname;    // false → false, "x" → "x"
+```
+
 Casts are **lossless**: a value is converted only when nothing is lost on the way — `"42"` becomes `42`, but `"42abc"` does not become `42`. Everything else is a validation error.
 
 ## Cast Failures Are Validation Errors

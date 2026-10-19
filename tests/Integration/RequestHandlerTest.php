@@ -523,6 +523,40 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
+    public function testStandaloneTrueAcceptsOnlyTrueForms(): void
+    {
+        foreach (['yes', '1', true, 'on'] as $input) {
+            $this->assertSame(
+                ['accepted' => true, 'nickname' => false],
+                $this->handler->handleArray(TermsRequest::class, ['accepted' => $input])->toArray(),
+                var_export($input, true)
+            );
+        }
+
+        // 3.x: a TypeError — the value is a boolean, just not `true`.
+        foreach (['0', false, 'maybe'] as $input) {
+            try {
+                $this->handler->handleArray(TermsRequest::class, ['accepted' => $input]);
+                $this->fail('Expected ValidationException for ' . var_export($input, true));
+            } catch (ValidationException $e) {
+                $this->assertSame(['accepted' => [['rule' => 'boolean']]], $e->getErrors());
+            }
+        }
+    }
+
+    public function testFalseMemberKeepsItsLiteral(): void
+    {
+        $this->assertFalse($this->handler->handleArray(TermsRequest::class, ['nickname' => false])->nickname);
+        $this->assertSame('x', $this->handler->handleArray(TermsRequest::class, ['nickname' => 'x'])->nickname);
+
+        try {
+            $this->handler->handleArray(TermsRequest::class, ['nickname' => true]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['nickname' => [['rule' => 'string']]], $e->getErrors());
+        }
+    }
+
     public function testEmptyStringForANumericUnionMeansNoValue(): void
     {
         $dto = $this->handler->handleArray(UnionTypesRequest::class, ['amount' => '']);
@@ -3495,4 +3529,10 @@ final class ContextLinesRequest extends Request
     #[FromContext('lines')]
     #[Items(LineItemRequest::class)]
     public array $lines = [];
+}
+
+final class TermsRequest extends Request
+{
+    public true $accepted;
+    public string|false $nickname = false;
 }

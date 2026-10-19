@@ -51,9 +51,10 @@ use Solo\RequestHandler\Request;
  * string is read as null. `noTrim`: auto-trim skips it — `#[NoTrim]`, or a
  * `#[FromContext]` value, which is the application's.
  *
- * `typeGuard` is set for a union no cast applies to (`int|float`): a value
- * of a member type is kept, another one is converted to the first of
- * `unionCasts` it fits without loss — or fails with `castFailure`.
+ * `typeGuard` is set for a union no cast applies to (`int|float`) and for a
+ * standalone `true` / `false`: a value of a member type is kept, another one
+ * is converted to the first of `unionCasts` it fits without loss — or fails
+ * with `castFailure`.
  *
  * `trustedGuard` is set for a value the application supplies (context,
  * generator) to a typed property: after the cast, one that still does not

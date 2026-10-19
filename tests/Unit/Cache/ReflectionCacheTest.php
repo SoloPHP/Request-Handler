@@ -684,6 +684,16 @@ final class ReflectionCacheTest extends TestCase
         $this->assertNull($properties['price']->typeGuard);
     }
 
+    public function testStandaloneTrueTypeIsCastThroughBool(): void
+    {
+        $properties = $this->cache->get(LiteralTypesRequest::class)->properties;
+
+        $this->assertNotNull($properties['accepted']->typeGuard);
+        $this->assertSame(['bool'], $properties['accepted']->unionCasts);
+        $this->assertSame(['rule' => 'boolean'], $properties['accepted']->castFailure);
+        $this->assertSame(['string', 'bool'], $properties['nickname']->unionCasts);
+    }
+
     public function testIterableIsCastLikeAnArray(): void
     {
         $this->assertSame('array', $this->cache->get(UnionCastRequest::class)->properties['list']->effectiveCastType);
@@ -1619,4 +1629,10 @@ final class ContextDtoRequest extends Request
 {
     #[FromContext('address')]
     public ValidRequest $address;
+}
+
+final class LiteralTypesRequest extends Request
+{
+    public true $accepted;
+    public string|false $nickname = false;
 }

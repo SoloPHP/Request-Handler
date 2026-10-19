@@ -616,7 +616,8 @@ final class RequestHandler
     /**
      * A union no cast applies to: a value of a member type stays as it is,
      * any other one becomes the first scalar member it converts to without
-     * loss — PHP's coercion order, int, float, string, bool. Null when none.
+     * loss — PHP's coercion order, int, float, string, bool — and that the
+     * type then accepts (`"0"` is a bool, but no `true`). Null when none.
      *
      * @param list<string> $casts
      */
@@ -628,7 +629,7 @@ final class RequestHandler
 
         foreach ($casts as $type) {
             $cast = $this->builtInCaster->cast($type, $value);
-            if ($cast !== null) {
+            if ($cast !== null && $guard->accepts($cast)) {
                 return $cast;
             }
         }
