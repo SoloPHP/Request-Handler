@@ -399,15 +399,21 @@ final class ReflectionCache
             || $generator !== null
             || $source === FieldSource::Context;
 
-        if (!$produced && !$this->holdsClientInput($property->getType())) {
+        $type = $property->getType();
+        $members = $this->typeMembers($type);
+        $holdsInput = $members === null || array_intersect($members, self::INPUT_TYPES) !== [];
+
+        if (!$produced && !$holdsInput) {
             throw ConfigurationException::unproducibleType($className, $name, (string) $phpType);
         }
 
-        [$typeGuard, $unionCasts, $unionFailure] = $effectiveCastType === null
+        [$typeGuard, $unionCasts, $unionFailure] = $type instanceof \ReflectionUnionType
+            && $holdsInput
+            && $effectiveCastType === null
             && $enumClass === null
             && $dateClass === null
             && $resolvedCasterClass === null
-            ? $this->unionCast($property->getType())
+            ? $this->unionCast($type, (array) $members)
             : [null, [], null];
 
         return new PropertyMetadata(
@@ -460,47 +466,39 @@ final class ReflectionCache
     }
 
     /**
-     * Whether a value read from request input can have the type: untyped,
-     * `mixed`, a scalar, `array` / `iterable`, or a union with one of those.
+     * The lower-cased names of a type's named members — one for a named type,
+     * the named ones of a union, none for an intersection. Null when untyped.
+     * Whether a value read from request input can have the type is whether
+     * one of them is in INPUT_TYPES.
+     *
+     * @return list<string>|null
      */
-    private function holdsClientInput(?\ReflectionType $type): bool
+    private function typeMembers(?\ReflectionType $type): ?array
     {
         if ($type === null) {
-            return true;
-        }
-
-        foreach ($type instanceof \ReflectionUnionType ? $type->getTypes() : [$type] as $member) {
-            if (
-                $member instanceof \ReflectionNamedType
-                && in_array(strtolower($member->getName()), self::INPUT_TYPES, true)
-            ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * A union no cast applies to (`int|float`, `int|string`): the guard that
-     * keeps a value of a member type, the scalar members another value is
-     * converted to, and the error when none fits. Nothing for other types.
-     *
-     * @return array{0: ?ParameterTypeGuard, 1: list<string>, 2: array{rule: string}|null}
-     */
-    private function unionCast(?\ReflectionType $type): array
-    {
-        if (!$type instanceof \ReflectionUnionType || !$this->holdsClientInput($type)) {
-            return [null, [], null];
+            return null;
         }
 
         $members = [];
-        foreach ($type->getTypes() as $member) {
+        foreach ($type instanceof \ReflectionUnionType ? $type->getTypes() : [$type] as $member) {
             if ($member instanceof \ReflectionNamedType) {
                 $members[] = strtolower($member->getName());
             }
         }
 
+        return $members;
+    }
+
+    /**
+     * A union no cast applies to (`int|float`, `int|string`): the guard that
+     * keeps a value of a member type, the scalar members another value is
+     * converted to, and the error when none fits.
+     *
+     * @param list<string> $members From typeMembers().
+     * @return array{0: ?ParameterTypeGuard, 1: list<string>, 2: array{rule: string}|null}
+     */
+    private function unionCast(\ReflectionType $type, array $members): array
+    {
         $failure = null;
         foreach (self::UNION_FAILURES as $member => $rule) {
             if (in_array($member, $members, true)) {
