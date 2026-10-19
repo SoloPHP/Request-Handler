@@ -20,15 +20,17 @@ use Solo\RequestHandler\InputBags;
 final readonly class ResolvedRequest
 {
     /**
-     * @param array<string, mixed>                              $values Present fields
-     * @param array<string, array<int|string, ResolvedRequest>> $items  `#[Items]` children by input key
-     * @param ValidationErrors                                  $errors Errors of this object and its items
+     * @param array<string, mixed>                                              $values   Present fields
+     * @param array<string, ResolvedRequest|array<int|string, ResolvedRequest>> $children Nested DTOs; `#[Items]`
+     *                                                                                    lists by input key
+     * @param ValidationErrors                                                  $errors   Errors of this object
+     *                                                                                    and its children
      */
     public function __construct(
         public RequestMetadata $metadata,
         public InputBags $bags,
         public array $values,
-        public array $items,
+        public array $children,
         public array $errors,
     ) {
     }

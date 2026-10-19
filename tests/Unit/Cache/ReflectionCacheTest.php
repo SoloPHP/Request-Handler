@@ -530,6 +530,59 @@ final class ReflectionCacheTest extends TestCase
 
     // ===== datetime specs & cast compatibility =====
 
+    // ===== nested DTOs & producibility =====
+
+    public function testRequestTypedPropertyIsNested(): void
+    {
+        $metadata = $this->cache->get(ParentOfNestedRequest::class);
+
+        $this->assertSame(ItemRequest::class, $metadata->properties['item']->nested);
+        $this->assertSame(ItemRequest::class, $metadata->properties['maybe']->nested);
+        $this->assertContains('item', $metadata->transformed);
+    }
+
+    public function testRequestTypeProducedByCasterIsNotNested(): void
+    {
+        $this->assertNull($this->cache->get(CastedRequestTypeRequest::class)->properties['item']->nested);
+    }
+
+    public function testAbstractNestedTypeThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('abstract');
+        $this->cache->get(AbstractNestedParentRequest::class);
+    }
+
+    public function testBrokenNestedClassFailsTheParentBuild(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('BrokenItemRequest::$qty');
+        $this->cache->get(BrokenNestedParentRequest::class);
+    }
+
+    public function testUnproducibleClassTypeThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage(
+            "type 'Solo\\RequestHandler\\Tests\\Unit\\Cache\\CacheMoney', which cannot be produced"
+        );
+        $this->cache->get(UnproducibleMoneyRequest::class);
+    }
+
+    public function testPureEnumWithoutCasterThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('cannot be produced from request input');
+        $this->cache->get(PureEnumRequest::class);
+    }
+
+    public function testClassTypesWithAProducerAreAccepted(): void
+    {
+        $metadata = $this->cache->get(ProducibleObjectsRequest::class);
+
+        $this->assertSame(['fromContext', 'casted', 'preProcessed'], array_keys($metadata->properties));
+    }
+
     // ===== dates =====
 
     #[DataProvider('dateTypeProvider')]
@@ -1276,4 +1329,60 @@ final class DateFormatWithCasterRequest extends Request
     #[DateFormat('Y-m-d')]
     #[Caster(DummyCaster::class)]
     public \DateTimeImmutable $day;
+}
+
+final class ParentOfNestedRequest extends Request
+{
+    public ItemRequest $item;
+    public ?ItemRequest $maybe = null;
+}
+
+final class CastedRequestTypeRequest extends Request
+{
+    #[Caster(DummyCaster::class)]
+    public ItemRequest $item;
+}
+
+final class AbstractNestedParentRequest extends Request
+{
+    public AbstractItemRequest $item;
+}
+
+final class BrokenNestedParentRequest extends Request
+{
+    public BrokenItemRequest $item;
+}
+
+final class CacheMoney
+{
+    public function __construct(public int $cents = 0)
+    {
+    }
+}
+
+final class UnproducibleMoneyRequest extends Request
+{
+    public CacheMoney $price;
+}
+
+enum PureSuit
+{
+    case Hearts;
+}
+
+final class PureEnumRequest extends Request
+{
+    public PureSuit $suit;
+}
+
+final class ProducibleObjectsRequest extends Request
+{
+    #[FromContext('money')]
+    public CacheMoney $fromContext;
+
+    #[Caster(DummyCaster::class)]
+    public CacheMoney $casted;
+
+    #[PreProcess(GuardTestProcessor::class)]
+    public CacheMoney $preProcessed;
 }

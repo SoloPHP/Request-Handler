@@ -269,9 +269,9 @@ final class RequestHandler
             $errors = $this->mergeErrors($errors, $this->validator->validate($validationData, $validationRules));
         }
 
-        /** @var array<string, ValidationErrors> $itemErrors */
-        $itemErrors = [];
-        $items = [];
+        /** @var array<string, ValidationErrors> $childErrors */
+        $childErrors = [];
+        $children = [];
 
         foreach ($values as $name => $value) {
             $property = $metadata->properties[$name];
@@ -280,16 +280,13 @@ final class RequestHandler
                 continue;
             }
 
-            if ($property->items !== null) {
+            if ($property->items !== null || $property->nested !== null) {
                 if ($value !== null) {
-                    $itemErrors[$name] = [];
-                    $items[$name] = $this->resolveItems(
-                        $property->items,
-                        $value,
-                        $name,
-                        $bags->context,
-                        $itemErrors[$name]
-                    );
+                    $childErrors[$name] = [];
+                    $child = $this->resolveChildren($property, $value, $bags->context, $childErrors[$name]);
+                    if ($child !== null) {
+                        $children[$name] = $child;
+                    }
                 } elseif ($this->requiresValue($property)) {
                     $errors[$name] = [['rule' => 'required']];
                 }
@@ -312,17 +309,17 @@ final class RequestHandler
             }
         }
 
-        $errors = $this->orderErrors($metadata, $errors, $itemErrors);
+        $errors = $this->orderErrors($metadata, $errors, $childErrors);
 
-        return new ResolvedRequest($metadata, $bags, $values, $items, $errors);
+        return new ResolvedRequest($metadata, $bags, $values, $children, $errors);
     }
 
     /**
      * Second pass, for an input free of errors: the application's
      * post-processors and custom casters, over the whole tree. Items produced
      * by a post-processor are resolved here. A ValidationException thrown by
-     * that code is collected — under the item path for nested items — rather
-     * than aborting the pass.
+     * that code is collected — under the child's path for nested objects —
+     * rather than aborting the pass.
      */
     private function transform(ResolvedRequest $resolved): ResolvedRequest
     {
@@ -332,11 +329,11 @@ final class RequestHandler
         }
 
         $values = $resolved->values;
-        $items = $resolved->items;
+        $children = $resolved->children;
         /** @var ValidationErrors $errors */
         $errors = [];
-        /** @var array<string, ValidationErrors> $itemErrors */
-        $itemErrors = [];
+        /** @var array<string, ValidationErrors> $childErrors */
+        $childErrors = [];
 
         foreach ($metadata->transformed as $name) {
             if (!array_key_exists($name, $values)) {
@@ -367,34 +364,60 @@ final class RequestHandler
                 $values[$name] = $value;
             }
 
-            if ($property->items === null) {
+            if ($property->items === null && $property->nested === null) {
                 continue;
             }
 
-            $itemErrors[$name] = [];
-            // Items split from a post-processor's output exist only now.
+            $childErrors[$name] = [];
+            // Children built from a post-processor's output exist only now.
             if ($this->decidedInTransform($property) && $value !== null) {
-                $items[$name] = $this->resolveItems(
-                    $property->items,
-                    $value,
-                    $name,
-                    $resolved->bags->context,
-                    $itemErrors[$name]
-                );
-            }
-            if ($itemErrors[$name] === [] && isset($items[$name])) {
-                foreach ($items[$name] as $index => $item) {
-                    $items[$name][$index] = $item = $this->transform($item);
-                    if ($item->errors !== []) {
-                        $itemErrors[$name] += $this->prefixErrors($item->errors, "{$name}.{$index}.");
-                    }
+                $child = $this->resolveChildren($property, $value, $resolved->bags->context, $childErrors[$name]);
+                if ($child !== null) {
+                    $children[$name] = $child;
                 }
+            }
+            if ($childErrors[$name] === [] && isset($children[$name])) {
+                $children[$name] = $this->transformChildren($children[$name], $name, $childErrors[$name]);
             }
         }
 
-        $errors = $this->orderErrors($metadata, $errors, $itemErrors);
+        $errors = $this->orderErrors($metadata, $errors, $childErrors);
 
-        return new ResolvedRequest($metadata, $resolved->bags, $values, $items, $errors);
+        return new ResolvedRequest($metadata, $resolved->bags, $values, $children, $errors);
+    }
+
+    /**
+     * @param ResolvedRequest|array<int|string, ResolvedRequest> $children
+     * @param ValidationErrors                                   $errors Receives path-keyed child errors.
+     * @return ResolvedRequest|array<int|string, ResolvedRequest>
+     */
+    private function transformChildren(
+        ResolvedRequest|array $children,
+        string $path,
+        array &$errors,
+    ): ResolvedRequest|array {
+        if ($children instanceof ResolvedRequest) {
+            return $this->transformChild($children, $path, $errors);
+        }
+
+        foreach ($children as $index => $child) {
+            $children[$index] = $this->transformChild($child, "{$path}.{$index}", $errors);
+        }
+
+        return $children;
+    }
+
+    /**
+     * @param ValidationErrors $errors
+     */
+    private function transformChild(ResolvedRequest $child, string $path, array &$errors): ResolvedRequest
+    {
+        $child = $this->transform($child);
+        if ($child->errors !== []) {
+            $errors += $this->prefixErrors($child->errors, "{$path}.");
+        }
+
+        return $child;
     }
 
     /**
@@ -407,13 +430,17 @@ final class RequestHandler
         /** @var ValidationErrors $errors */
         $errors = [];
 
-        foreach ($resolved->items as $name => $items) {
+        foreach ($resolved->children as $name => $children) {
+            if ($children instanceof ResolvedRequest) {
+                $values[$name] = $this->hydrateChild($children, $name, $errors);
+                continue;
+            }
+
             $hydrated = [];
-            foreach ($items as $index => $item) {
-                try {
-                    $hydrated[] = $this->hydrate($item);
-                } catch (ValidationException $e) {
-                    $errors += $this->prefixErrors($e->getErrors(), "{$name}.{$index}.");
+            foreach ($children as $index => $child) {
+                $item = $this->hydrateChild($child, "{$name}.{$index}", $errors);
+                if ($item !== null) {
+                    $hydrated[] = $item;
                 }
             }
             $values[$name] = $hydrated;
@@ -438,54 +465,94 @@ final class RequestHandler
     }
 
     /**
-     * Resolve array items through a Request class.
+     * Resolve the children of a nested-DTO or `#[Items]` property: one
+     * ResolvedRequest, or the list of them keyed by input index (later passes
+     * report errors under the same path; hydrate() turns it into a list).
+     * Null when the nested object itself is unusable — the error is recorded.
      *
-     * Non-array values yield a structured validation error rather than a TypeError.
-     * Only the outer context is propagated (see `InputBags::forItem()`).
-     * Items keep their input keys so later passes report errors under the
-     * same path; hydrate() turns them into a list.
-     *
-     * @param class-string<Request> $itemsClass
-     * @param array<string, mixed>  $context
-     * @param ValidationErrors      $errors Receives dot-path keyed item errors.
-     * @return array<int|string, ResolvedRequest>
+     * @param array<string, mixed> $context
+     * @param ValidationErrors     $errors Receives path-keyed child errors.
+     * @return ResolvedRequest|array<int|string, ResolvedRequest>|null
      */
-    private function resolveItems(
-        string $itemsClass,
-        mixed $items,
-        string $fieldName,
+    private function resolveChildren(
+        PropertyMetadata $property,
+        mixed $value,
         array $context,
         array &$errors,
-    ): array {
-        if (!is_array($items)) {
-            $errors[$fieldName] = [['rule' => 'array']];
+    ): ResolvedRequest|array|null {
+        if ($property->nested !== null) {
+            return $this->resolveChild($property->nested, $value, $property->name, $context, $errors);
+        }
+
+        if (!is_array($value)) {
+            $errors[$property->name] = [['rule' => 'array']];
             return [];
         }
 
-        $resolvedItems = [];
-
-        foreach ($items as $index => $itemData) {
-            if (!is_array($itemData)) {
-                $errors["{$fieldName}.{$index}"] = [['rule' => 'array']];
-                continue;
+        /** @var class-string<Request> $itemsClass */
+        $itemsClass = $property->items;
+        $items = [];
+        foreach ($value as $index => $itemData) {
+            $item = $this->resolveChild($itemsClass, $itemData, "{$property->name}.{$index}", $context, $errors);
+            if ($item !== null) {
+                $items[$index] = $item;
             }
-
-            // A ValidatorInterface implementation may throw instead of
-            // returning its errors; keep those under the item path too.
-            try {
-                $item = $this->resolve($itemsClass, FieldSource::Body, InputBags::forItem($itemData, $context));
-            } catch (ValidationException $e) {
-                $errors += $this->prefixErrors($e->getErrors(), "{$fieldName}.{$index}.");
-                continue;
-            }
-
-            if ($item->errors !== []) {
-                $errors += $this->prefixErrors($item->errors, "{$fieldName}.{$index}.");
-            }
-            $resolvedItems[$index] = $item;
         }
 
-        return $resolvedItems;
+        return $items;
+    }
+
+    /**
+     * Resolve one nested object — the value must be an array (a JSON object).
+     * Only the outer context is propagated (see `InputBags::forItem()`), and
+     * errors are recorded under `$path` (`address.city`, `lines.0.qty`).
+     *
+     * @param class-string<Request> $class
+     * @param array<string, mixed>  $context
+     * @param ValidationErrors      $errors
+     */
+    private function resolveChild(
+        string $class,
+        mixed $data,
+        string $path,
+        array $context,
+        array &$errors,
+    ): ?ResolvedRequest {
+        if (!is_array($data)) {
+            $errors[$path] = [['rule' => 'array']];
+            return null;
+        }
+
+        // A ValidatorInterface implementation may throw instead of
+        // returning its errors; keep those under the child's path too.
+        try {
+            $child = $this->resolve($class, FieldSource::Body, InputBags::forItem($data, $context));
+        } catch (ValidationException $e) {
+            $errors += $this->prefixErrors($e->getErrors(), "{$path}.");
+            return null;
+        }
+
+        if ($child->errors !== []) {
+            $errors += $this->prefixErrors($child->errors, "{$path}.");
+        }
+
+        return $child;
+    }
+
+    /**
+     * Hydrate one child; a ValidationException its generators throw is
+     * recorded under `$path`.
+     *
+     * @param ValidationErrors $errors
+     */
+    private function hydrateChild(ResolvedRequest $child, string $path, array &$errors): ?Request
+    {
+        try {
+            return $this->hydrate($child);
+        } catch (ValidationException $e) {
+            $errors += $this->prefixErrors($e->getErrors(), "{$path}.");
+            return null;
+        }
     }
 
     /**
@@ -554,7 +621,8 @@ final class RequestHandler
 
     /**
      * Whether a post-processor or custom caster decides the final value —
-     * and, for items, what is split into items. Those run in transform().
+     * and, for nested objects and items, what they are built from. Those run
+     * in transform().
      */
     private function decidedInTransform(PropertyMetadata $property): bool
     {
@@ -629,18 +697,18 @@ final class RequestHandler
     }
 
     /**
-     * Errors in property declaration order, each items property followed by
-     * its nested errors — the order a form presents the fields in.
+     * Errors in property declaration order, each nested-DTO or items property
+     * followed by its children's errors — the order a form presents fields in.
      *
      * @param ValidationErrors                $errors
-     * @param array<string, ValidationErrors> $itemErrors
+     * @param array<string, ValidationErrors> $childErrors
      * @return ValidationErrors
      */
-    private function orderErrors(RequestMetadata $metadata, array $errors, array $itemErrors): array
+    private function orderErrors(RequestMetadata $metadata, array $errors, array $childErrors): array
     {
         // Hot path: runs twice per request, almost always without errors.
-        $itemErrors = array_filter($itemErrors);
-        if ($itemErrors === [] && count($errors) < 2) {
+        $childErrors = array_filter($childErrors);
+        if ($childErrors === [] && count($errors) < 2) {
             return $errors;
         }
 
@@ -649,7 +717,7 @@ final class RequestHandler
             if (isset($errors[$name])) {
                 $ordered[$name] = $errors[$name];
             }
-            $ordered += $itemErrors[$name] ?? [];
+            $ordered += $childErrors[$name] ?? [];
         }
 
         // Keys reported for something other than a property.

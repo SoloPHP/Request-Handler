@@ -15,7 +15,10 @@ public array $tags;               // Cast to array
 public DateTimeImmutable $at;     // Parsed into DateTimeImmutable (also for DateTimeInterface)
 public DateTime $legacyAt;        // Parsed into DateTime
 public Status $status;            // BackedEnum — resolved by backing value
+public AddressRequest $address;   // Request subclass — a nested DTO (see Nested Objects)
 ```
+
+A property of any other class type needs something that produces it — `#[Caster]`, a pre/post-processor, a `#[Generator]` or `#[FromContext]`; otherwise building the metadata throws `ConfigurationException::unproducibleType`.
 
 ## Cast Failures Are Validation Errors
 

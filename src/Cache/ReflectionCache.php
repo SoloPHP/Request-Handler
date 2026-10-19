@@ -148,6 +148,7 @@ final class ReflectionCache
                 static fn(PropertyMetadata $property): bool => $property->postProcessorKind !== null
                     || $property->customCasterClass !== null
                     || $property->items !== null
+                    || $property->nested !== null
             ));
 
             $groups = [];
@@ -284,7 +285,7 @@ final class ReflectionCache
             $this->classifyProcessor($postProcess?->handler, $requestClass, $className, $name, 'postProcess');
 
         if ($items !== null) {
-            $this->validateItems($items->class, $className, $name);
+            $this->validateChildClass($items->class, $className, $name, 'Items');
 
             if ($phpType !== null && $phpType !== 'array') {
                 throw ConfigurationException::itemsRequiresArrayType($className, $name, $phpType);
@@ -304,6 +305,35 @@ final class ReflectionCache
             $phpType,
             $classType
         );
+
+        // A property typed with a Request subclass is a nested DTO — unless a
+        // caster or generator produces the object itself.
+        $nested = null;
+        if (
+            $classType !== null
+            && $caster === null
+            && $generator === null
+            && is_subclass_of($classType, Request::class)
+        ) {
+            $this->validateChildClass($classType, $className, $name, 'nested');
+            $nested = $classType;
+        }
+
+        // Fail fast on a class type nothing can produce from request input:
+        // otherwise the first request carrying the field ends in a TypeError.
+        if (
+            $classType !== null
+            && $nested === null
+            && $dateClass === null
+            && $enumClass === null
+            && $resolvedCasterClass === null
+            && $preProcessorKind === null
+            && $postProcessorKind === null
+            && $generator === null
+            && $source !== FieldSource::Context
+        ) {
+            throw ConfigurationException::unproducibleType($className, $name, $classType);
+        }
 
         // An array is garbage for an int/float/bool. A string JSON-encodes it
         // (documented cast behaviour) — unless it came from a #[FromBody]
@@ -347,6 +377,7 @@ final class ReflectionCache
             groupMapTo: $group?->mapTo,
             dateClass: $dateClass,
             dateFormat: $dateFormat?->format,
+            nested: $nested,
         );
     }
 
@@ -720,25 +751,28 @@ final class ReflectionCache
         return false;
     }
 
-    private function validateItems(string $items, string $className, string $propertyName): void
+    /**
+     * Validate the Request class of an `#[Items]` list or a nested DTO, and
+     * build its metadata now — otherwise its misconfiguration surfaces only
+     * when a request first carries it. A class already being built
+     * (self-referencing tree) is validated by that build.
+     */
+    private function validateChildClass(string $child, string $className, string $propertyName, string $kind): void
     {
-        if (!class_exists($items)) {
-            throw ConfigurationException::invalidItems($className, $propertyName, $items, 'class does not exist');
+        if (!class_exists($child)) {
+            throw ConfigurationException::invalidItems($className, $propertyName, $child, 'class does not exist');
         }
 
-        if (!is_subclass_of($items, Request::class)) {
-            throw ConfigurationException::invalidItems($className, $propertyName, $items, 'must extend Request');
+        if (!is_subclass_of($child, Request::class)) {
+            throw ConfigurationException::invalidItems($className, $propertyName, $child, 'must extend Request');
         }
 
-        if (!(new ReflectionClass($items))->isInstantiable()) {
-            throw ConfigurationException::abstractClass($className, $propertyName, 'Items', $items);
+        if (!(new ReflectionClass($child))->isInstantiable()) {
+            throw ConfigurationException::abstractClass($className, $propertyName, $kind, $child);
         }
 
-        // Fail fast on the item class too — otherwise its misconfiguration
-        // surfaces only when a request first carries items. A class already
-        // being built (self-referencing tree) is validated by that build.
-        if (!isset($this->building[$items])) {
-            $this->get($items);
+        if (!isset($this->building[$child])) {
+            $this->get($child);
         }
     }
 

@@ -1397,6 +1397,98 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
+    // ===== nested DTOs =====
+
+    public function testNestedDtoIsBuiltFromAnObject(): void
+    {
+        $dto = $this->handler->handleArray(ShipmentRequest::class, [
+            'carrier' => 'ups',
+            'address' => ['city' => 'Kyiv', 'zip' => '01001'],
+        ]);
+
+        $this->assertInstanceOf(AddressRequest::class, $dto->address);
+        $this->assertSame('Kyiv', $dto->address->city);
+        $this->assertSame(
+            ['carrier' => 'ups', 'address' => ['city' => 'Kyiv', 'zip' => '01001'], 'billing' => null],
+            $dto->toArray()
+        );
+    }
+
+    public function testAbsentNestedDtoStaysUninitialised(): void
+    {
+        $dto = $this->handler->handleArray(ShipmentRequest::class, ['carrier' => 'ups']);
+
+        $this->assertFalse($dto->has('address'));
+        $this->assertNull($dto->billing);
+    }
+
+    public function testNestedDtoErrorsAreKeyedByPath(): void
+    {
+        $this->requireWhenMissing();
+
+        try {
+            $this->handler->handleArray(ShipmentRequest::class, [
+                'address' => ['city' => 'Kyiv'],
+                'billing' => 'oops',
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame([
+                'carrier'     => [['rule' => 'required']],
+                'address.zip' => [['rule' => 'required']],
+                'billing'     => [['rule' => 'array']],
+            ], $e->getErrors());
+        }
+    }
+
+    public function testNullForNonNullableNestedDtoIsRequired(): void
+    {
+        try {
+            $this->handler->handleArray(ShipmentRequest::class, ['carrier' => 'ups', 'address' => null]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['address' => [['rule' => 'required']]], $e->getErrors());
+        }
+    }
+
+    public function testNestedDtoFromPostProcessorOutput(): void
+    {
+        $dto = $this->handler->handleArray(JsonAddressShipmentRequest::class, [
+            'address' => '{"city":"Lviv","zip":"79000"}',
+        ]);
+
+        $this->assertSame('Lviv', $dto->address->city);
+    }
+
+    public function testItemsInsideNestedDtoReportTheFullPath(): void
+    {
+        $this->requireWhenMissing();
+
+        try {
+            $this->handler->handleArray(TransferRequest::class, [
+                'from' => ['name' => 'Main', 'stock' => [['product' => 'Widget']]],
+            ]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['from.stock.0.quantity' => [['rule' => 'required']]], $e->getErrors());
+        }
+    }
+
+    public function testNestedGeneratorsWaitForTheWholeTree(): void
+    {
+        CountingGenerator::$calls = 0;
+        $this->requireWhenMissing();
+
+        try {
+            $this->handler->handleArray(ParentWithGeneratedAddressRequest::class, ['address' => ['city' => 'Kyiv']]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['title'], array_keys($e->getErrors()));
+        }
+
+        $this->assertSame(0, CountingGenerator::$calls);
+    }
+
     // ===== handler-thrown validation errors =====
 
     public function testHandlerValidationErrorsInsideItemsKeepTheItemPath(): void
@@ -2421,4 +2513,61 @@ final class RequiredByTypeRequest extends Request
     public TestStatus $status;
     public int $qty;
     public ?int $optional;
+}
+
+final class AddressRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $city;
+
+    #[Validate('required|string')]
+    public string $zip;
+}
+
+final class ShipmentRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $carrier;
+
+    public AddressRequest $address;
+
+    public ?AddressRequest $billing = null;
+}
+
+final class JsonAddressShipmentRequest extends Request
+{
+    #[PostProcess(JsonToArrayProcessor::class)]
+    public AddressRequest $address;
+}
+
+final class WarehouseRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $name;
+
+    /** @var OrderItemRequest[] */
+    #[Items(OrderItemRequest::class)]
+    public array $stock = [];
+}
+
+final class TransferRequest extends Request
+{
+    public WarehouseRequest $from;
+}
+
+final class GeneratedAddressRequest extends Request
+{
+    #[Generator(CountingGenerator::class)]
+    public int $id;
+
+    #[Validate('required|string')]
+    public string $city;
+}
+
+final class ParentWithGeneratedAddressRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $title;
+
+    public GeneratedAddressRequest $address;
 }
