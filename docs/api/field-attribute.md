@@ -99,7 +99,7 @@ final class Caster
 }
 ```
 
-Custom caster — `$class` must implement `CasterInterface`. Missing or non-implementing class throws `ConfigurationException::invalidCaster`. Mutually exclusive with `#[Cast]` and `#[Items]`.
+Custom caster — `$class` must implement `CasterInterface`. Missing or non-implementing class throws `ConfigurationException::invalidCaster`. Mutually exclusive with `#[Cast]` and `#[Items]`. Its result is assigned like a post-processor's: one the property cannot hold throws `UnexpectedValueException`.
 
 ### `#[EmptyToNull]`
 
@@ -145,7 +145,7 @@ final class PostProcess
 }
 ```
 
-Same handler rules as `#[PreProcess]`. `config` is exposed to `ProcessorInterface` implementations via `ProcessContext::$config`. Auto-casting is skipped on properties with `#[PostProcess]`.
+Same handler rules as `#[PreProcess]`. `config` is exposed to `ProcessorInterface` implementations via `ProcessContext::$config`. Auto-casting is skipped on properties with `#[PostProcess]`: what the handler returns is assigned as PHP assigns any value, and a result the property cannot hold — or `null` for a property that is neither nullable nor has a default — throws `UnexpectedValueException`.
 
 ### `#[Generator(class-string<GeneratorInterface> $class, array $options = [])]`
 

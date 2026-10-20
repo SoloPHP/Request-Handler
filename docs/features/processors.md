@@ -34,6 +34,8 @@ public string $email;
 When `#[PostProcess]` is defined, automatic type casting is skipped. The postProcessor receives the raw validated value and must return the correctly typed result.
 :::
 
+What a post-processor or custom caster returns is assigned the way PHP assigns any value — `true` to an `int` property becomes `1`. A result the property cannot hold, or `null` for a property that is neither nullable nor has a default, is a bug in the handler: it throws `UnexpectedValueException` naming the handler, whatever the source of the property. To reject the client's input, throw `ValidationException` instead — see [Rejecting Input From a Handler](#rejecting-input-from-a-handler).
+
 Post-processors run only once the **whole** input — nested items included — has passed validation, so an expensive handler (password hashing, image processing) never runs for a rejected request.
 
 ## Type Guard for Functions and Static Methods
