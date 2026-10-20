@@ -18,7 +18,7 @@ public Status $status;            // BackedEnum — resolved by backing value
 public AddressRequest $address;   // Request subclass — a nested DTO (see Nested Objects)
 ```
 
-An `iterable` property keeps an array or a Traversable as it is — a generator is not consumed — and reads anything else like `array`. A property of any other class type — and one typed `object`, with an intersection, or with a union of classes only — needs something that produces it: `#[Caster]`, a pre/post-processor, a `#[Generator]` or `#[FromContext]`; otherwise building the metadata throws `ConfigurationException::unproducibleType`.
+An `iterable` property keeps an array or a Traversable as it is — a generator is not consumed — and reads anything else like `array`. A property of any other class type — and one typed `object`, with an intersection, or with a union of classes only — needs something that produces it: `#[Caster]`, a `#[Generator]` or `#[FromContext]`; otherwise building the metadata throws `ConfigurationException::unproducibleType`.
 
 ### Union types
 
@@ -60,9 +60,9 @@ The `int`, `float` and `bool` casts accept the forms the `integer`, `numeric` an
 
 An empty string keeps its meaning "no value": it becomes `null` for `int`, `float`, `bool`, DateTime and enum properties — `null` on a nullable property, the default on one that has a default, and the `required` error otherwise. A field that already failed validation is not cast, so it reports the validator's error only.
 
-An array for a `string` property is a `string` error — including a `#[FromBody]` dot-path that stops at a sub-object. To store structured input in a string property (a JSON column, say), declare [`#[Cast('json')]`](#json). Properties with a pre/post-processor or a custom caster get the value those produce, so they may accept anything.
+An array for a `string` property is a `string` error — including a `#[FromBody]` dot-path that stops at a sub-object. To store structured input in a string property (a JSON column, say), declare [`#[Cast('json')]`](#json). A normalizer can prepare the raw value, or a custom caster can explicitly convert it; a post-processor receives the decoded value.
 
-Values the application supplies — `#[FromContext]` and generators — are not client input. They go through the same casts, but one that does not fit the declared type throws `UnexpectedValueException` instead of producing a validation error: `1.5` or `true` for an `int`, `2` for a `bool`, `true` for a `string`, an array or another class for a class-typed property. `""` is a value the application passed, not the absence of one: for a type that cannot hold a string — a number, a date, an object — it does not fit either. A `null` for a property that is neither nullable nor has a default throws too, instead of leaving it uninitialised. A context value without a hook of its own is checked while the input is resolved — after the pre-processors, before any `#[PostProcess]`, `#[Caster]` or generator runs (in a DTO built from a post-processor's output, once that post-processor has run); a generated value as its generator returns. What a `#[PostProcess]` or `#[Caster]` returns is checked the same way for every property — see [PostProcessor Skips Auto-Cast](#postprocessor-skips-auto-cast).
+Values the application supplies — `#[FromContext]` and generators — are not client input. They go through the same casts, but one that does not fit the declared type throws `UnexpectedValueException` instead of producing a validation error: `1.5` or `true` for an `int`, `2` for a `bool`, `true` for a `string`, an array or another class for a class-typed property. `""` is a value the application passed, not the absence of one: for a type that cannot hold a string — a number, a date, an object — it does not fit either. A `null` for a property that is neither nullable nor has a default throws too, instead of leaving it uninitialised. Context values are resolved before finalization. Custom casters run during resolution too; their results and post-processor results are checked strictly. See [Post-processing after casting](#post-processing-after-casting).
 
 ## Explicit Casting (`#[Cast]`)
 
@@ -217,15 +217,27 @@ Implement `CasterInterface` for complex types and plug them in via `#[Caster]`:
 ```php
 use Solo\RequestHandler\Attributes\Caster;
 use Solo\RequestHandler\Contracts\CasterInterface;
+use Solo\RequestHandler\Exceptions\FieldValidationException;
+use Solo\RequestHandler\ProcessContext;
 
+/** @implements CasterInterface<Money> */
 final class MoneyCaster implements CasterInterface
 {
-    public function cast(mixed $value): Money
+    public function cast(mixed $value, ProcessContext $context): Money
     {
-        return new Money((int) round((float) $value * 100));
+        if (!is_string($value)) {
+            throw new FieldValidationException('money');
+        }
+        try {
+            return Money::fromDecimal($value);
+        } catch (InvalidMoney $e) {
+            throw new FieldValidationException('money', previous: $e);
+        }
     }
 }
 ```
+
+`Money` and `InvalidMoney` are application classes. Casters run during resolution, even if another field is invalid; keep conversion pure. Configuration is available through `$context->config`.
 
 Usage:
 
@@ -241,13 +253,14 @@ public Money $price;
 A caster with constructor dependencies comes from the PSR-11 container passed to `RequestHandler`, or from a registered instance:
 
 ```php
+/** @implements CasterInterface<Money> */
 final class CurrencyCaster implements CasterInterface
 {
     public function __construct(
         private readonly CurrencyConverter $converter
     ) {}
 
-    public function cast(mixed $value): Money
+    public function cast(mixed $value, ProcessContext $context): Money
     {
         return $this->converter->convert($value);
     }
@@ -259,30 +272,17 @@ $handler->register(CurrencyCaster::class, new CurrencyCaster($converter));
 
 ---
 
-## PostProcessor Skips Auto-Cast
+## Post-processing After Casting
 
-When `#[PostProcess]` is defined, automatic casting is skipped (the processor is responsible for the final value). PHP assigns what it returns as it assigns any value; a result the property cannot hold — or `null` for a property that is neither nullable nor has a default — throws `UnexpectedValueException` naming the processor. The same goes for a `#[Caster]`.
+`#[PostProcess]` receives a non-null value after built-in/custom casting and after the whole input tree is valid. It never bypasses casting or creates raw nested data. Results must fit the declared type without scalar coercion (ordinary int-to-float widening is compatible). A wrong result, including null for a non-nullable property with a default, throws `UnexpectedValueException`.
 
-A function or static-method post-processor whose parameter type the client's value does not fit — not even as a string that type spells — is skipped, and the property reads the value as it would without it: `""` as no value, anything else through the property's cast, so `"abc"` for an `int` is an `integer` error, not a 500. See [Type Guard for Functions and Static Methods](/features/processors#type-guard-for-functions-and-static-methods).
-
-```php
-#[PostProcess(JsonDecoder::class)]
-public array $tags;
-
-final class JsonDecoder implements ProcessorInterface
-{
-    public function process(mixed $value, ProcessContext $context): array
-    {
-        return json_decode($value, true) ?? [];
-    }
-}
-```
+Use `#[Normalize(JsonArrayNormalizer::class)]` before `#[Items]` when the raw input needs JSON decoding. Use `#[Caster]` when input must become a value object. Post-processors cannot report input-validation failures. See [Processors](/features/processors) for interfaces and examples.
 
 ---
 
 ## Null and Empty String Handling
 
-`null` is never cast: a nullable property gets `null`, one with a default keeps its default, and any other property reports `required`.
+`null` remaining after normalization is never cast: a nullable property gets `null`, one with a default keeps its default, and any other property reports `required`.
 
 Empty string `""` is handled per type:
 
@@ -290,7 +290,7 @@ Empty string `""` is handled per type:
 |------|-------------|--------|
 | `int`, `float`, `bool` | no value | Not a number / boolean |
 | date types, enums | no value — the case, for an enum with a `""` case | Not a date / case |
-| a class a pre-processor produces | no value | No class holds a string |
+| a custom-cast class | no value | No class holds a string |
 | `string` | `""` | Preserved as-is |
 | `array`, an `#[Items]` list | `[]` | Empty collection |
 | a nested DTO | no value | No object |

@@ -45,7 +45,7 @@ export default defineConfig({
         items: [
           { text: 'Attributes', link: '/features/field-attribute' },
           { text: 'Type Casting', link: '/features/type-casting' },
-          { text: 'Processors', link: '/features/processors' },
+          { text: 'Processing Stages', link: '/features/processors' },
           { text: 'Generators', link: '/features/generators' },
           { text: 'Nested Objects & Items', link: '/features/nested-items' },
           { text: 'Field Grouping', link: '/features/grouping' },

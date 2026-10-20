@@ -1,411 +1,181 @@
-# Processors
+# Normalizers, Casters and Post-processors
 
-Processors transform data before validation (`#[PreProcess]`) or after it (`#[PostProcess]`).
+Each stage has one responsibility:
 
-## `#[PreProcess]`
+| Attribute | Interface method | Input | Result |
+|---|---|---|---|
+| `#[Normalize(Class::class, config: [])]` | `NormalizerInterface::normalize(mixed, ProcessContext)` | Present raw input, including `null` and `""` | Normalized input for validation |
+| `#[Caster(Class::class, config: [])]` | `CasterInterface::cast(mixed, ProcessContext)` | Normalized input after raw validation and empty-value policy | The property's declared type |
+| `#[PostProcess(Class::class, config: [])]` | `PostProcessorInterface::postProcess(mixed, ProcessContext)` | Non-null decoded value, after the whole input tree is valid | A value compatible with the same property |
 
-Runs **before** validation. Use for sanitization:
+Handlers are classes implementing the matching interface. Functions, method-name strings and using a caster as a normalizer/post-processor are not supported.
 
-```php
-use Solo\RequestHandler\Attributes\{PreProcess, Validate};
+## Normalization
 
-#[PreProcess('trim')]
-#[Validate('required|string')]
-public string $name;
-
-// Input: "  John  " → Validated as: "John"
-```
-
-## `#[PostProcess]`
-
-Runs **after** validation and casting. Use for transformation:
+Normalizers run for every present field, even an explicit `null` or empty string. They accept `mixed`; there is no signature-based conversion or automatic skip. Leave unsupported input for validation or throw `FieldValidationException` for the current field.
 
 ```php
-use Solo\RequestHandler\Attributes\{PostProcess, Validate};
-
-#[Validate('required|string')]
-#[PostProcess('strtolower')]
-public string $email;
-
-// Input: "John@Example.COM" → Stored as: "john@example.com"
-```
-
-::: warning
-When `#[PostProcess]` is defined, automatic type casting is skipped. The postProcessor receives the raw validated value and must return the correctly typed result.
-:::
-
-What a post-processor or custom caster returns is assigned the way PHP assigns any value — `true` to an `int` property becomes `1`. A result the property cannot hold, or `null` for a property that is neither nullable nor has a default, is a bug in the handler: it throws `UnexpectedValueException` naming the handler, whatever the source of the property. To reject the client's input, throw `ValidationException` instead — see [Rejecting Input From a Handler](#rejecting-input-from-a-handler).
-
-Post-processors run only once the **whole** input — nested items included — has passed validation, so an expensive handler (password hashing, image processing) never runs for a rejected request.
-
-## Type Guard for Functions and Static Methods
-
-A pre-processor sees raw client input, before validation had a chance to reject it. For a global function or static method, the handler checks the declared type of its first parameter and **skips** the handler when the value does not fit, instead of letting PHP throw a `TypeError` (a 500):
-
-```php
-#[PreProcess('strtolower')]          // strtolower(string $string)
-#[Validate('required|email')]
-public string $email;
-
-// {"email": "John@Example.COM"} → "john@example.com"
-// {"email": 42}                 → strtolower is skipped, the validator reports 'email' (422)
-```
-
-Query strings, route values and form fields carry only strings, so a string the parameter's type spells without loss is passed as that type instead of skipping the handler — the lossless conversion the casts make, in PHP's coercion order:
-
-```php
-#[PreProcess('clamp')]               // clamp(int $value): int
-public int $limit = 10;
-
-// ?limit=5000 → clamp(5000) → 100   ("5000" spells an int)
-// ?limit=9.5  → clamp is skipped, the cast reports 'integer' (422)
-```
-
-A pre-processor runs before validation, so only strings are converted for it — turning a JSON value into another type would decide what the validator sees: `42` still skips `strtolower()`. A post-processor runs after validation and gets any scalar converted the same way: a JSON `4.0` reaches `double(int $value)` as `4`.
-
-The same guard applies to post-processors: `#[PostProcess('strtoupper')]` on a `?string` leaves an explicit `null` as `null`. `ProcessorInterface` / `CasterInterface` handlers take `mixed` and are always called.
-
-A post-processor replaces the property's cast, so when it skips the client's value, the property reads that value as it would without one — `""` as no value, anything else through its cast:
-
-```php
-#[PostProcess('double')]             // double(int $value): int
-public ?int $amount = null;
-
-// {"amount": "4"}   → 8
-// {"amount": 4.0}   → 8
-// {"amount": ""}    → null
-// {"amount": "abc"} → ['amount' => [['rule' => 'integer']]] (422)
-```
-
-When the property's type is a class only that pre-processor produces, the handler is its only way in. Input of another type is converted to the parameter's type first when nothing is lost — as for a union property — so a query string's `"999"` reaches `fromCents(int $cents)` as `999`. Input that fits no way reports the rule for the type the pre-processor takes — unless a validation rule rejected the value first:
-
-```php
-#[PreProcess('parseMoney')]          // parseMoney(string $value): Money
-public ?Money $price = null;
-
-// {"price": "9.99"}   → Money(999)
-// {"price": 9.99}     → Money(999) — the number reaches parseMoney() as "9.99"
-// {"price": ""}       → null — "" is no value, the pre-processor does not see it
-// {"price": ["9.99"]} → ['price' => [['rule' => 'string']]] (422)
-```
-
-A class only a typed post-processor produces is read the same way, once validation has passed. An object — which only the application can pass, in `handleArray()` data — is never the client's wrong type: the handler skips it, and the property takes it if it fits.
-
-A pre-processor whose parameter takes none of the types request input has — a class, `object` or `callable` — cannot be the only producer of such a property, so building the metadata throws `ConfigurationException::preProcessorTakesNoInput`. On a `#[FromContext]` property it is fine: the application supplies the object.
-
-## Rejecting Input From a Handler
-
-A pre-processor, post-processor or custom caster may throw `ValidationException` itself. Its errors are merged with the others of the same pass instead of aborting it, and inside `#[Items]` they are reported under the item path (`lines.1.amount`):
-
-```php
-final class MoneyCaster implements CasterInterface
-{
-    public function cast(mixed $value): Money
-    {
-        if (!is_numeric($value)) {
-            throw new ValidationException(['amount' => [['rule' => 'money']]]);
-        }
-        return Money::fromDecimal((string) $value);
-    }
-}
-```
-
----
-
-## Handler Types
-
-### Global Functions
-
-```php
-#[PreProcess('trim')]
-public string $name;
-
-#[PostProcess('strtolower')]
-public string $email;
-
-#[PostProcess('ucfirst')]
-public string $title;
-```
-
-### `ProcessorInterface` Class
-
-```php
-use Solo\RequestHandler\Contracts\ProcessorInterface;
+use Solo\RequestHandler\Attributes\{Normalize, Validate};
+use Solo\RequestHandler\Contracts\NormalizerInterface;
 use Solo\RequestHandler\ProcessContext;
 
-final class SlugProcessor implements ProcessorInterface
+final class SkuNormalizer implements NormalizerInterface
 {
-    public function process(mixed $value, ProcessContext $context): string
+    public function normalize(mixed $value, ProcessContext $context): mixed
     {
-        $slug = strtolower(trim($value));
-        $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
-        return trim($slug, '-');
+        return is_string($value) ? strtoupper($value) : $value;
     }
 }
 
-// Usage
-#[PostProcess(SlugProcessor::class)]
-public string $slug;
+// In a Request subclass:
+#[Normalize(SkuNormalizer::class)]
+#[Validate('required|string')]
+public string $sku;
 ```
 
-### `CasterInterface` as Processor
+The order is **auto-trim → custom normalizer → `#[EmptyToNull]` → validation**. A normalizer may therefore turn a present null into a value, or produce a blank that `#[EmptyToNull]` reads as null. `#[NoTrim]` disables only auto-trim. Context values are not auto-trimmed, but an explicitly attached normalizer runs on them too.
 
-Casters can also be used as processors:
+Normalizers prepare input; they do not make an otherwise unproducible class property valid configuration. Use a caster to construct a value object.
+
+## Custom Casting
+
+A custom caster replaces the built-in decoder for that field. It runs during input resolution, before post-processors and generators. It does not run if raw validation already rejected the field. It may run even when another field has errors, so it must be a pure conversion.
 
 ```php
+use Solo\RequestHandler\Attributes\Caster;
 use Solo\RequestHandler\Contracts\CasterInterface;
+use Solo\RequestHandler\Exceptions\FieldValidationException;
+use Solo\RequestHandler\ProcessContext;
 
-final class JsonArrayCaster implements CasterInterface
+/** @implements CasterInterface<Money> */
+final class MoneyCaster implements CasterInterface
 {
-    public function cast(mixed $value): array
+    public function cast(mixed $value, ProcessContext $context): Money
     {
-        if (is_array($value)) {
-            return $value;
+        if (!is_string($value)) {
+            throw new FieldValidationException('money');
         }
-        return json_decode($value, true) ?? [];
+        try {
+            return Money::fromDecimal($value);
+        } catch (InvalidMoney $e) {
+            throw new FieldValidationException('money', previous: $e);
+        }
     }
 }
 
-// Used as preProcess
-#[PreProcess(JsonArrayCaster::class)]
-#[Validate('array|min:1')]
+#[Caster(MoneyCaster::class)]
+public Money $price;
+```
+
+`Money` and `InvalidMoney` in this example belong to the application. Conversion from other scalar types must be explicit in the caster.
+
+`#[Cast]`, enum/date decoding and nested DTOs remain built-in alternatives. `#[Caster]` is mutually exclusive with `#[Cast]`, `#[DateFormat]` and `#[Items]`.
+
+## Post-processing
+
+Post-processors receive already decoded values. Adding one never disables casting. A numeric query string becomes an integer before the post-processor runs; invalid input never reaches it.
+
+```php
+use Solo\RequestHandler\Attributes\PostProcess;
+use Solo\RequestHandler\Contracts\PostProcessorInterface;
+use Solo\RequestHandler\ProcessContext;
+
+/** @implements PostProcessorInterface<int> */
+final class ClampLimit implements PostProcessorInterface
+{
+    public function postProcess(mixed $value, ProcessContext $context): int
+    {
+        return max(1, min(100, $value));
+    }
+}
+
+#[PostProcess(ClampLimit::class)]
+public int $limit = 20;
+
+// "200" → int(200) → int(100)
+// "abc" → ValidationException: integer; ClampLimit never runs
+```
+
+PHP method parameters remain `mixed`; `@implements PostProcessorInterface<int>` supplies the type to PHPStan. The handler checks compatibility with the declared property type before and after processing. Results are not passed through another cast: `true` or `"5"` cannot become an `int`, and `null` cannot reset a non-nullable property to its default. An incompatible result throws `UnexpectedValueException` naming the producer. Normal PHP widening from int to float remains compatible.
+
+A post-processor transforms valid data. Input rejection belongs in normalization, validation or casting. Throwing either `FieldValidationException` or `ValidationException` during post-processing raises `LogicException` with the original exception attached. Computational work such as hashing is appropriate; external writes belong in application code after successful handling.
+
+## Errors
+
+A normalizer or caster rejects its own field with:
+
+```php
+throw new FieldValidationException('money', params: ['decimal']);
+```
+
+The handler attaches the actual input path and collects errors from the whole tree:
+
+```php
+// The same caster can serve price, amount, or a nested field:
+['lines.2.price' => [['rule' => 'money', 'params' => ['decimal']]]]
+```
+
+The public aggregate is still `ValidationException`. Do not throw that aggregate directly from a normalizer/caster: it is a contract error (`LogicException`). Cross-field checks belong in the validator. A normalizer failure omits that field from the normalized validation bag; the remaining fields are still checked. A field with a raw validation error does not run its caster.
+
+A field rejection on `#[FromContext]` becomes `UnexpectedValueException`: the application supplied that value. An incorrect caster or post-processor result is also an application error, regardless of the input source. Exceptions other than these explicit validation exceptions propagate normally.
+
+## Missing, Null and Blank Values
+
+| Situation | Behavior |
+|---|---|
+| Key absent | No normalizer, caster or post-processor; the existing required/default rules apply |
+| Key present as null or empty string | Normalizer runs |
+| Null after normalization | No caster; nullable property gets null, otherwise use its default or report `required` |
+| Null after decoding | No post-processor |
+| Non-null default selected for a present field | Post-processor receives the default |
+| Default left untouched because a key was absent | No post-processor; `provided()` does not include it |
+| Caster/post-processor returns null | Accepted only by a nullable property; no default fallback |
+
+Without `#[EmptyToNull]`, empty strings follow the property's [empty-value policy](/features/type-casting#null-and-empty-string-handling). For a custom caster, `""` is passed through for a string/mixed-compatible property, becomes an empty array for an array/iterable property, and otherwise means no value. Casters are bypassed when this policy selects no value or an empty array. The final value is still type-checked. Context `""` remains an actual value rather than client absence.
+
+## Nested DTOs and Finalization
+
+Input resolution normalizes, validates and decodes every node, collecting errors. Only after the entire tree succeeds does finalization start, from children to parents:
+
+1. Finalize children into complete DTOs.
+2. Run this node's post-processors on non-null decoded values.
+3. Run this node's generators.
+4. Populate this node's DTO.
+
+A nested post-processor receives a DTO, and an `#[Items]` post-processor receives an array of DTOs, including their generated fields. Returned values must still satisfy the property type and item class. They are not revalidated or re-decoded. A child generator can run before a parent's post-processor. Generators cannot reject input with validation exceptions either; these are `LogicException` contract errors during finalization. Finalization does not provide rollback for application failures.
+
+List members are checked again when assigned to the DTO: a later handler may
+have changed an element through a PHP reference. This final check preserves the
+declared item class without rerunning the child's pipeline.
+
+To decode a JSON string into raw items, use a normalizer before the standard child pipeline:
+
+```php
+use Solo\RequestHandler\Attributes\Items;
+
+final class JsonArrayNormalizer implements NormalizerInterface
+{
+    public function normalize(mixed $value, ProcessContext $context): mixed
+    {
+        if (!is_string($value) || $value === '') {
+            return $value;
+        }
+        try {
+            return json_decode($value, true, flags: JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new FieldValidationException('json', previous: $e);
+        }
+    }
+}
+
+#[Normalize(JsonArrayNormalizer::class)]
+#[Validate('array')]
+#[Items(OrderItemRequest::class)]
 public array $items;
 ```
 
-### Static Method on Request
+## Configuration and Dependencies
 
-```php
-final class ContactRequest extends Request
-{
-    #[Validate('required|string')]
-    #[PostProcess('normalizePhone')]
-    public string $phone;
+All three attributes accept `config: [...]`. Their `ProcessContext` exposes `config`, `route` and `context`; child DTOs receive the outer context but not the outer route. The DTO is not passed into field handlers, so there is no field-order dependency on partially constructed siblings.
 
-    public static function normalizePhone(string $value): string
-    {
-        return preg_replace('/[^0-9+]/', '', $value);
-    }
-}
-```
-
-The method must be `public static`. It is looked up on the class being handled, so a property declared on an abstract base request can use a hook defined by each subclass.
-
----
-
-## PostProcess `config`
-
-Pass configuration to a post-processor via the `config:` named argument. It is exposed through `$context->config`:
-
-```php
-#[Validate('required|string')]
-#[PostProcess(CurrencyFormatter::class, config: ['currency' => 'USD', 'decimals' => 2])]
-public string $price;
-```
-
-```php
-final class CurrencyFormatter implements ProcessorInterface
-{
-    public function process(mixed $value, ProcessContext $context): string
-    {
-        $decimals = $context->config['decimals'] ?? 2;
-        $currency = $context->config['currency'] ?? 'USD';
-        return number_format((float) $value, $decimals) . ' ' . $currency;
-    }
-}
-```
-
-`#[PreProcess]` does not carry a config argument — if you need configurable pre-processing, use `#[PostProcess]` or split logic into a separate handler with constructor dependencies.
-
----
-
-## Processors with Dependencies
-
-Processors with constructor dependencies come from the PSR-11 container passed to `RequestHandler` (`new RequestHandler($validator, container: $container)`), or from an instance you register:
-
-```php
-final class TransliteratorProcessor implements ProcessorInterface
-{
-    public function __construct(
-        private readonly Transliterator $transliterator
-    ) {}
-
-    public function process(mixed $value, ProcessContext $context): string
-    {
-        return $this->transliterator->transliterate($value);
-    }
-}
-
-// Register the instance
-$handler->register(
-    TransliteratorProcessor::class,
-    new TransliteratorProcessor($transliterator)
-);
-```
-
-A handler class that is abstract or needs constructor arguments, is not registered and is not in the container fails on first use with `ConfigurationException::handlerNotInstantiable`. See [Dependency Injection](/guide/configuration#dependency-injection).
-
----
-
-## Accessing Extras From a Processor
-
-`ProcessContext` exposes the same `$route` and `$context` arrays passed to `handleBody()` / `handleQuery()` via separate slots:
-
-```php
-final class SlugWithIdProcessor implements ProcessorInterface
-{
-    public function process(mixed $value, ProcessContext $context): string
-    {
-        $id = $context->route['id'] ?? '';
-        $tenant = $context->context['tenantId'] ?? '';
-        return "{$value}-{$id}-{$tenant}";
-    }
-}
-```
-
----
-
-## Processing Pipeline
-
-The complete processing order:
-
-1. **Extract** — Read value from the bag the property's source attribute points to (or the default-source bag if no attribute)
-2. **Auto-trim** — Trim strings (if enabled)
-3. **Empty check** — `null` and `""` exit early (skip steps 4-7)
-4. **preProcess** — Run pre-processor
-5. **Validate** — Apply validation rules
-6. **Cast** — Convert type (skipped if postProcess defined)
-7. **postProcess** — Run post-processor
-8. **Assign** — Set property value
-
-::: info Early exit for null and empty string
-When a field is present in the input but its value is `null` or `""`, it bypasses pre-processing, casting, and post-processing. The value is stored directly:
-- `null` — set `null` for nullable types, or default value for non-nullable types with a default
-- `""` — preserved as empty string, then cast per type (e.g. `""` stays `""` for `string`, becomes `null` for `int`)
-:::
-
-```php
-#[PreProcess('trim')]                 // Step 4
-#[Validate('required|string')]        // Step 5
-#[Cast('string')]                      // Step 6 (skipped if PostProcess)
-#[PostProcess('strtolower')]          // Step 7
-public string $email;
-```
-
----
-
-## Practical Examples
-
-### Slug Generation
-
-```php
-final class SlugProcessor implements ProcessorInterface
-{
-    public function process(mixed $value, ProcessContext $context): string
-    {
-        $slug = strtolower(trim($value));
-        $slug = preg_replace('/[^a-z0-9]+/', '-', $slug);
-        return trim($slug, '-');
-    }
-}
-
-#[Validate('required|string')]
-#[PostProcess(SlugProcessor::class)]
-public string $slug;
-
-// "Hello World!" → "hello-world"
-```
-
-### Phone Normalization
-
-```php
-final class PhoneProcessor implements ProcessorInterface
-{
-    public function process(mixed $value, ProcessContext $context): string
-    {
-        $digits = preg_replace('/[^0-9]/', '', $value);
-
-        if (strlen($digits) === 10) {
-            return '+1' . $digits;
-        }
-
-        return '+' . $digits;
-    }
-}
-
-#[Validate('required|string')]
-#[PostProcess(PhoneProcessor::class)]
-public string $phone;
-
-// "(555) 123-4567" → "+15551234567"
-```
-
-### HTML Sanitization
-
-```php
-final class HtmlSanitizer implements ProcessorInterface
-{
-    public function process(mixed $value, ProcessContext $context): string
-    {
-        return strip_tags($value, '<p><br><strong><em>');
-    }
-}
-
-#[PreProcess(HtmlSanitizer::class)]
-#[Validate('required|string')]
-public string $content;
-```
-
-### JSON Decoding
-
-```php
-final class JsonDecoder implements ProcessorInterface
-{
-    public function process(mixed $value, ProcessContext $context): array
-    {
-        if (is_array($value)) {
-            return $value;
-        }
-
-        $decoded = json_decode($value, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return [];
-        }
-
-        return $decoded;
-    }
-}
-
-#[PostProcess(JsonDecoder::class)]
-public array $metadata;
-```
-
----
-
-## Configuration Validation
-
-Invalid processors throw `ConfigurationException` at build time:
-
-```php
-// ❌ Error: nonExistentFunction doesn't exist
-#[PreProcess('nonExistentFunction')]
-public string $value;
-
-// ❌ Error: class doesn't implement required interface
-#[PreProcess(SomeClass::class)]
-public string $value;
-
-// ❌ Error: explode() cannot be called with the value alone
-#[PreProcess('explode')]
-public array $value;
-
-// ❌ Error: the static method is private/protected
-#[PreProcess('normalize')]
-public string $value;
-private static function normalize(string $v): string { /* ... */ }
-```
-
-Valid processors must be:
-- Global function callable with a single argument
-- Class implementing `ProcessorInterface` or `CasterInterface`
-- `public static` method on the Request class
+Instances resolve through `RequestHandler::register()`, the PSR-11 container, or a no-argument constructor. Registered and automatically created instances are reused by the handler; container entries are fetched on each use so the container controls their scope. Keep handlers free of per-request mutable state. See [Configuration](/guide/configuration#dependency-injection).

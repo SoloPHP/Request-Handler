@@ -109,11 +109,15 @@ $handler->register(
 
 ## Behavior
 
+Finalization runs bottom-up: complete children, run the current node's post-processors, run its generators, then populate the DTO. Parent post-processors can read generated fields on child DTOs. A child generator can run before a parent's post-processor. A later application error does not roll back earlier generators.
+
+Generators cannot reject input. Throwing `FieldValidationException` or `ValidationException` here raises `LogicException` with the original exception as its cause; move rejection to a normalizer, validator or caster.
+
 When a field has `#[Generator]`:
 
 1. **Any request value is ignored** — A new value is always generated
 2. **No validation** — Generated values bypass validation rules
-3. **Runs after validation** — Generators fire only once the whole input, nested items included, is valid; a rejected request never consumes a sequence value
+3. **Runs after validation** — Generators fire only once the whole input, nested items included, is valid; input validation errors never consume a sequence value
 4. **Type-driven cast** — The value is cast to the declared property type (an int becomes `'42'` for a `string` property)
 
 ```php
@@ -285,3 +289,5 @@ public string $id;
 #[Generator(SomeClass::class)]
 public string $id;
 ```
+
+An abstract generator or an interface is valid configuration: the container or `register()` supplies the instance, and only a first use without one throws `ConfigurationException::handlerNotInstantiable`.

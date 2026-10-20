@@ -14,7 +14,7 @@ public function __construct(
 |-----------|------|---------|-------------|
 | `$validator` | `ValidatorInterface` | required | Validator instance |
 | `$autoTrim` | `bool` | `true` | Auto-trim whitespace from string inputs |
-| `$container` | `?Psr\Container\ContainerInterface` | `null` | Resolves processor, caster and generator classes — see [Dependency Injection](#dependency-injection) |
+| `$container` | `?Psr\Container\ContainerInterface` | `null` | Resolves normalizer, caster, post-processor and generator classes — see [Dependency Injection](#dependency-injection) |
 
 ## Auto Trim
 
@@ -39,10 +39,22 @@ public string $snippet;   // whitespace kept as sent
 $handler = new RequestHandler($validator, autoTrim: false);
 ```
 
-**And trim specific fields with `#[PreProcess]`:**
+**To trim selected fields when auto-trim is disabled, use a normalizer:**
 
 ```php
-#[PreProcess('trim')]
+use Solo\RequestHandler\Attributes\Normalize;
+use Solo\RequestHandler\Contracts\NormalizerInterface;
+use Solo\RequestHandler\ProcessContext;
+
+final class TrimNormalizer implements NormalizerInterface
+{
+    public function normalize(mixed $value, ProcessContext $context): mixed
+    {
+        return is_string($value) ? trim($value) : $value;
+    }
+}
+
+#[Normalize(TrimNormalizer::class)]
 public string $name;
 ```
 
@@ -50,7 +62,7 @@ A string trimmed to `""` stays `""` for a `string` property. To read it as no va
 
 ## Dependency Injection
 
-Processor, caster and generator classes are resolved by class name, in this order:
+Normalizer, caster, post-processor and generator classes are resolved by class name, in this order:
 
 1. an instance passed to `register()`;
 2. the entry of the PSR-11 container given to the constructor, when `has(Class::class)` is true;
@@ -72,7 +84,7 @@ public int $id;
 
 ### Registering instances
 
-Register processor/caster/generator instances with constructor dependencies:
+Register normalizer/caster/post-processor/generator instances with constructor dependencies:
 
 ```php
 final class SequenceGenerator implements GeneratorInterface
@@ -97,7 +109,7 @@ $handler
     ->register(SlugProcessor::class, new SlugProcessor($transliterator));
 ```
 
-Registered (and lazily-created) instances are reused across all subsequent `handle*()` calls on the same handler. The handler is designed for classic PHP-FPM, where its lifetime equals one request — keep `ProcessorInterface` / `CasterInterface` / `GeneratorInterface` implementations free of per-request mutable state.
+Registered (and lazily-created) instances are reused across all subsequent `handle*()` calls on the same handler. The handler is designed for classic PHP-FPM, where its lifetime equals one request — keep `NormalizerInterface` / `CasterInterface` / `PostProcessorInterface` / `GeneratorInterface` implementations free of per-request mutable state.
 
 ## Handler methods
 
@@ -225,12 +237,16 @@ $dto = $handler->handleBody(
 // Validator sees: data = ['id' => 123, 'email' => '...'], and resolves {id} → 123
 ```
 
-### Inside a `ProcessorInterface`
+### Inside a `PostProcessorInterface`
 
 ```php
-final class SlugWithIdProcessor implements ProcessorInterface
+use Solo\RequestHandler\Contracts\PostProcessorInterface;
+use Solo\RequestHandler\ProcessContext;
+
+/** @implements PostProcessorInterface<string> */
+final class SlugWithIdProcessor implements PostProcessorInterface
 {
-    public function process(mixed $value, ProcessContext $context): string
+    public function postProcess(mixed $value, ProcessContext $context): string
     {
         $id = $context->route['id'] ?? '';
         $tenant = $context->context['tenant'] ?? '';
@@ -241,7 +257,7 @@ final class SlugWithIdProcessor implements ProcessorInterface
 
 ### Nested items
 
-Route is **not** propagated into nested items processed via `#[Items]` (items describe outer-resource children, not the outer resource). Context IS propagated, so item processors can read `ProcessContext::$context`.
+Route is **not** propagated into nested items processed via `#[Items]` (items describe outer-resource children, not the outer resource). Context IS propagated, so item normalizers, casters and post-processors can read `ProcessContext::$context`.
 
 ## Request Base Class
 

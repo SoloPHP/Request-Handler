@@ -33,8 +33,8 @@ features:
     title: Generators
     details: 'Auto-generate field values (UUIDs, sequences) via #[Generator] with custom options.'
   - icon: 🔧
-    title: Pre/post processing
-    details: 'Transform values before validation or after it via #[PreProcess] / #[PostProcess].'
+    title: Processing stages
+    details: 'Normalize raw input, cast to the declared type, then post-process decoded values.'
   - icon: 🪆
     title: Nested DTOs
     details: 'A property typed with a Request subclass is a nested object; #[Items] makes a list of them. Errors keyed address.city, lines.0.qty.'

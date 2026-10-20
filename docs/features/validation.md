@@ -103,7 +103,7 @@ solophp/validator silently skips rule names it does not know. Rules such as `uni
 
 The handler passes rule strings to `ValidatorInterface::validate()` verbatim — it does not substitute placeholders or otherwise transform them.
 
-Cross-field references in rules (`unique:users,email,{id}`, `exists:…,scope_col,{field}`, `required_if:type,manual`) are the validator's concern. A typical implementation resolves `{id}` / sibling-field references against the validation payload, which contains every field present in the request — including those declared with `#[FromRoute]` and `#[FromContext]`, and those without a `#[Validate]` of their own.
+Cross-field references in rules (`unique:users,email,{id}`, `exists:…,scope_col,{field}`, `required_if:type,manual`) are the validator's concern. A typical implementation resolves `{id}` / sibling-field references against the validation payload, which contains normalized fields present in the request (before casting), except fields rejected by a normalizer — including those declared with `#[FromRoute]` and `#[FromContext]`, and those without a `#[Validate]` of their own.
 
 So declare the referenced field as a real property:
 
@@ -139,7 +139,7 @@ If your validator (or custom rule) needs a different convention, that's a valida
 
 ## Handling Validation Errors
 
-All errors of a request come back in one `ValidationException`: the validator's errors, cast failures (see [Type Casting](/features/type-casting#cast-failures-are-validation-errors)) and the errors of every nested object and item, in declaration order. Catch it to handle them.
+All errors of a request come back in one `ValidationException`: the validator's errors, normalizer rejections, cast failures (see [Type Casting](/features/type-casting#cast-failures-are-validation-errors)) and the errors of every nested object and item, in declaration order. Catch it to handle them.
 
 ### Error keys follow the input
 
@@ -154,7 +154,7 @@ Errors are keyed by where the client put the value, so a form can map them to it
 | `#[FromContext('authUserId')] public int $createdBy` | `authUserId` |
 | a field of `#[FromBody('order.lines')] #[Items(...)]` | `order.lines.0.quantity` |
 
-Rule strings still reference **property names** (`same:password`, `required_if:company_type,company`, `{id}`): the validator works on the DTO. A `ValidationException` thrown by a handler keyed by a property name is moved to that property's input key too.
+Rule strings still reference **property names** (`same:password`, `required_if:company_type,company`, `{id}`): the validator works on the DTO. Normalizers and casters reject their own field with `FieldValidationException`; the handler supplies its input path. Throwing the aggregate `ValidationException` directly from a field handler is a contract error. See [Processing errors](/features/processors#errors).
 
 ```php
 use Solo\RequestHandler\Exceptions\ValidationException;
@@ -172,11 +172,36 @@ try {
 }
 ```
 
+### Error order and overlapping paths
+
+- Fields are reported in DTO declaration order, even if the validator returns
+  them in a different order.
+- A nested object's or item's errors appear at its parent property's position.
+  Items follow input iteration order and retain their original keys in paths.
+- When several properties resolve to the same input path, their message lists
+  are appended in that order. This also applies to a flat
+  `#[FromBody('address.zip')]` field alongside a nested `address` DTO.
+  The same applies when different item keys and child paths produce an identical
+  path, including a non-object item's `array` error. Repeated messages are preserved.
+- Additional validator keys that do not match DTO properties follow the
+  property errors in their original order. If a key already exists in the
+  output, its messages are appended there. Inside a child DTO, these keys also
+  receive the child's path prefix.
+
+Every message retains its `rule` and optional `params`. A validator returning
+an error array and one throwing `ValidationException` use the same mapping
+and ordering rules.
+
 ---
 
 ## Configuration Validation
 
-Invalid configurations are detected at build time:
+Invalid configurations are detected when the DTO metadata is first built,
+before input validation. This includes nested DTOs and `#[Items]` classes,
+even when their input is absent, `null` or an empty list. The first
+configuration error stops the build: properties are checked in metadata order,
+and a child's configuration is checked where its parent property is encountered,
+before moving on to later parent properties.
 
 ```php
 // ❌ ConfigurationException: nullable rule with non-nullable type
