@@ -26,6 +26,7 @@ final class ProvidedFields
     /**
      * How many decoded name sets one class keeps — a client chooses which
      * fields it sends, so a long-running worker must not keep every shape.
+     * A full class starts over, so the shapes in use now get decoded once.
      */
     private const int DECODED_PER_CLASS = 64;
 
@@ -88,11 +89,25 @@ final class ProvidedFields
             }
         }
 
-        if (count(self::$decoded[$className] ?? []) < self::DECODED_PER_CLASS) {
-            self::$decoded[$className][$provided] = $names;
+        if (count(self::$decoded[$className] ?? []) >= self::DECODED_PER_CLASS) {
+            self::$decoded[$className] = [];
         }
+        self::$decoded[$className][$provided] = $names;
 
         return $names;
+    }
+
+    /**
+     * Whether the request supplied the property — one bit, with no set to
+     * decode.
+     */
+    public static function has(Request $dto, string $name): bool
+    {
+        $provided = self::$fields[$dto] ?? [];
+
+        return is_int($provided)
+            ? ($provided & (ReflectionCache::of($dto::class)->bits[$name] ?? 0)) !== 0
+            : isset($provided[$name]);
     }
 
     /**
