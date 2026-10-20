@@ -63,7 +63,7 @@ public string $company_type = 'individual';
 public ?string $name = null;
 ```
 
-When `name` is absent from the payload, the handler still passes its rules to the validator — but no value: the field stays absent from the validated data, as the client sent it. A validator that checks an absent field by its presence rules alone fires `required_if` when the condition is met and does not apply `string` or `max:255` to a value nobody sent, `nullable` or not. Fields with **no** `required_*` rule are skipped when absent.
+When `name` is absent from the payload, the handler still passes its rules to the validator — but no value: the field stays absent from the validated data, as the client sent it. solophp/validator 4.0 checks an absent field by its presence rules alone: it fires `required_if` when the condition is met and does not apply `string` or `max:255` to a value nobody sent, `nullable` or not. Fields with **no** `required_*` rule are skipped when absent.
 
 Note that unlike literal `required`, a `required_*` rule combined with a default value is legal — it is the intended usage pattern.
 
@@ -72,7 +72,7 @@ Note that unlike literal `required`, a `required_*` rule combined with a default
 ## Common Rules
 
 ::: info Validator Implementation
-Available rules depend on your `ValidatorInterface` implementation. The examples below assume usage with [solophp/validator](https://github.com/SoloPHP/Validator).
+Available rules depend on your `ValidatorInterface` implementation. The examples below assume [solophp/validator](https://github.com/SoloPHP/Validator) 4.0.
 :::
 
 | Rule | Description | Example |
@@ -93,8 +93,15 @@ Available rules depend on your `ValidatorInterface` implementation. The examples
 | `in:a,b,c` | Must be in list | `'in:active,inactive'` |
 | `length:n` | Exact length | `'length:10'` |
 
-::: warning Unknown rules are skipped
-solophp/validator silently skips rule names it does not know. Rules such as `unique`, `exists`, `same`, `accepted`, `after` or `url` in the examples on this page are application rules — register them with `addCustomRule()` / `addRule()`, or they validate nothing.
+::: warning Unknown rules throw
+solophp/validator throws `InvalidRuleException` on a rule it does not know. Rules such as `unique`, `exists`, `same`, `accepted`, `after`, `url`, `alpha_num` or `size` in these docs are application rules — register them in the `Validator` constructor ([custom rules](https://solophp.github.io/Validator/features/custom-rules)):
+
+```php
+$validator = new Validator([
+    'exists' => new ExistsRule($connection),
+    'url' => fn (mixed $value): bool => filter_var($value, FILTER_VALIDATE_URL) !== false,
+]);
+```
 :::
 
 ---
