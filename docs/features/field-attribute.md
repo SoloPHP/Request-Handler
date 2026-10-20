@@ -27,16 +27,19 @@ For values that don't fit the four bags (Body, Query, Route, Context) — reques
 | Attribute | Purpose |
 |---|---|
 | `#[Validate('rules')]` | Validation rules passed to your `ValidatorInterface` |
-| `#[Cast('int'\|'datetime:Y-m-d'\|...)]` | Explicit built-in cast (overrides type-driven default) |
+| `#[Cast('int'\|'float'\|'bool'\|'string'\|'array'\|'json')]` | Explicit cast for union / `mixed` properties; `json` encodes into a string |
+| `#[DateFormat('Y-m-d')]` | Fixed input format for a date property (class from the type) |
 | `#[Caster(MoneyCaster::class)]` | Custom `CasterInterface` implementation |
-| `#[PreProcess(handler)]` | Run handler BEFORE validation |
-| `#[PostProcess(handler, config: [...])]` | Run handler AFTER validation, with optional config |
+| `#[EmptyToNull]` | A blank string is no value (`null` / default / `required`); also on a class |
+| `#[NoTrim]` | Auto-trim skips the property — the string is kept as sent; also on a class |
+| `#[Normalize(class, config: [...])]` | Normalize present raw input before validation |
+| `#[PostProcess(class, config: [...])]` | Transform decoded values after the whole tree is valid |
 | `#[Generator(GenClass::class, options: [...])]` | Value is generated, not read from any source |
 | `#[Items(NestedRequest::class)]` | Property is an array of nested DTOs |
 | `#[Group('name', mapTo: '...')]` | Group membership + remap for `Request::group()` |
 | `#[Exclude]` | `Request::toArray()` skips this property |
 
-A bare `public string $name;` (no attributes) is read from the default-source bag by name and assigned with type-driven cast — no validation, no processors.
+A bare `public string $name;` (no attributes) is read from the default-source bag by name and assigned with type-driven cast — no validation, no handlers.
 
 ---
 
@@ -85,7 +88,7 @@ A single-segment path acts as a flat key remap:
 public string $name;
 ```
 
-Malformed paths (leading/trailing dot, empty segment) throw `InvalidArgumentException` at construction. If the path resolves to an array but the property is a scalar (string included), a structured `ValidationException` is raised (`['field' => [['rule' => 'scalar']]]`) — unless a pre/post-processor or custom caster converts the array; when the field has rules, the validator's error (e.g. `integer`) is reported instead.
+Malformed paths (leading/trailing dot, empty segment) throw `InvalidArgumentException` at construction. If the path stops at a sub-object while the property is a scalar, the property's cast fails like for any other array — `['field' => [['rule' => 'integer']]]` for an `int`, `string` for a `string` — unless a normalizer or custom caster converts the array, or `#[Cast('json')]` encodes it.
 
 ---
 
@@ -111,15 +114,15 @@ See [Validation](/features/validation).
 
 ### `#[Cast('type')]` and `#[Caster(class)]`
 
-Without either attribute, casting is driven by the property's declared type (`int`, `float`, `bool`, `string`, `array`).
+Without either attribute, casting is driven by the property's declared type: `int`, `float`, `bool`, `string`, `array`, the DateTime family and backed enums.
 
-`#[Cast]` is for built-in types only — it accepts `int`, `float`, `bool`, `string`, `array`, or a datetime spec like `datetime`, `datetime:immutable`, `datetime:Y-m-d`, `datetime:immutable:Y-m-d H:i:s`. Passing a class name throws `ConfigurationException::castExpectsBuiltInType` — use `#[Caster]` for custom logic.
+`#[Cast]` takes the built-in types only — `int`, `float`, `bool`, `string`, `array`, and `json` to encode structured input into a string — and is needed only where the type does not imply the cast. Dates follow their type; `#[DateFormat]` fixes the input format. Passing a class name throws `ConfigurationException::castExpectsBuiltInType` — use `#[Caster]` for custom logic.
 
 ```php
-#[Cast('int')]
-public int $count;
+#[Cast('float')]
+public int|float $amount;
 
-#[Cast('datetime:immutable:Y-m-d')]
+#[DateFormat('Y-m-d')]
 public DateTimeImmutable $birthday;
 
 #[Caster(MoneyCaster::class)]
@@ -130,28 +133,54 @@ public Money $price;
 
 See [Type Casting](/features/type-casting).
 
-### `#[PreProcess(handler)]` and `#[PostProcess(handler, config: [...])]`
+### `#[EmptyToNull]`
 
-Transform values before or after validation. Handler can be:
-
-- a global function name (`'trim'`, `'strtolower'`)
-- a class implementing `ProcessorInterface` or `CasterInterface`
-- a `public static` method on the Request class (non-static methods throw `ConfigurationException::processorMethodNotStatic` at build time)
+Read a blank string — `""` or only whitespace — as no value, after normalization and before validation. A nullable property gets `null`, one with a default keeps it, any other reports `required`. Without it a string property keeps `""`, and "not filled in" ends up in two shapes (`''` and `NULL`) in one column:
 
 ```php
-#[PreProcess('trim')]
-public string $name;
+#[EmptyToNull]
+#[Validate('nullable|date:Y-m-d')]
+public ?string $endDate = null;     // "" → null; the validator sees null too
 
-#[PostProcess(SlugProcessor::class)]
-public string $slug;
-
-#[PostProcess(SlugProcessor::class, config: ['separator' => '-'])]
-public string $slug2;
+#[EmptyToNull]
+public string $sort = 'created_at'; // "" → 'created_at'
 ```
 
-Inside a `ProcessorInterface`, the `config` array arrives via `ProcessContext::$config`. `$route` and `$context` are also exposed there.
+On a class it applies to every property of the class and its subclasses that the client sends — `#[FromContext]` and generated values are the application's and stay as they are:
 
-See [Processors](/features/processors).
+```php
+#[EmptyToNull]
+final class UpdateLeadRequest extends Request { /* ... */ }
+```
+
+Only strings are blank: `[]` stays an array (and fails a `string` property's cast). Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`.
+
+### `#[NoTrim]`
+
+Auto-trim (on by default) skips the property: the string reaches normalizers, the validator and the property as sent. For values whose surrounding whitespace means something — code, Markdown, a fixed-width field:
+
+```php
+#[NoTrim]
+#[Validate('required|string')]
+public string $snippet;   // "  echo 1;\n" stays as it is
+```
+
+On a class it applies to every property of the class and its subclasses; `#[FromContext]` values are never auto-trimmed anyway. With `#[EmptyToNull]`, a whitespace-only string is still read as no value. Combining it with `#[Generator]` throws `ConfigurationException::generatorConflict`.
+
+### `#[Normalize(class, config: [...])]` and `#[PostProcess(class, config: [...])]`
+
+`Normalize` requires a `NormalizerInterface` class and prepares every present raw value before validation. `PostProcess` requires a `PostProcessorInterface` class and transforms non-null decoded values only after the whole tree is valid. It never disables casting. Both receive configuration, route and application context through `ProcessContext`.
+
+```php
+#[Normalize(SkuNormalizer::class)]
+#[Validate('required|string')]
+public string $sku;
+
+#[PostProcess(ClampLimit::class)]
+public int $limit = 20;
+```
+
+See [Processing stages](/features/processors) for complete handler implementations and error rules.
 
 ### `#[Generator(class, options: [...])]`
 
@@ -165,7 +194,7 @@ public string $id;
 public int $orderNumber;
 ```
 
-`#[Generator]` is exclusive with `#[Validate]`, `#[PreProcess]`, `#[PostProcess]`, `#[Cast]`, `#[Caster]`, `#[Items]`, and any source attribute — they would have nothing to act on and trigger `ConfigurationException::generatorConflict` at build time.
+`#[Generator]` is exclusive with `#[Validate]`, `#[Normalize]`, `#[PostProcess]`, `#[Cast]`, `#[Caster]`, `#[Items]`, and any source attribute — they would have nothing to act on and trigger `ConfigurationException::generatorConflict` at build time.
 
 See [Generators](/features/generators).
 
@@ -262,7 +291,7 @@ final class AuthenticatedRequest extends Request
 ## Complete example
 
 ```php
-use Solo\RequestHandler\Attributes\{Validate, Cast, PreProcess, PostProcess, Generator, Items, Group, Exclude};
+use Solo\RequestHandler\Attributes\{Validate, DateFormat, Normalize, PostProcess, Generator, Items, Group, Exclude};
 use Solo\RequestHandler\Attributes\Source\{FromRoute, FromContext};
 
 final class UpdateOrderRequest extends Request
@@ -282,14 +311,14 @@ final class UpdateOrderRequest extends Request
     public ?array $items = null;
 
     #[Validate('nullable|string|max:500')]
-    #[PreProcess('trim')]
+    // Client strings are auto-trimmed by default.
     public ?string $notes = null;
 
     #[Validate('in:pending,confirmed')]
     #[Exclude]
     public string $status = 'pending';
 
-    #[Cast('datetime:Y-m-d')]
+    #[DateFormat('Y-m-d')]
     #[Group('meta')]
     public ?DateTime $deliveryDate = null;
 

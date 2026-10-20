@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Solo\RequestHandler;
 
 /**
- * Context handed to ProcessorInterface implementations.
+ * Context handed to normalizers, casters and post-processors.
  *
- * - `$config`  — per-attribute configuration from `#[PostProcess(..., config: [...])]`
+ * - `$config`  — per-attribute configuration from Normalize / Caster / PostProcess
  * - `$route`   — the route-params array passed to `handleBody()` / `handleQuery()` /
  *                `handleArray()`. Same array consulted by `#[FromRoute]`.
  * - `$context` — the generic application-context array passed alongside. Same

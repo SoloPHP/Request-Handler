@@ -1,6 +1,60 @@
-# Nested Items
+# Nested Objects and Items
 
-The `#[Items]` attribute lets you validate and process arrays of nested objects through a referenced Request class.
+A property typed with a `Request` subclass is a **nested object**; `#[Items]` makes an array property a **list** of them. Either way the child DTO runs its full pipeline — read, normalize, validate, decode, post-process, generate — and its errors come back under the path the client used.
+
+## Nested Objects
+
+No attribute is needed — the type says it:
+
+```php
+final class AddressRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $city;
+
+    #[Validate('required|string')]
+    public string $zip;
+}
+
+final class ShipmentRequest extends Request
+{
+    #[Validate('required|string')]
+    public string $carrier;
+
+    public AddressRequest $address;            // required by type: absent → uninitialised, null → 'required'
+
+    public ?AddressRequest $billing = null;     // optional
+}
+```
+
+```php
+$dto = $handler->handleBody(ShipmentRequest::class, $request);
+// {"carrier": "ups", "address": {"city": "Kyiv", "zip": "01001"}}
+
+$dto->address->city;   // 'Kyiv'
+$dto->toArray();       // ['carrier' => 'ups', 'address' => ['city' => 'Kyiv', 'zip' => '01001'], 'billing' => null]
+```
+
+Errors use the property path: `address.zip` for a field of the nested object, `address` itself (`['rule' => 'array']`) when the value is not an object. `""` is no value — `null`, or `required` for a non-nullable property — and for an `#[Items]` list an empty list, as for any array property. A `#[Normalize]` on the property runs before validation and can turn a JSON string into the object to read. Nested objects can contain `#[Items]` lists and further nested objects (`from.stock.0.quantity`).
+
+The nested class must be concrete; it is validated together with its parent when metadata is built.
+
+Relative types `self` and `parent` resolve against the class declaring the
+property, including inherited properties. A `?self` link can therefore describe
+a recursive DTO; schema export uses `$ref` when the class recurs.
+
+A `#[FromContext]` property typed with a Request subclass is not built from input: it receives the object the application passes in `context`, as it is. Likewise, `#[Items]` on a `#[FromContext]` list declares the class of the DTOs the application built — each one is checked, none is built from an array; anything else throws `UnexpectedValueException`.
+
+## Item Lists
+
+`#[Items]` validates and processes arrays of nested objects through a referenced Request class.
+
+When building items from input, the resulting DTO array is a list in input
+iteration order, even if the input uses sparse numeric or string keys. Error
+paths retain the original keys: an invalid item at key `7` reports `items.7`,
+and one at key `last` reports `items.last`. Post-processors receive the completed
+list; their returned arrays and context-supplied arrays are checked without
+reindexing.
 
 ## Basic Usage
 
@@ -34,7 +88,7 @@ final class CreateOrderRequest extends Request
 }
 ```
 
-Each element in the `items` array goes through the full processing pipeline of the referenced Request class: validation, type casting, pre/post-processing.
+Each element in the `items` array goes through the full processing pipeline of the referenced Request class: normalization, validation, casting, post-processing and generation.
 
 ## Input Format
 
@@ -92,7 +146,7 @@ $e->getErrors();
 // ]
 ```
 
-Generators and post-processors of the parent and of the items run only after the whole tree has passed. When a post-processor produces the items array (e.g. decodes a JSON string), the items are validated after it runs — their errors are reported once the rest of the input is valid.
+The order of the stages for a list is under [Processing Pipeline](#processing-pipeline).
 
 The item class is validated together with its parent when metadata is built: a misconfigured item class fails the parent's first `handle*()` or `schema()` call even if the request carries no items. Self-referencing trees (`#[Items(CategoryRequest::class)]` inside `CategoryRequest`) are supported.
 
@@ -142,7 +196,7 @@ final class OrderItemRequest extends Request
 
 Route params are **NOT propagated to nested items**. They describe the outer resource (e.g. an order id), not each item. Merging them into item data would silently overwrite item-level fields whose name happened to match a route key (e.g. each item's `id` becoming the outer route's `id`).
 
-`$context` IS propagated, so items can read it via `#[FromContext]` and item processors can access `ProcessContext::$context`.
+`$context` IS propagated, so items can read it via `#[FromContext]` and item normalizers, casters and post-processors can read `ProcessContext::$context`.
 
 ```php
 final class LineItemRequest extends Request
@@ -185,19 +239,12 @@ $item->price;    // 9.99 (float)
 
 For fields with `#[Items]`, the processing order is:
 
-1. Parent field is validated (e.g., `required|array|min:1`)
-2. Auto-casting is **skipped** — the array is passed directly to items processing
-3. Each element goes through the child Request pipeline:
-   - Generate values (`#[Generator]`)
-   - Pre-process (`#[PreProcess]`)
-   - Validate (`#[Validate]`)
-   - Cast types
-   - Post-process (`#[PostProcess]`)
-4. Each processed item is returned as a Request object
+1. Normalize present parent fields, then validate their raw values.
+2. Resolve each item through normalization, raw validation and casting; collect all input errors.
+3. If any node has an input error, throw the aggregate `ValidationException` before finalization.
+4. Finalize children, then run the current node's post-processors and generators, then build its DTO.
 
-::: warning
-Auto-casting is intentionally skipped for `#[Items]` fields. The `BuiltInCaster` won't process the array before items are handled. This prevents data corruption when the array contains structured objects.
-:::
+`#[Items]` uses the child pipeline instead of a scalar/array caster. A parent post-processor receives completed item DTOs (including generated fields); its result is checked against the item class and is not revalidated. To prepare raw item data, use a normalizer.
 
 ## Configuration Validation
 

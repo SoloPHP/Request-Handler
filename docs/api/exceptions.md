@@ -1,6 +1,8 @@
 # Exceptions
 
-The library provides three exception types for different error scenarios.
+The library provides `ValidationException` for aggregated input errors,
+`FieldValidationException` for a normalizer or caster rejecting its field,
+and `ConfigurationException` for a misconfigured request class.
 
 ## ValidationException
 
@@ -11,7 +13,7 @@ namespace Solo\RequestHandler\Exceptions;
 
 final class ValidationException extends Exception
 {
-    public function __construct(array $errors = [], ?Exception $previous = null);
+    public function __construct(array $errors = [], ?\Throwable $previous = null);
     public function getErrors(): array;
 }
 ```
@@ -27,7 +29,11 @@ final class ValidationException extends Exception
 
 #### getErrors()
 
-Returns validation errors grouped by field.
+Returns validation errors grouped by input path. Errors produced by
+`RequestHandler` follow property declaration order, with nested errors at the
+parent property's position. Messages sharing a path are appended without
+deduplication; their `rule` and optional `params` are preserved. See
+[error order and overlapping paths](/features/validation#error-order-and-overlapping-paths).
 
 ```php
 public function getErrors(): array<string, list<array{rule: string, params?: string[]}>>
@@ -83,7 +89,7 @@ Thrown when a Request class has invalid configuration. This is a **developer err
 ```php
 namespace Solo\RequestHandler\Exceptions;
 
-final class ConfigurationException extends Exception { /* 18 named factories */ }
+final class ConfigurationException extends Exception { /* one named factory per misconfiguration */ }
 ```
 
 ### Error types
@@ -163,86 +169,61 @@ public string $value;
 public string $value;
 ```
 
-#### invalidCaster
+#### dateFormatRequiresDateType
 
 ```php
-// ❌ Class missing or not a CasterInterface
-#[Caster(NotACaster::class)]
-public string $value;
+// ❌ #[DateFormat] on a type that cannot hold a date
+#[DateFormat('Y-m-d')]
+public string $date;
 
-// ✅
-#[Caster(MyCaster::class)]
-public string $value;
+// ✅ DateTimeImmutable, DateTime, DateTimeInterface — or an untyped / mixed property
+#[DateFormat('Y-m-d')]
+public DateTimeImmutable $date;
 ```
 
-#### invalidProcessor
+#### dateFormatConflict
+
+`#[DateFormat]` reads the date itself, so `#[Cast]`, `#[Caster]` and `#[Items]` cannot join it.
 
 ```php
-// ❌ Handler is not a function, class, or static method
-#[PreProcess('nonExistentFunction')]
+// ❌
+#[DateFormat('Y-m-d')]
+#[Caster(DateCaster::class)]
+public DateTimeImmutable $date;
+
+// ✅ Pick one
+#[DateFormat('Y-m-d')]
+public DateTimeImmutable $date;
+```
+
+#### invalidHandler
+
+`#[Normalize]`, `#[Caster]`, `#[PostProcess]` and `#[Generator]` require a class implementing `NormalizerInterface`, `CasterInterface`, `PostProcessorInterface` or `GeneratorInterface`, respectively. Missing classes, functions, method-name strings and classes implementing a different handler interface are rejected during metadata building. An abstract class or an interface is accepted: whether it can be built is decided on first use (see [handlerNotInstantiable](#handlernotinstantiable)).
+
+```php
+// Invalid: a function is not a normalizer class.
+#[Normalize('trim')]
 public string $name;
 
-// ✅
-#[PreProcess('trim')]
+// Correct: TrimNormalizer implements NormalizerInterface.
+#[Normalize(TrimNormalizer::class)]
 public string $name;
 ```
 
-#### ambiguousProcessor
+#### unknownAttribute
 
-Handler name resolves both as a global function AND as a static method on the Request — dispatch is undefined.
-
-```php
-// ❌ 'trim' is a built-in AND a static method on this class
-final class MyRequest extends Request
-{
-    #[PreProcess('trim')]
-    public string $value;
-
-    public static function trim(string $v): string { return \trim($v, '/'); }
-}
-
-// ✅ Rename the method (or pass the class-string of a ProcessorInterface)
-```
-
-#### processorMethodNotStatic
+An attribute in the `Solo\RequestHandler\Attributes\` namespace that the library does not read where it stands — a misspelled name, a wrong namespace, a property attribute on a class — fails metadata building instead of being ignored. When a known attribute has the same short name, the message suggests it.
 
 ```php
-// ❌ Handler is an instance method
-#[PreProcess('normalize')]
-public string $value;
+// ❌ Source attributes live in Attributes\Source: this class does not exist,
+//    and without the check the property would be read from the request body.
+use Solo\RequestHandler\Attributes\FromContext;
 
-public function normalize(string $v): string { /* ... */ }
-
-// ✅ Make it static (or extract to a ProcessorInterface)
-public static function normalize(string $v): string { /* ... */ }
-```
-
-#### processorMethodNotPublic
-
-The handler calls the method from outside the class, so it must be `public`.
-
-```php
-// ❌ private/protected static
-private static function normalize(string $v): string { /* ... */ }
+#[FromContext('authUserId')]
+public int $createdBy;
 
 // ✅
-public static function normalize(string $v): string { /* ... */ }
-```
-
-#### invalidProcessorSignature
-
-Function and static-method handlers are called with exactly one argument — the value.
-
-```php
-// ❌ explode() needs a separator AND a string
-#[PreProcess('explode')]
-public array $tags;
-
-// ✅ Wrap it
-#[PreProcess('splitTags')]
-public array $tags;
-
-public static function splitTags(string $v): array { return explode(',', $v); }
+use Solo\RequestHandler\Attributes\Source\FromContext;
 ```
 
 #### invalidItems
@@ -282,18 +263,6 @@ public array $items;
 // ✅
 #[Items(OrderItemRequest::class)]
 public array $items = [];
-```
-
-#### invalidGenerator
-
-```php
-// ❌ Class missing or not a GeneratorInterface
-#[Generator(NotAGenerator::class)]
-public string $id;
-
-// ✅
-#[Generator(UuidGenerator::class)]
-public string $id;
 ```
 
 #### generatorConflict
@@ -339,9 +308,28 @@ public string $value;
 public string $value;
 ```
 
+#### unproducibleType
+
+A class-typed property must be producible from request input: a Request subclass (nested DTO), a `BackedEnum`, a DateTime class — or carry `#[Caster]`, `#[Generator]`, or read `#[FromContext]`.
+
+```php
+// ❌ A string from the request can never become a Money
+public Money $price;
+
+// ✅
+#[Caster(MoneyCaster::class)]
+public Money $price;
+
+// ✅ The application supplies the object
+#[FromContext('currentUser')]
+public User $user;
+```
+
+
+
 #### abstractClass
 
-`#[Items]` and `#[Generator]` need a concrete instantiable class.
+`#[Items]` and nested-DTO classes need a concrete instantiable class: the handler builds them itself.
 
 ```php
 // ❌
@@ -355,16 +343,23 @@ public ?array $items = null;
 
 #### handlerNotInstantiable
 
-Thrown on first use — not at build time — because a processor, caster or generator class that is abstract or needs constructor arguments is valid configuration once an instance is registered for it.
+Thrown on first use — not at build time — because a normalizer, caster, post-processor or generator that is an interface, an abstract class or a class needing constructor arguments is valid configuration once the container provides it or an instance is registered for it.
 
 ```php
-// ❌ CurrencyCaster requires a CurrencyConverter, nothing registered
+// ❌ CurrencyCaster requires a CurrencyConverter, nothing provides one
 #[Caster(CurrencyCaster::class)]
 public Money $price;
 
-// ✅
+// ✅ The container builds it
+$handler = new RequestHandler($validator, container: $container);
+
+// ✅ Or register an instance
 $handler->register(CurrencyCaster::class, new CurrencyCaster($converter));
 ```
+
+#### containerEntryMismatch
+
+Thrown on first use when the container's entry for a handler class is not an instance of that class — say, an alias pointing at the wrong service.
 
 ### Usage Pattern
 
@@ -383,58 +378,16 @@ try {
 
 ---
 
-## AuthorizationException
-
-Available for custom authorization logic. Not thrown by the library itself.
-
-```php
-namespace Solo\RequestHandler\Exceptions;
-
-final class AuthorizationException extends Exception
-{
-    public function __construct(
-        string $message = "Access denied",
-        int $code = 403,
-        ?Exception $previous = null
-    );
-}
-```
-
-### Usage Example
-
-```php
-final class DeleteUserRequest extends Request
-{
-    #[Validate('required|integer')]
-    public int $userId;
-
-    public function authorize(User $currentUser): void
-    {
-        if (!$currentUser->isAdmin()) {
-            throw new AuthorizationException('Only admins can delete users');
-        }
-    }
-}
-
-// In controller
-try {
-    $dto = $handler->handleBody(DeleteUserRequest::class, $request);
-    $dto->authorize($currentUser);
-    // ...
-} catch (AuthorizationException $e) {
-    return $this->json(['error' => $e->getMessage()], 403);
-}
-```
-
----
-
 ## Exception Hierarchy
 
 ```
 Exception
 ├── ValidationException      (422 - Client error, invalid input)
 ├── ConfigurationException   (500 - Developer error, fix DTO)
-└── AuthorizationException   (403 - Access denied)
+├── LogicException           (500 - Handler rejects input during the wrong stage)
+└── RuntimeException
+    ├── FieldValidationException (Internal field rejection, aggregated by the handler)
+    └── UnexpectedValueException (500 - Incompatible application/handler value)
 ```
 
 ---
@@ -478,3 +431,13 @@ try {
 }
 // ConfigurationException will trigger error handler → 500
 ```
+
+## FieldValidationException
+
+Normalizers and casters reject the current field with `new FieldValidationException('rule', params: [...], previous: $cause)`. Parameters are a list of strings; both optional arguments may be omitted. The handler supplies the input path and aggregates the error into the public `ValidationException`. The same rejection on a context value is an `UnexpectedValueException` with the field exception as its cause.
+
+## Handler Contract Errors
+
+A normalizer or caster throwing the aggregate `ValidationException` directly raises `LogicException`; use `FieldValidationException` instead. A post-processor or generator throwing either validation exception also raises `LogicException`: input checks must finish during resolution. The original exception is retained as `getPrevious()`.
+
+Caster and post-processor results are checked strictly against the property type and any `#[Items]` item class. A wrong result throws `UnexpectedValueException`, even if PHP could coerce it or the property has a default. Other application exceptions propagate normally.

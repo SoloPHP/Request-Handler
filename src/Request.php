@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler;
 
-use ReflectionProperty;
-use Solo\RequestHandler\Attributes\Exclude;
-use Solo\RequestHandler\Attributes\Group;
-use Solo\RequestHandler\Attributes\Ignore;
+use Solo\RequestHandler\Cache\ReflectionCache;
+use Solo\RequestHandler\Cache\RequestMetadata;
+use Solo\RequestHandler\Grouping\GroupBuilder;
+use Solo\RequestHandler\Pipeline\ProvidedFields;
 
 /**
  * Base class for request DTOs with explicit typed properties.
@@ -27,92 +27,47 @@ use Solo\RequestHandler\Attributes\Ignore;
  * #[Validate('nullable|string')]
  * public ?string $description = null;
  * ```
- *
- * @phpstan-type PropertyEntry array{
- *     property: ReflectionProperty,
- *     exclude: bool,
- *     group: ?string,
- *     mapTo: ?string,
- * }
  */
 abstract class Request
 {
     /**
-     * Logical group wrappers that more than one grouped property may legitimately
-     * contribute (e.g. a multi-word search and a stock filter both emitting an
-     * 'AND' group). On a key collision in group() these fold into a list entry
-     * instead of erroring; a duplicate leaf/column key is still a real conflict.
-     */
-    private const GROUP_KEYS = ['AND', 'OR'];
-
-    /**
-     * Per-class property metadata used by toArray/has/get/group.
-     *
-     * @var array<string, array<string, PropertyEntry>>
-     */
-    private static array $propertyCache = [];
-
-    /**
-     * Per-class group lookup, derived from $propertyCache.
-     *
-     * @var array<string, array<string, list<PropertyEntry>>>
-     */
-    private static array $groupCache = [];
-
-    /**
-     * @param class-string $class
-     * @return array<string, PropertyEntry>
-     */
-    private static function getProperties(string $class): array
-    {
-        if (isset(self::$propertyCache[$class])) {
-            return self::$propertyCache[$class];
-        }
-
-        $cache = [];
-        $reflection = new \ReflectionClass($class);
-        foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
-            if ($property->isStatic() || !empty($property->getAttributes(Ignore::class))) {
-                continue;
-            }
-
-            $groupAttr = $property->getAttributes(Group::class);
-            $group = !empty($groupAttr) ? $groupAttr[0]->newInstance() : null;
-
-            $cache[$property->getName()] = [
-                'property' => $property,
-                'exclude'  => !empty($property->getAttributes(Exclude::class)),
-                'group'    => $group?->name,
-                'mapTo'    => $group?->mapTo,
-            ];
-        }
-
-        return self::$propertyCache[$class] = $cache;
-    }
-
-    /**
      * Returns all initialized properties as array (skips uninitialized and #[Exclude]-marked).
+     *
+     * With `$onlyProvided`, only the properties the request supplied
+     * (`provided()`), nested DTOs and `#[Items]` included — the change set of
+     * a PATCH. A nested DTO the handler did not build — one the application
+     * passed in context — is a value supplied as a whole.
      *
      * @return array<string, mixed>
      */
-    public function toArray(): array
+    public function toArray(bool $onlyProvided = false): array
     {
         $result = [];
+        $metadata = $this->metadata();
+        $provided = $onlyProvided ? ProvidedFields::of($this) : [];
 
-        foreach (self::getProperties(static::class) as $name => $meta) {
-            if ($meta['exclude'] || !$meta['property']->isInitialized($this)) {
+        foreach ($metadata->properties as $name => $property) {
+            if ($property->exclude || !$property->reflection->isInitialized($this)) {
+                continue;
+            }
+            if ($onlyProvided && !isset($provided[$name])) {
                 continue;
             }
 
-            $value = $meta['property']->getValue($this);
+            $value = $property->reflection->getValue($this);
+            $onlyProvidedChildren = $onlyProvided && $property->buildsChildren;
 
             if ($value instanceof self) {
-                $value = $value->toArray();
+                $value = $value->toArray($onlyProvidedChildren && ProvidedFields::knows($value));
             } elseif (is_array($value)) {
-                $value = array_map(
-                    static fn($item) => $item instanceof self ? $item->toArray() : $item,
-                    $value
-                );
+                // Build a new array: its entries may reference the original DTO.
+                $exported = [];
+                foreach ($value as $key => $item) {
+                    $exported[$key] = $item instanceof self
+                        ? $item->toArray($onlyProvidedChildren && ProvidedFields::knows($item))
+                        : $item;
+                }
+                $value = $exported;
             }
 
             $result[$name] = $value;
@@ -126,8 +81,33 @@ abstract class Request
      */
     public function has(string $name): bool
     {
-        $properties = self::getProperties(static::class);
-        return isset($properties[$name]) && $properties[$name]['property']->isInitialized($this);
+        $property = $this->metadata()->properties[$name] ?? null;
+
+        return $property !== null && $property->reflection->isInitialized($this);
+    }
+
+    /**
+     * Names of the properties the request supplied, in declaration order:
+     * every property whose key was present in its source (body, query, route
+     * or context) — an explicit `null` or `""` included — and the generated
+     * ones. A property left at its default because the key was absent is not
+     * listed. Empty for a DTO not built by `RequestHandler` — a clone or an
+     * unserialized copy included.
+     *
+     * @return list<string>
+     */
+    public function provided(): array
+    {
+        return array_keys(ProvidedFields::of($this));
+    }
+
+    /**
+     * Whether the request supplied the property — see `provided()`. Unlike
+     * `has()`, a default does not count.
+     */
+    public function isProvided(string $name): bool
+    {
+        return ProvidedFields::has($this, $name);
     }
 
     /**
@@ -135,11 +115,13 @@ abstract class Request
      */
     public function get(string $name, mixed $default = null): mixed
     {
-        $properties = self::getProperties(static::class);
-        if (!isset($properties[$name]) || !$properties[$name]['property']->isInitialized($this)) {
+        $property = $this->metadata()->properties[$name] ?? null;
+
+        if ($property === null || !$property->reflection->isInitialized($this)) {
             return $default;
         }
-        return $properties[$name]['property']->getValue($this);
+
+        return $property->reflection->getValue($this);
     }
 
     /**
@@ -152,74 +134,29 @@ abstract class Request
      *   multiple logical groups coexist (the criteria builder AND-combines them).
      *
      * @throws \LogicException When duplicate non-connector keys are detected.
-     * @return array<string, mixed>
+     * @return array<array-key, mixed>
      */
     public function group(string $groupName): array
     {
-        $class = static::class;
-
-        if (!isset(self::$groupCache[$class][$groupName])) {
-            $members = [];
-            foreach (self::getProperties($class) as $meta) {
-                if ($meta['group'] === $groupName) {
-                    $members[] = $meta;
-                }
-            }
-            self::$groupCache[$class][$groupName] = $members;
-        }
-
-        $result = [];
-        foreach (self::$groupCache[$class][$groupName] as $meta) {
-            $property = $meta['property'];
-            if (!$property->isInitialized($this)) {
-                continue;
-            }
-
-            $value = $property->getValue($this);
-
-            // Skip empty arrays and nulls — they convey "no criteria for this slot".
-            if ($value === [] || $value === null) {
-                continue;
-            }
-
-            $entries = (is_array($value) && !array_is_list($value))
-                ? $value
-                : [($meta['mapTo'] ?? $property->getName()) => $value];
-
-            foreach ($entries as $key => $v) {
-                if (array_key_exists($key, $result)) {
-                    if (in_array($key, self::GROUP_KEYS, true)) {
-                        $result[] = [$key => $v];
-                        continue;
-                    }
-                    throw new \LogicException(
-                        "Duplicate key '$key' in group '$groupName' from property '{$property->getName()}'"
-                    );
-                }
-                $result[$key] = $v;
-            }
-        }
-
-        return $result;
+        return GroupBuilder::build($this, $this->metadata(), $groupName);
     }
 
     /**
-     * Clear the static metadata cache used by `toArray()`/`has()`/`get()`/`group()`.
+     * Clear the metadata registry shared by `RequestHandler` and these accessors.
      *
      * Primarily a test helper for isolating cases within a single PHP process —
-     * the cache is per-class and immutable, so production code under PHP-FPM
-     * never needs to call this (state dies with the request).
+     * metadata is per-class and immutable, so production code never needs to
+     * call this.
      *
      * @param string|null $className Clear cache for specific class only, or all if null
      */
     public static function clearCache(?string $className = null): void
     {
-        if ($className === null) {
-            self::$propertyCache = [];
-            self::$groupCache = [];
-            return;
-        }
+        ReflectionCache::shared()->clear($className);
+    }
 
-        unset(self::$propertyCache[$className], self::$groupCache[$className]);
+    private function metadata(): RequestMetadata
+    {
+        return ReflectionCache::of(static::class);
     }
 }

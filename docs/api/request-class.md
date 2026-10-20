@@ -30,10 +30,21 @@ final class CreateUserRequest extends Request
 Convert all initialized properties to an array. Excludes fields marked with `#[Exclude]`. `protected` and `private` properties are not part of the DTO surface (use those for internal state the handler should not touch).
 
 ```php
-public function toArray(): array
+public function toArray(bool $onlyProvided = false): array
 ```
 
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `$onlyProvided` | `bool` | Keep only the properties the request supplied — see [`provided()`](#provided). Applies to the nested DTOs and `#[Items]` the handler built; a DTO the application passed in `context` is a value supplied as a whole |
+
 **Returns:** Associative array of property names to values.
+
+Exporting does not replace DTOs in the original arrays, including entries held
+by reference. Array keys are preserved. With `onlyProvided: true`, values passed
+through context are exported in full even if another `handle*()` call built them
+and recorded their own provided fields.
 
 **Example:**
 
@@ -47,6 +58,20 @@ $data = $dto->toArray();
 
 ::: info Uninitialized Properties
 Properties that were not in the request (and have no default value) are not included in the result.
+:::
+
+**PATCH:** `toArray(onlyProvided: true)` is the change set — the fields the client sent, without the defaults of the ones it left out:
+
+```php
+// PATCH /products/5  {"name": "Desk", "note": null}
+$dto = $handler->handleBody(UpdateProductRequest::class, $request, route: ['id' => 5]);
+
+$dto->toArray();                    // ['id' => 5, 'name' => 'Desk', 'note' => null, 'price' => null, ...]
+$dto->toArray(onlyProvided: true);  // ['id' => 5, 'name' => 'Desk', 'note' => null]
+```
+
+::: warning Overriding toArray()
+A subclass that overrides `toArray()` must declare the parameter: `public function toArray(bool $onlyProvided = false): array`.
 :::
 
 ---
@@ -72,6 +97,45 @@ public function has(string $name): bool
 ```php
 if ($dto->has('bio')) {
     echo $dto->bio;
+}
+```
+
+---
+
+### provided()
+
+Names of the properties the request supplied, in declaration order.
+
+```php
+public function provided(): array
+```
+
+**Returns:** `list<string>` — every property whose key was present in its source (body, query, route or context), even with an explicit `null` or `""`, and the generated ones. A property left at its default because the client did not send it is not listed.
+
+A DTO created with `new` (not by `RequestHandler`) has nothing provided, and neither has a clone or an unserialized copy: the list is kept beside the instance the handler built, not in its properties — `(array) $dto`, `serialize()` and normalizers see only the DTO's own fields.
+
+Presence records describe the original input and generated fields. Assigning or unsetting a property later does not change `provided()` or `isProvided()`. The names remain in declaration order, and clearing the metadata cache does not erase them.
+
+```php
+// Body: {"name": "Desk", "note": null}
+$dto->provided();   // ['name', 'note']
+```
+
+---
+
+### isProvided()
+
+Whether the request supplied the property — see [`provided()`](#provided).
+
+```php
+public function isProvided(string $name): bool
+```
+
+Unlike `has()`, a default value does not count: with `public ?string $note = null;` absent from the input, `has('note')` is `true` and `isProvided('note')` is `false`.
+
+```php
+if ($dto->isProvided('email')) {
+    $this->sendVerification($dto->email);   // only when the client changed it
 }
 ```
 
@@ -119,11 +183,14 @@ public function group(string $groupName): array
 **Returns:** Flat array of grouped field values.
 
 **Behavior:**
-- Associative array properties: contents are merged into result
+
+- Properties are read in declaration order using their current values, including defaults
+- Associative array properties: contents are merged by their own keys; nested values are preserved
 - Scalar properties and sequential arrays: added by property name, or by `mapTo` if specified
-- Empty arrays are skipped
-- Duplicate `AND`/`OR` keys fold into integer-keyed list entries so multiple logical groups coexist
+- Uninitialized properties, empty arrays and `null` properties are skipped; `false`, `0` and `""` are kept
+- Duplicate uppercase `AND`/`OR` keys fold into integer-keyed list entries so multiple logical groups coexist
 - Throws `LogicException` on any other duplicate key
+- Unknown groups return `[]`
 
 **Example:**
 

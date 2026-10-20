@@ -6,6 +6,7 @@
 public function __construct(
     ValidatorInterface $validator,
     bool $autoTrim = true,
+    ?ContainerInterface $container = null,
 )
 ```
 
@@ -13,15 +14,23 @@ public function __construct(
 |-----------|------|---------|-------------|
 | `$validator` | `ValidatorInterface` | required | Validator instance |
 | `$autoTrim` | `bool` | `true` | Auto-trim whitespace from string inputs |
+| `$container` | `?Psr\Container\ContainerInterface` | `null` | Resolves normalizer, caster, post-processor and generator classes — see [Dependency Injection](#dependency-injection) |
 
 ## Auto Trim
 
-By default, all string inputs are trimmed before validation:
+By default, every string the client sends is trimmed before validation. `#[FromContext]` values are the application's and stay as passed:
 
 ```php
 // Input: "  John Doe  " → Stored as: "John Doe"
 #[Validate('required|string')]
 public string $name;
+```
+
+**Opt a property — or a whole class — out with `#[NoTrim]`:**
+
+```php
+#[NoTrim]
+public string $snippet;   // whitespace kept as sent
 ```
 
 **Disable globally:**
@@ -30,16 +39,52 @@ public string $name;
 $handler = new RequestHandler($validator, autoTrim: false);
 ```
 
-**Or use `#[PreProcess]` for specific fields:**
+**To trim selected fields when auto-trim is disabled, use a normalizer:**
 
 ```php
-#[PreProcess('trim')]
+use Solo\RequestHandler\Attributes\Normalize;
+use Solo\RequestHandler\Contracts\NormalizerInterface;
+use Solo\RequestHandler\ProcessContext;
+
+final class TrimNormalizer implements NormalizerInterface
+{
+    public function normalize(mixed $value, ProcessContext $context): mixed
+    {
+        return is_string($value) ? trim($value) : $value;
+    }
+}
+
+#[Normalize(TrimNormalizer::class)]
 public string $name;
 ```
 
+A string trimmed to `""` stays `""` for a `string` property. To read it as no value — `null` or the default — add [`#[EmptyToNull]`](/features/field-attribute#emptytonull) to the property or the class.
+
 ## Dependency Injection
 
-Register processor/caster/generator instances with constructor dependencies:
+Normalizer, caster, post-processor and generator classes are resolved by class name, in this order:
+
+1. an instance passed to `register()`;
+2. the entry of the PSR-11 container given to the constructor, when `has(Class::class)` is true;
+3. a new instance built without arguments.
+
+A class that needs constructor arguments must come from 1 or 2 — otherwise its first use throws `ConfigurationException::handlerNotInstantiable`. A registered instance, or one built without arguments, is kept for the handler's lifetime; a container entry is fetched from the container on every use, so the container's own scoping — shared, built per call, request-scoped — applies even when the handler outlives a request.
+
+### From a PSR-11 container
+
+Pass your application's container — handlers with dependencies come from it, no wiring per class:
+
+```php
+$handler = new RequestHandler($validator, container: $container);
+
+// SequenceGenerator(Connection $connection) is built by the container
+#[Generator(SequenceGenerator::class)]
+public int $id;
+```
+
+### Registering instances
+
+Register normalizer/caster/post-processor/generator instances with constructor dependencies:
 
 ```php
 final class SequenceGenerator implements GeneratorInterface
@@ -64,7 +109,7 @@ $handler
     ->register(SlugProcessor::class, new SlugProcessor($transliterator));
 ```
 
-Registered (and lazily-created) instances are reused across all subsequent `handle*()` calls on the same handler. The handler is designed for classic PHP-FPM, where its lifetime equals one request — keep `ProcessorInterface` / `CasterInterface` / `GeneratorInterface` implementations free of per-request mutable state.
+Registered (and lazily-created) instances are reused across all subsequent `handle*()` calls on the same handler. The handler is designed for classic PHP-FPM, where its lifetime equals one request — keep `NormalizerInterface` / `CasterInterface` / `PostProcessorInterface` / `GeneratorInterface` implementations free of per-request mutable state.
 
 ## Handler methods
 
@@ -192,12 +237,16 @@ $dto = $handler->handleBody(
 // Validator sees: data = ['id' => 123, 'email' => '...'], and resolves {id} → 123
 ```
 
-### Inside a `ProcessorInterface`
+### Inside a `PostProcessorInterface`
 
 ```php
-final class SlugWithIdProcessor implements ProcessorInterface
+use Solo\RequestHandler\Contracts\PostProcessorInterface;
+use Solo\RequestHandler\ProcessContext;
+
+/** @implements PostProcessorInterface<string> */
+final class SlugWithIdProcessor implements PostProcessorInterface
 {
-    public function process(mixed $value, ProcessContext $context): string
+    public function postProcess(mixed $value, ProcessContext $context): string
     {
         $id = $context->route['id'] ?? '';
         $tenant = $context->context['tenant'] ?? '';
@@ -208,7 +257,7 @@ final class SlugWithIdProcessor implements ProcessorInterface
 
 ### Nested items
 
-Route is **not** propagated into nested items processed via `#[Items]` (items describe outer-resource children, not the outer resource). Context IS propagated, so item processors can read `ProcessContext::$context`.
+Route is **not** propagated into nested items processed via `#[Items]` (items describe outer-resource children, not the outer resource). Context IS propagated, so item normalizers, casters and post-processors can read `ProcessContext::$context`.
 
 ## Request Base Class
 
@@ -227,7 +276,8 @@ final class MyRequest extends Request
 
 The base class provides:
 
-- `toArray()` — Convert to array (skips uninitialized and `#[Exclude]`-marked properties)
+- `toArray(bool $onlyProvided = false)` — Convert to array (skips uninitialized and `#[Exclude]`-marked properties; with `onlyProvided`, also those the request did not supply)
+- `provided()` / `isProvided(string $name)` — Which properties the request supplied (PATCH)
 - `has(string $name)` — Check if property is initialized
 - `get(string $name, mixed $default)` — Get value with default
 - `group(string $name)` — Get fields by group name (see `#[Group]`)

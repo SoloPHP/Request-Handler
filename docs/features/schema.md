@@ -12,14 +12,20 @@ public function schema(string $className): array
 |-----------|------|-------------|
 | `$className` | `class-string` | A `Request` subclass to describe |
 
-**Returns:** a map of property name → field schema.
+**Returns:** a map of **input key** → field schema — the same keys the client sends and `ValidationException` reports errors under.
 
 ## Example
 
 ```php
-use Solo\RequestHandler\Attributes\Validate;
-use Solo\RequestHandler\Attributes\Source\FromRoute;
+use Solo\RequestHandler\Attributes\{DateFormat, Items, Validate};
+use Solo\RequestHandler\Attributes\Source\{FromBody, FromContext, FromRoute};
 use Solo\RequestHandler\Request;
+
+enum Visibility: string
+{
+    case Public = 'public';
+    case Hidden = 'hidden';
+}
 
 final class UpdateProductRequest extends Request
 {
@@ -30,88 +36,71 @@ final class UpdateProductRequest extends Request
     #[Validate('required|string|max:255')]
     public string $name;
 
+    #[FromBody('meta.status')]
     #[Validate('nullable|in:draft,published')]
     public ?string $status = null;
 
     #[Validate('nullable|string|required_if:status,published')]
     public ?string $slug = null;
 
-    #[Validate('integer|min_value:1')]
-    public int $page = 1;
+    #[DateFormat('Y-m-d')]
+    public ?DateTimeImmutable $publishAt = null;
+
+    public Visibility $visibility = Visibility::Public;
+
+    /** @var VariantRequest[] */
+    #[Items(VariantRequest::class)]
+    public array $variants = [];
+
+    #[FromContext('authUserId')]
+    public int $updatedBy;          // supplied by the application — not part of the schema
 }
 
 $schema = $handler->schema(UpdateProductRequest::class);
 ```
 
-`$schema` is:
+`$schema` is (rule lists shortened):
 
 ```php
 [
     'id' => [
+        'property'   => 'id',
+        'source'     => 'route',
         'type'       => 'int',
         'nullable'   => false,
         'required'   => true,
         'requiredIf' => null,
         'hasDefault' => false,
-        'exclude'    => false,
-        'source'     => 'route',
-        'rules'      => [
-            ['name' => 'required', 'args' => []],
-            ['name' => 'integer', 'args' => []],
-        ],
+        'default'    => null,
+        'rules'      => [['name' => 'required', 'args' => []], ['name' => 'integer', 'args' => []]],
     ],
     'name' => [
-        'type'       => 'string',
-        'nullable'   => false,
-        'required'   => true,
-        'requiredIf' => null,
-        'hasDefault' => false,
-        'exclude'    => false,
-        'source'     => null,
-        'rules'      => [
-            ['name' => 'required', 'args' => []],
-            ['name' => 'string', 'args' => []],
-            ['name' => 'max', 'args' => ['255']],
-        ],
+        'property' => 'name', 'source' => null, 'type' => 'string', 'nullable' => false,
+        'required' => true, 'requiredIf' => null, 'hasDefault' => false, 'default' => null,
+        'rules' => [/* required, string, max:255 */],
     ],
-    'status' => [
-        'type'       => 'string',
-        'nullable'   => true,
-        'required'   => false,
-        'requiredIf' => null,
-        'hasDefault' => true,
-        'exclude'    => false,
-        'source'     => null,
-        'rules'      => [
-            ['name' => 'nullable', 'args' => []],
-            ['name' => 'in', 'args' => ['draft', 'published']],
-        ],
+    'meta.status' => [
+        'property' => 'status', 'source' => 'body', 'type' => 'string', 'nullable' => true,
+        'required' => false, 'requiredIf' => null, 'hasDefault' => true, 'default' => null,
+        'rules' => [/* nullable, in:draft,published */],
     ],
     'slug' => [
-        'type'       => 'string',
-        'nullable'   => true,
-        'required'   => false,
-        'requiredIf' => ['field' => 'status', 'value' => 'published'],
-        'hasDefault' => true,
-        'exclude'    => false,
-        'source'     => null,
-        'rules'      => [
-            ['name' => 'nullable', 'args' => []],
-            ['name' => 'string', 'args' => []],
-            ['name' => 'required_if', 'args' => ['status', 'published']],
-        ],
+        // … 'requiredIf' references the input key of `status`:
+        'requiredIf' => ['field' => 'meta.status', 'value' => 'published'],
     ],
-    'page' => [
-        'type'       => 'int',
-        'nullable'   => false,
-        'required'   => false,
-        'requiredIf' => null,
-        'hasDefault' => true,
-        'exclude'    => false,
-        'source'     => null,
-        'rules'      => [
-            ['name' => 'integer', 'args' => []],
-            ['name' => 'min_value', 'args' => ['1']],
+    'publishAt' => [
+        // … 'type' => 'DateTimeImmutable',
+        'format' => 'Y-m-d',
+    ],
+    'visibility' => [
+        // … 'type' => 'App\Visibility', 'hasDefault' => true,
+        'default' => 'public',
+        'cases'   => ['public', 'hidden'],
+    ],
+    'variants' => [
+        // … 'type' => 'array',
+        'items' => [
+            'sku' => [/* field schema of VariantRequest::$sku */],
         ],
     ],
 ]
@@ -119,44 +108,56 @@ $schema = $handler->schema(UpdateProductRequest::class);
 
 ## Field schema
 
-Each entry describes one property:
-
-| Key | Type | Meaning |
-|-----|------|---------|
-| `type` | `?string` | Declared property type without the leading `?` (`'int'`, `'string'`, `'array'`, …), or `null` if untyped |
-| `nullable` | `bool` | Whether the property accepts `null` |
-| `required` | `bool` | The **literal** `required` rule only — see note below |
-| `requiredIf` | `array{field, value}\|null` | First well-formed `required_if` rule, as `{field, value}`; `null` otherwise |
-| `hasDefault` | `bool` | Whether the property declares a default value |
-| `exclude` | `bool` | Whether the field is hidden from `Request::toArray()` (via `#[Exclude]`) |
-| `source` | `?string` | `'body'`, `'query'`, `'route'`, `'context'`, or `null` for the handle method's default bag |
-| `rules` | `list<array{name, args}>` | Full normalized rule list |
+| Key | Type | Description |
+|-----|------|-------------|
+| `property` | `string` | The PHP property name |
+| `source` | `'body' \| 'route' \| null` | Where the client sends it; `null` = the handle method's default bag (body or query) |
+| `type` | `?string` | Declared PHP type (`null` when untyped) |
+| `nullable` | `bool` | Whether the type allows `null` |
+| `required` | `bool` | Literal `required` rule present |
+| `requiredIf` | `{field, value} \| null` | First well-formed `required_if`; `field` is the referenced field's input key |
+| `hasDefault` | `bool` | Whether the property declares a default |
+| `default` | `mixed` | The default (an enum case as its value); `null` without one |
+| `rules` | `list<{name, args}>` | Full normalized rule list |
+| `format` | `string` | Only for `#[DateFormat]` dates |
+| `cases` | `list<int\|string>` | Only for `BackedEnum` properties: the allowed values |
+| `cast` | `string` | Only when the built-in cast differs from `type`: `json` (any JSON value, stored encoded), or the `#[Cast]` of a union / `mixed` property |
+| `emptyToNull` | `true` | Only with `#[EmptyToNull]`: a blank string is read as no value |
+| `noTrim` | `true` | Only with `#[NoTrim]`: the string is kept as sent instead of auto-trimmed |
+| `fields` | field schemas | Only for a nested DTO property |
+| `items` | field schemas | Only for an `#[Items]` property: the schema of one element |
+| `also` | `list<field schema>` | Only when several properties read this input key: the others, in declaration order |
 
 ## Notes
 
+### Only what the client sends
+
+Generated (`#[Generator]`) and `#[FromContext]` properties are left out — the client never sends them. `#[Exclude]` describes output (`toArray()`), not input, so excluded properties are included.
+
 ### `required` vs `requiredIf`
 
-`required` reflects only the literal `required` rule. A field that is conditionally required via `required_if:other,value` reports `required => false` and surfaces the condition in `requiredIf` instead. The `required_if` rule is also still present in `rules`, so consumers that ignore `requiredIf` lose nothing.
+`required` reflects the **literal** `required` rule only. Conditional requiredness lives in `requiredIf` — the first well-formed `required_if`, as `{field, value}` — and the rule itself is still present in `rules`. A `required_if` missing an argument is treated as absent.
 
-A malformed `required_if` (missing either argument) is treated as absent: `requiredIf` stays `null`, while the raw rule remains in `rules`.
+### Shared input keys
 
-### All managed properties are emitted
+Two properties may read the same input — `#[FromRoute]` on `$id` and `#[FromRoute('id')]` on `$productId`, say. The field is described by the first one in declaration order; the others follow under `also`, each with its own `property`, `rules` and the rest. The client has to satisfy all of them, as validation errors for the key are merged too.
 
-Properties are **not** filtered by `exclude` or `source`. Fields marked `#[Exclude]` or sourced via `#[FromRoute]` / `#[FromContext]` still appear — `exclude` and `source` are reported as flags so the consumer decides what to render or submit. (`#[Ignore]` properties are not managed at all and never appear.)
+### Nested schemas and recursion
+
+`fields` and `items` hold the full schema of the nested class. A class that recurs on its own nesting path (a category tree with `#[Items(CategoryRequest::class)]` inside `CategoryRequest`) is referenced as `['$ref' => 'App\Requests\CategoryRequest']` instead of being expanded again.
 
 ### Rule normalization
 
-Rules are parsed with the same split semantics the handler uses internally:
+Each rule string is split with the same semantics the handler uses internally:
 
 - the raw string is split on `|`;
-- each rule's `name` is the part before the first `:`;
-- the remainder, if any, is split on `,` into `args`;
-- a rule with no `:` has an empty `args` list.
+- `name` is the part before the first `:`;
+- `args` is the comma-split remainder (an empty list when there is no `:`).
 
 ### JSON-safe by construction
 
 Every emitted value is a scalar or array — no `ReflectionProperty`, enums, objects, or closures leak through — so the result round-trips losslessly through `json_encode` / `json_decode`.
 
-```php
-echo json_encode($handler->schema(UpdateProductRequest::class));
-```
+### Changes from 3.x
+
+The schema is keyed by input key (3.x used the property name), lists only client inputs (3.x included context and generated properties), dropped the `exclude` flag, and gained `property`, `default`, `format`, `cases`, `cast`, `emptyToNull`, `noTrim`, `fields`, `items` and `also`.

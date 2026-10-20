@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Tests\Unit\Casters;
 
-use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Solo\RequestHandler\Casters\BuiltInCaster;
 use DateTime;
@@ -19,321 +18,162 @@ final class BuiltInCasterTest extends TestCase
         $this->caster = new BuiltInCaster();
     }
 
-    public function testIsBuiltIn(): void
+    public function testCastBoolAcceptsOnlyBooleanForms(): void
     {
-        $this->assertTrue($this->caster->isBuiltIn('int'));
-        $this->assertTrue($this->caster->isBuiltIn('integer'));
-        $this->assertTrue($this->caster->isBuiltIn('string'));
-        $this->assertTrue($this->caster->isBuiltIn('datetime'));
-        $this->assertTrue($this->caster->isBuiltIn('datetime:Y-m-d'));
-        $this->assertFalse($this->caster->isBuiltIn('MyClass'));
+        foreach (['true', 'TRUE', '1', 'yes', 'on', 1, true] as $input) {
+            $this->assertTrue($this->caster->cast('bool', $input), var_export($input, true));
+        }
+        foreach (['false', '0', 'no', 'Off', 0, false] as $input) {
+            $this->assertFalse($this->caster->cast('bool', $input), var_export($input, true));
+        }
+        foreach (['anything', 2, 'null', [true], 1.0] as $input) {
+            $this->assertNull($this->caster->cast('bool', $input), var_export($input, true));
+        }
     }
 
-    public function testCastInt(): void
+    public function testNumberAndStringCastsAreLossless(): void
     {
-        $this->assertSame(123, $this->caster->cast('int', '123'));
-        $this->assertSame(1, $this->caster->cast('int', true));
-        $this->assertSame(0, $this->caster->cast('int', false));
-        $this->assertSame(0, $this->caster->cast('int', 'abc'));
-    }
-
-    public function testCastFloat(): void
-    {
-        $this->assertSame(12.34, $this->caster->cast('float', '12.34'));
-        $this->assertSame(1.0, $this->caster->cast('float', true));
-        $this->assertSame(0.0, $this->caster->cast('float', false));
-    }
-
-    public function testCastBool(): void
-    {
-        $this->assertTrue($this->caster->cast('bool', 'true'));
-        $this->assertTrue($this->caster->cast('bool', '1'));
-        $this->assertTrue($this->caster->cast('bool', 'yes'));
-        $this->assertTrue($this->caster->cast('bool', 'on'));
-        $this->assertFalse($this->caster->cast('bool', 'false'));
-        $this->assertFalse($this->caster->cast('bool', '0'));
-        $this->assertFalse($this->caster->cast('bool', 'no'));
-        $this->assertFalse($this->caster->cast('bool', 'off'));
-        $this->assertTrue($this->caster->cast('bool', true));
-        $this->assertFalse($this->caster->cast('bool', false));
-    }
-
-    public function testCastString(): void
-    {
+        foreach ([['42', 42], ['-7', -7], [3.0, 3]] as [$input, $expected]) {
+            $this->assertSame($expected, $this->caster->cast('int', $input), var_export($input, true));
+        }
+        // A fraction, an exponent, an overflow or a boolean is no int.
+        foreach (['1.5', 1.5, '1e3', '99999999999999999999', true] as $input) {
+            $this->assertNull($this->caster->cast('int', $input), var_export($input, true));
+        }
+        $this->assertSame(1.5, $this->caster->cast('float', '1.5'));
+        $this->assertSame(10.0, $this->caster->cast('float', '10'));
+        foreach (['abc', '1e400', true] as $input) {
+            $this->assertNull($this->caster->cast('float', $input), var_export($input, true));
+        }
         $this->assertSame('123', $this->caster->cast('string', 123));
-        $this->assertSame('{"a":1}', $this->caster->cast('string', ['a' => 1]));
+        foreach ([true, []] as $input) {
+            $this->assertNull($this->caster->cast('string', $input), var_export($input, true));
+        }
     }
 
-    public function testCastArray(): void
+    public function testCastJsonEncodesStructuredInput(): void
     {
-        $this->assertSame(['a' => 1], $this->caster->cast('array', ['a' => 1]));
-        $this->assertSame(['a', 'b'], $this->caster->cast('array', '["a","b"]'));
-        $this->assertSame(['a', 'b'], $this->caster->cast('array', 'a,b'));
-        $this->assertSame(['val'], $this->caster->cast('array', 'val'));
+        $this->assertSame('{"a":1}', $this->caster->cast('json', ['a' => 1]));
+        $this->assertSame('[1,2]', $this->caster->cast('json', [1, 2]));
+        $this->assertSame('{"x":true}', $this->caster->cast('json', '{"x":true}'));
+        $this->assertSame('true', $this->caster->cast('json', true));
     }
 
-    public function testCastDateTime(): void
+    public function testCastArrayFromTraversableKeepsEveryItem(): void
     {
-        $date = new DateTime('2023-01-01');
-        $this->assertEquals($date, $this->caster->cast('datetime', $date));
+        // iterator_to_array() would keep the keys and return ['c', 'd'].
+        $chained = (static function (): \Generator {
+            yield from ['a', 'b'];
+            yield from ['c', 'd'];
+        })();
+        $this->assertSame(['a', 'b', 'c', 'd'], $this->caster->cast('array', $chained));
 
-        $casted = $this->caster->cast('datetime', '2023-01-01');
-        $this->assertInstanceOf(DateTime::class, $casted);
-        $this->assertEquals('2023-01-01', $casted->format('Y-m-d'));
+        $repeated = (static function (): \Generator {
+            yield 'k' => 1;
+            yield 'k' => 2;
+        })();
+        $this->assertSame([1, 2], $this->caster->cast('array', $repeated));
 
-        $casted = $this->caster->cast('datetime:Y-m-d', '2023-01-01');
-        $this->assertInstanceOf(DateTime::class, $casted);
-        $this->assertEquals('2023-01-01', $casted->format('Y-m-d'));
-
-        $timestamp = 1672531200; // 2023-01-01 00:00:00 UTC
-        $casted = $this->caster->cast('datetime', $timestamp);
-        $this->assertInstanceOf(DateTime::class, $casted);
-        $this->assertEquals($timestamp, $casted->getTimestamp());
-    }
-
-    public function testCastDateTimeImmutable(): void
-    {
-        $casted = $this->caster->cast('datetime:immutable', '2023-01-01');
-        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
-        $this->assertEquals('2023-01-01', $casted->format('Y-m-d'));
-    }
-
-    public function testCastNull(): void
-    {
-        $this->assertNull($this->caster->cast('int', null));
-        $this->assertNull($this->caster->cast('string', null));
-        $this->assertNull($this->caster->cast('array', null));
-    }
-
-    public function testCastEmptyString(): void
-    {
-        $this->assertNull($this->caster->cast('int', ''));
-        $this->assertNull($this->caster->cast('float', ''));
-        $this->assertNull($this->caster->cast('datetime', ''));
-        $this->assertSame('', $this->caster->cast('string', ''));
-        $this->assertFalse($this->caster->cast('bool', ''));
-        $this->assertSame([], $this->caster->cast('array', ''));
-    }
-
-    public function testCastFloatNonNumeric(): void
-    {
-        $this->assertSame(0.0, $this->caster->cast('float', 'abc'));
-    }
-
-    public function testCastBoolNonStandard(): void
-    {
-        $this->assertTrue($this->caster->cast('bool', 'anything'));
-        $this->assertTrue($this->caster->cast('bool', 100));
-        $this->assertFalse($this->caster->cast('bool', 0));
-    }
-
-    public function testCastStringFromObject(): void
-    {
-        $obj = new class {
-            public function __toString(): string
-            {
-                return 'test-object';
-            }
-        };
-        $this->assertSame('test-object', $this->caster->cast('string', $obj));
-    }
-
-    public function testCastStringFromNonStringable(): void
-    {
-        $obj = new \stdClass();
-        $this->assertSame('', $this->caster->cast('string', $obj));
+        $objectKeys = (static function (): \Generator {
+            yield new \stdClass() => 'x';
+        })();
+        $this->assertSame(['x'], $this->caster->cast('array', $objectKeys));
     }
 
     public function testCastArrayFromObject(): void
     {
         $obj = new \stdClass();
         $obj->key = 'value';
-        $result = $this->caster->cast('array', $obj);
-        $this->assertSame(['key' => 'value'], $result);
+        $this->assertSame(['key' => 'value'], $this->caster->cast('array', $obj));
     }
 
-    public function testCastDateTimeInvalidFormat(): void
+    public function testCastNull(): void
     {
-        $result = $this->caster->cast('datetime:Y-m-d', 'invalid');
-        $this->assertNull($result);
+        foreach (['int', 'float', 'bool', 'string', 'array', 'json'] as $type) {
+            $this->assertNull($this->caster->cast($type, null), $type);
+        }
     }
 
-    public function testCastDateTimeInvalidString(): void
+    // ===== dates =====
+
+    public function testCastDateReadsTimestamps(): void
     {
-        $result = $this->caster->cast('datetime', 'not-a-date-at-all');
-        $this->assertNull($result);
+        $fromInt = $this->caster->castDate(DateTimeImmutable::class, null, 1672531200);
+        $this->assertInstanceOf(DateTimeImmutable::class, $fromInt);
+        $this->assertSame(1672531200, $fromInt->getTimestamp());
+
+        // The DateTime parser rejects a bare digit string; query strings deliver one.
+        $fromString = $this->caster->castDate(DateTime::class, null, '1700000000');
+        $this->assertInstanceOf(DateTime::class, $fromString);
+        $this->assertSame(1700000000, $fromString->getTimestamp());
     }
 
-    public function testCastDateTimeImmutableWithFormat(): void
+    public function testImpossibleDatesAreNotRolledOver(): void
     {
-        // datetime:immutable:Y-m-d - immutable with specific format
-        $casted = $this->caster->cast('datetime:immutable:Y-m-d', '2023-06-15');
-        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
-        $this->assertEquals('2023-06-15', $casted->format('Y-m-d'));
+        // PHP's parser turns these into 2024-03-02, 2023-03-01, … with a warning.
+        foreach (['2024-02-31', '2023-02-29', '20240231', '2024-01-15 24:00:00'] as $input) {
+            $this->assertNull($this->caster->castDate(DateTimeImmutable::class, null, $input), $input);
+        }
+        $this->assertNull($this->caster->castDate(DateTimeImmutable::class, 'Y-m-d', '2024-02-31'));
+        $this->assertNull($this->caster->castDate(DateTime::class, 'Y-m-d H:i', '2024-01-15 23:61'));
 
-        // datetime:Y-m-d:immutable - order doesn't matter
-        $casted2 = $this->caster->cast('datetime:Y-m-d:immutable', '2023-06-15');
-        $this->assertInstanceOf(DateTimeImmutable::class, $casted2);
-        $this->assertEquals('2023-06-15', $casted2->format('Y-m-d'));
+        $this->assertNotNull($this->caster->castDate(DateTimeImmutable::class, null, '2024-02-29'));
+        $this->assertNotNull($this->caster->castDate(DateTimeImmutable::class, 'd.m.Y', '29.02.2024'));
+        // A `+` format allows trailing data — a warning, but no rolled-over date.
+        $this->assertNotNull($this->caster->castDate(DateTimeImmutable::class, 'Y-m-d+', '2024-01-15 extra'));
     }
 
-    public function testCastDateTimeImmutableFromTimestamp(): void
+    public function testFormatAppliesToANumberToo(): void
     {
-        $timestamp = 1672531200;
-        $casted = $this->caster->cast('datetime:immutable', $timestamp);
-        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
-        $this->assertEquals($timestamp, $casted->getTimestamp());
+        $compact = $this->caster->castDate(DateTimeImmutable::class, 'Ymd', 20240115);
+        $this->assertInstanceOf(DateTimeImmutable::class, $compact);
+        $this->assertSame('2024-01-15 00:00:00', $compact->format('Y-m-d H:i:s'));
+
+        $timestamp = $this->caster->castDate(DateTimeImmutable::class, 'U', 1700000000);
+        $this->assertInstanceOf(DateTimeImmutable::class, $timestamp);
+        $this->assertSame(1700000000, $timestamp->getTimestamp());
+
+        // Not a timestamp behind the format's back.
+        $this->assertNull($this->caster->castDate(DateTimeImmutable::class, 'Y-m-d', 1700000000));
     }
 
-    public function testCastDateTimeFromDateTimeImmutable(): void
-    {
-        $immutable = new DateTimeImmutable('2023-01-01');
-        $result = $this->caster->cast('datetime', $immutable);
-        $this->assertSame($immutable, $result);
-    }
-
-    public function testCastDateTimeFromInvalidType(): void
-    {
-        $result = $this->caster->cast('datetime', ['invalid']);
-        $this->assertNull($result);
-    }
-
-    public function testCastUnknownTypeThrowsException(): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Unknown cast type: unknown');
-        $this->caster->cast('unknown', 'value');
-    }
-
-    // ===== datetime specs =====
-
-    #[DataProvider('dateTimeSpecProvider')]
-    public function testParseDateTimeSpec(string $spec, bool $immutable, ?string $format): void
-    {
-        $this->assertSame(['immutable' => $immutable, 'format' => $format], BuiltInCaster::parseDateTimeSpec($spec));
-    }
-
-    /** @return array<string, array{0: string, 1: bool, 2: ?string}> */
-    public static function dateTimeSpecProvider(): array
-    {
-        return [
-            'bare'                => ['datetime', false, null],
-            'immutable'           => ['datetime:immutable', true, null],
-            'format'              => ['datetime:Y-m-d', false, 'Y-m-d'],
-            'format with colons'  => ['datetime:Y-m-d H:i:s', false, 'Y-m-d H:i:s'],
-            'immutable + format'  => ['datetime:immutable:Y-m-d H:i:s', true, 'Y-m-d H:i:s'],
-            'format + immutable'  => ['datetime:H:i:immutable', true, 'H:i'],
-        ];
-    }
-
-    public function testDateTimeSpecNeedsColonAfterPrefix(): void
-    {
-        $this->assertTrue(BuiltInCaster::isDateTime('datetime'));
-        $this->assertTrue(BuiltInCaster::isDateTime('datetime:Y-m-d'));
-        $this->assertFalse(BuiltInCaster::isDateTime('datetimeX'));
-        $this->assertFalse(BuiltInCaster::isBuiltIn('datetime_immutable'));
-    }
-
-    public function testCastDateTimeFormatContainingColons(): void
-    {
-        // Regression: the spec used to be split on ':' and the format collapsed to 's'.
-        $casted = $this->caster->cast('datetime:immutable:Y-m-d H:i:s', '2024-01-15 10:30:45');
-        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
-        $this->assertSame('2024-01-15 10:30:45', $casted->format('Y-m-d H:i:s'));
-
-        $casted = $this->caster->cast('datetime:Y-m-d H:i:s', '2024-01-15 10:30:45');
-        $this->assertInstanceOf(DateTime::class, $casted);
-        $this->assertSame('2024-01-15 10:30:45', $casted->format('Y-m-d H:i:s'));
-    }
-
-    public function testDateOnlyFormatYieldsMidnight(): void
-    {
-        // Regression: createFromFormat() filled the time of day from "now".
-        $casted = $this->caster->cast('datetime:Y-m-d', '2024-01-15');
-        $this->assertInstanceOf(DateTime::class, $casted);
-        $this->assertSame('2024-01-15 00:00:00', $casted->format('Y-m-d H:i:s'));
-
-        $casted = $this->caster->cast('datetime:immutable:d.m.Y', '15.01.2024');
-        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
-        $this->assertSame('2024-01-15 00:00:00', $casted->format('Y-m-d H:i:s'));
-    }
-
-    public function testPartialDateFormatsResetOnlyTheTime(): void
-    {
-        // Review #2: fields the format does not parse keep PHP's semantics
-        // (current year for `m-d`) — only the time of day is reset.
-        $currentYear = date('Y');
-        $casted = $this->caster->cast('datetime:immutable:m-d', '05-17');
-        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
-        $this->assertSame($currentYear . '-05-17 00:00:00', $casted->format('Y-m-d H:i:s'));
-
-        $casted = $this->caster->cast('datetime:immutable:Y-m', '2024-01');
-        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
-        $this->assertSame('2024-01', $casted->format('Y-m'));
-        $this->assertSame('00:00:00', $casted->format('H:i:s'));
-
-        $casted = $this->caster->cast('datetime:immutable:!Y-m', '2024-01');
-        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
-        $this->assertSame('2024-01-01 00:00:00', $casted->format('Y-m-d H:i:s'));
-    }
-
-    public function testImmutableSpecConvertsMutableInstance(): void
+    public function testCastDateConvertsBetweenDateClasses(): void
     {
         $mutable = new DateTime('2024-01-15 10:30:00');
+        $immutable = $this->caster->castDate(DateTimeImmutable::class, null, $mutable);
+        $this->assertInstanceOf(DateTimeImmutable::class, $immutable);
+        $this->assertSame($mutable->getTimestamp(), $immutable->getTimestamp());
 
-        $casted = $this->caster->cast('datetime:immutable', $mutable);
+        $back = $this->caster->castDate(DateTime::class, null, $immutable);
+        $this->assertInstanceOf(DateTime::class, $back);
 
-        $this->assertInstanceOf(DateTimeImmutable::class, $casted);
-        $this->assertSame($mutable->getTimestamp(), $casted->getTimestamp());
-    }
-
-    public function testNumericStringIsReadAsTimestamp(): void
-    {
-        $casted = $this->caster->cast('datetime', '1700000000');
-
-        $this->assertInstanceOf(DateTime::class, $casted);
-        $this->assertSame(1700000000, $casted->getTimestamp());
-    }
-
-    // ===== arrays into scalars =====
-
-    public function testRejectsArray(): void
-    {
-        foreach (['int', 'integer', 'float', 'double', 'bool', 'boolean', 'INT'] as $type) {
-            $this->assertTrue(BuiltInCaster::rejectsArray($type), $type);
-        }
-        foreach (['string', 'array', 'datetime'] as $type) {
-            $this->assertFalse(BuiltInCaster::rejectsArray($type), $type);
-        }
+        $same = new DateTimeImmutable('2024-01-15');
+        $this->assertSame($same, $this->caster->castDate(DateTimeImmutable::class, null, $same));
     }
 
     // ===== enums =====
 
-    public function testCastStringBackedEnum(): void
+    public function testCastIntBackedEnumAcceptsCasesAndNumericStrings(): void
     {
-        $this->assertSame(CasterTestStatus::Draft, $this->caster->castEnum(CasterTestStatus::class, 'draft'));
-        $this->assertNull($this->caster->castEnum(CasterTestStatus::class, 'archived'));
-        $this->assertNull($this->caster->castEnum(CasterTestStatus::class, ['draft']));
-    }
-
-    public function testCastIntBackedEnumAcceptsNumericStrings(): void
-    {
+        // A case, as the application passes it in context, is kept.
+        $case = CasterTestLevel::High;
+        $this->assertSame($case, $this->caster->castEnum(CasterTestLevel::class, $case));
         $this->assertSame(CasterTestLevel::High, $this->caster->castEnum(CasterTestLevel::class, '2'));
         $this->assertSame(CasterTestLevel::High, $this->caster->castEnum(CasterTestLevel::class, 2));
+        // Like an int property: a whole float is the int, a fraction is not.
+        $this->assertSame(CasterTestLevel::High, $this->caster->castEnum(CasterTestLevel::class, 2.0));
+        $this->assertNull($this->caster->castEnum(CasterTestLevel::class, 2.5));
         $this->assertNull($this->caster->castEnum(CasterTestLevel::class, '2.5'));
         $this->assertNull($this->caster->castEnum(CasterTestLevel::class, true));
     }
 
-    public function testCastEnumPassesInstanceThrough(): void
+    public function testBlankIsWhatEachCastReadsAnEmptyStringAs(): void
     {
-        $this->assertSame(CasterTestLevel::Low, $this->caster->castEnum(CasterTestLevel::class, CasterTestLevel::Low));
+        foreach ([...BuiltInCaster::CAST_TYPES, 'iterable'] as $type) {
+            $this->assertArrayHasKey($type, BuiltInCaster::BLANK, $type);
+            $this->assertSame($this->caster->cast($type, ''), BuiltInCaster::BLANK[$type], $type);
+        }
     }
-}
-
-enum CasterTestStatus: string
-{
-    case Draft = 'draft';
-    case Published = 'published';
 }
 
 enum CasterTestLevel: int
