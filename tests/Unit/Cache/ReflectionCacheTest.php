@@ -40,6 +40,16 @@ final class ReflectionCacheTest extends TestCase
         $this->cache = new ReflectionCache();
     }
 
+    /**
+     * Expect an exception message holding every part, in any order —
+     * expectExceptionMessage() keeps only the last one it is given.
+     */
+    private function expectExceptionMessageParts(string ...$parts): void
+    {
+        $lookaheads = array_map(static fn(string $part): string => '(?=.*' . preg_quote($part, '/') . ')', $parts);
+        $this->expectExceptionMessageMatches('/^' . implode('', $lookaheads) . '/s');
+    }
+
     // ===== caching =====
 
     public function testGetReturnsCachedMetadata(): void
@@ -144,8 +154,7 @@ final class ReflectionCacheTest extends TestCase
     public function testIgnoreWithCompanionAttributeThrows(string $requestClass, string $expectedAttr): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('#[Ignore]');
-        $this->expectExceptionMessage("#[{$expectedAttr}]");
+        $this->expectExceptionMessageParts('#[Ignore]', "#[{$expectedAttr}]");
         /** @var class-string $requestClass */
         $this->cache->get($requestClass);
     }
@@ -455,8 +464,7 @@ final class ReflectionCacheTest extends TestCase
     public function testCastWithClassNameThrows(): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('#[Cast');
-        $this->expectExceptionMessage('class name');
+        $this->expectExceptionMessageParts('#[Cast', 'class name');
         $this->cache->get(CastWithClassNameRequest::class);
     }
 
@@ -484,24 +492,21 @@ final class ReflectionCacheTest extends TestCase
     public function testGeneratorConflictsThrow(): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('Generator');
-        $this->expectExceptionMessage('Validate');
+        $this->expectExceptionMessageParts('Generator', 'Validate');
         $this->cache->get(GeneratorWithValidateRequest::class);
     }
 
     public function testItemsCastConflictThrows(): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('Items');
-        $this->expectExceptionMessage('Cast');
+        $this->expectExceptionMessageParts('Items', 'Cast');
         $this->cache->get(ItemsCastConflictRequest::class);
     }
 
     public function testItemsCasterConflictThrows(): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('Items');
-        $this->expectExceptionMessage('Caster');
+        $this->expectExceptionMessageParts('Items', 'Caster');
         $this->cache->get(ItemsCasterConflictRequest::class);
     }
 
@@ -711,8 +716,7 @@ final class ReflectionCacheTest extends TestCase
     public function testTypesNoInputCanHoldNeedAProducer(string $requestClass, string $property): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage("::\${$property} has type");
-        $this->expectExceptionMessage('cannot be produced from request input');
+        $this->expectExceptionMessageParts("::\${$property} has type", 'cannot be produced from request input');
         /** @var class-string $requestClass */
         $this->cache->get($requestClass);
     }
@@ -848,8 +852,7 @@ final class ReflectionCacheTest extends TestCase
     public function testDatetimeCastSpecIsRejectedWithAHint(): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('datetime casts were removed in 4.0');
-        $this->expectExceptionMessage('#[DateFormat');
+        $this->expectExceptionMessageParts('datetime casts were removed in 4.0', '#[DateFormat');
         $this->cache->get(DatetimeCastRequest::class);
     }
 

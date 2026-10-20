@@ -46,6 +46,16 @@ final class RequestHandlerTest extends TestCase
         $this->handler = new RequestHandler($this->validator);
     }
 
+    /**
+     * Expect an exception message holding every part, in any order —
+     * expectExceptionMessage() keeps only the last one it is given.
+     */
+    private function expectExceptionMessageParts(string ...$parts): void
+    {
+        $lookaheads = array_map(static fn(string $part): string => '(?=.*' . preg_quote($part, '/') . ')', $parts);
+        $this->expectExceptionMessageMatches('/^' . implode('', $lookaheads) . '/s');
+    }
+
     private function createHandler(bool $autoTrim = true): RequestHandler
     {
         return new RequestHandler($this->validator, $autoTrim);
@@ -1763,8 +1773,7 @@ final class RequestHandlerTest extends TestCase
         // F8: previous order surfaced `requiredWithDefault` first; now Generator
         // conflict wins because that's the actual misconfiguration.
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('Generator');
-        $this->expectExceptionMessage('Validate');
+        $this->expectExceptionMessageParts('Generator', 'Validate');
         $this->handler->handleBody(
             GeneratorRequiredDefaultRequest::class,
             $this->makeRequest(body: []),
@@ -1848,8 +1857,7 @@ final class RequestHandlerTest extends TestCase
     public function testGeneratorWithValidateThrows(): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('Generator');
-        $this->expectExceptionMessage('Validate');
+        $this->expectExceptionMessageParts('Generator', 'Validate');
         $this->handler->handleBody(GeneratorWithValidateRequest::class, $this->makeRequest(body: []));
     }
 
@@ -1870,8 +1878,7 @@ final class RequestHandlerTest extends TestCase
     public function testItemsWithCastThrows(): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('Items');
-        $this->expectExceptionMessage('Cast');
+        $this->expectExceptionMessageParts('Items', 'Cast');
         $this->handler->handleBody(ItemsWithCastRequest::class, $this->makeRequest(body: []));
     }
 
