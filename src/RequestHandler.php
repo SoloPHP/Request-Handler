@@ -207,6 +207,8 @@ final class RequestHandler
         $values = [];
         /** @var ValidationErrors $errors */
         $errors = [];
+        /** @var array<string, true> $unprocessed Input the only pre-processor of the type skipped. */
+        $unprocessed = [];
 
         foreach ($metadata->properties as $name => $property) {
             if ($property->generator !== null) {
@@ -244,7 +246,15 @@ final class RequestHandler
             } else {
                 // Pre-processors see raw client input; runHook() skips a
                 // function/static-method handler that cannot take its type.
-                if ($property->preProcessorKind !== null) {
+                // When only that handler could produce the property's type,
+                // the skipped input is the client's wrong type — reported
+                // once validation had its say.
+                if (
+                    $property->preProcessorFailure !== null
+                    && $property->preProcessorGuard?->accepts($value) === false
+                ) {
+                    $unprocessed[$name] = true;
+                } elseif ($property->preProcessorKind !== null) {
                     try {
                         $value = $this->runHook(
                             $property->preProcessor,
@@ -286,6 +296,13 @@ final class RequestHandler
             $property = $metadata->properties[$name];
 
             if (isset($errors[$name]) || $property->decidedInTransform()) {
+                continue;
+            }
+
+            if (isset($unprocessed[$name])) {
+                /** @var array{rule: string} $failure */
+                $failure = $property->preProcessorFailure;
+                $errors[$name] = [$failure];
                 continue;
             }
 

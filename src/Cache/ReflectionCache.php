@@ -426,19 +426,25 @@ final class ReflectionCache
         // Fail fast on a type nothing can produce from request input — a
         // class, `object`, an intersection, a union of classes: otherwise the
         // first request carrying the field ends in a TypeError.
-        $produced = $nested !== null
+        $producedOtherwise = $nested !== null
             || $dateClass !== null
             || $enumClass !== null
             || $effectiveCastType !== null
             || $customCasterClass !== null
-            || $preProcessorKind !== null
             || $postProcessorKind !== null
             || $appSupplied;
         $holdsInput = $members === null || array_intersect($members, self::INPUT_TYPES) !== [];
 
-        if (!$produced && !$holdsInput) {
+        if (!$producedOtherwise && $preProcessorKind === null && !$holdsInput) {
             throw ConfigurationException::unproducibleType($className, $name, (string) $phpType);
         }
+
+        // A type only a typed pre-processor produces: input its guard turns
+        // away can never become the value — the client sent the wrong type,
+        // reported with the rule for the type the pre-processor takes.
+        $preProcessorFailure = !$holdsInput && !$producedOtherwise && $preProcessorGuard !== null
+            ? $this->typeRule($preProcessorGuard->members())
+            : null;
 
         // An input type no cast handles — a union, a standalone `true` /
         // `false` — is cast member by member; `mixed` takes anything as it is.
@@ -494,6 +500,7 @@ final class ReflectionCache
             typeGuard: $memberCast ? ParameterTypeGuard::fromType($type) : null,
             unionCasts: $unionCasts,
             suppliedItems: $appSupplied ? $items?->class : null,
+            preProcessorFailure: $preProcessorFailure,
         );
     }
 
@@ -509,20 +516,30 @@ final class ReflectionCache
      */
     private function unionCasts(array $members): array
     {
-        $failure = null;
-        foreach (self::TYPE_RULES as $member => $rule) {
-            if (in_array($member, $members, true)) {
-                $failure = ['rule' => $rule];
-                break;
-            }
-        }
-
         $casts = array_values(array_intersect(self::UNION_CASTS, $members));
         if (!in_array('bool', $casts, true) && array_intersect(['true', 'false'], $members) !== []) {
             $casts[] = 'bool';
         }
 
-        return [$casts, $failure];
+        return [$casts, $this->typeRule($members)];
+    }
+
+    /**
+     * The rule a value fails that is none of the types — named after the
+     * widest of them. Null when no member is a type input can have.
+     *
+     * @param list<string> $members Lower-cased type names.
+     * @return array{rule: string}|null
+     */
+    private function typeRule(array $members): ?array
+    {
+        foreach (self::TYPE_RULES as $member => $rule) {
+            if (in_array($member, $members, true)) {
+                return ['rule' => $rule];
+            }
+        }
+
+        return null;
     }
 
     /**
