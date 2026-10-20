@@ -852,10 +852,6 @@ final class RequestHandler
      */
     private function populateInstance(Request $instance, RequestMetadata $metadata, array $data): Request
     {
-        // Absent keys never reach $data: what is assigned here — or reset to
-        // its default — is what the request supplied.
-        $provided = [];
-
         foreach ($data as $name => $value) {
             $property = $metadata->properties[$name];
 
@@ -882,17 +878,11 @@ final class RequestHandler
                     throw $this->wrongType($property, $value, $metadata->className, $e);
                 }
             }
-
-            $provided[$name] = true;
         }
 
-        // $data follows declaration order, but hydrate() adds generated
-        // values last; provided() lists declaration order.
-        if ($metadata->generated !== []) {
-            $provided = array_fill_keys(array_keys(array_intersect_key($metadata->properties, $provided)), true);
-        }
-
-        ProvidedFields::record($instance, $provided);
+        // Absent keys never reach $data: what was assigned here — or reset to
+        // its default — is what the request supplied.
+        ProvidedFields::record($instance, $metadata, $data);
 
         return $instance;
     }

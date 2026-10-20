@@ -50,9 +50,10 @@ abstract class Request
     public function toArray(bool $onlyProvided = false): array
     {
         $result = [];
-        $provided = $onlyProvided ? ProvidedFields::of($this) : [];
+        $metadata = $this->metadata();
+        $provided = $onlyProvided ? ProvidedFields::of($this, $metadata) : [];
 
-        foreach ($this->metadata()->properties as $name => $property) {
+        foreach ($metadata->properties as $name => $property) {
             if ($property->exclude || !$property->reflection->isInitialized($this)) {
                 continue;
             }
@@ -101,7 +102,7 @@ abstract class Request
      */
     public function provided(): array
     {
-        return array_keys(ProvidedFields::of($this));
+        return array_keys(ProvidedFields::of($this, $this->metadata()));
     }
 
     /**
@@ -110,7 +111,7 @@ abstract class Request
      */
     public function isProvided(string $name): bool
     {
-        return array_key_exists($name, ProvidedFields::of($this));
+        return ProvidedFields::has($this, $this->metadata(), $name);
     }
 
     /**

@@ -66,6 +66,11 @@ final class ReflectionCacheTest extends TestCase
         $this->assertSame(['criteria' => ['search', 'status']], $metadata->groups);
     }
 
+    public function testPropertyBitsFollowDeclarationOrder(): void
+    {
+        $this->assertSame(['search' => 1, 'status' => 2, 'page' => 4], $this->cache->get(GroupedRequest::class)->bits);
+    }
+
     // ===== property metadata =====
 
     public function testStaticPropertiesAreIgnored(): void
