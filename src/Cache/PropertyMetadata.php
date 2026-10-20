@@ -53,12 +53,10 @@ use Solo\RequestHandler\Request;
  * string is read as null. `noTrim`: auto-trim skips it — `#[NoTrim]`, or a
  * value the application supplies.
  *
- * `typeGuard` is the declared type's check. With `unionCasts` set — an input
- * type no cast handles, such as `int|float` or a standalone `true` — a value
- * of a member type is kept and another one is converted to the first of
- * `unionCasts` it fits without loss, or fails with `castFailure`. For a value
- * the application supplies (context, generator) it is checked after the cast:
- * one that does not fit throws UnexpectedValueException instead of a TypeError.
+ * `typeGuard` and `unionCasts` are set for an input type no cast handles,
+ * such as `int|float` or a standalone `true`: a value of a member type is
+ * kept, another one is converted to the first of `unionCasts` it fits
+ * without loss — or fails with `castFailure`.
  *
  * @internal
  */

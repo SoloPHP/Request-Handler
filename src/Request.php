@@ -94,8 +94,8 @@ abstract class Request
      * every property whose key was present in its source (body, query, route
      * or context) — an explicit `null` or `""` included — and the generated
      * ones. A property left at its default because the key was absent is not
-     * listed, nor one left uninitialised. Empty for a DTO not built by
-     * `RequestHandler` — a clone or an unserialized copy included.
+     * listed. Empty for a DTO not built by `RequestHandler` — a clone or an
+     * unserialized copy included.
      *
      * @return list<string>
      */

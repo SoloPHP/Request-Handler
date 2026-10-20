@@ -762,7 +762,9 @@ final class RequestHandlerTest extends TestCase
 
         // A TypeError while populating before this check.
         $this->expectException(\UnexpectedValueException::class);
-        $this->expectExceptionMessage("Context value 'address' after #[PostProcess] is array, which does not fit");
+        $this->expectExceptionMessage(
+            "Context value 'address' after #[PostProcess(toArrayOfIt)] is array, which does not fit"
+        );
         $this->handler->handleArray(HookedContextRequest::class, [], context: ['address' => $address]);
     }
 
@@ -770,14 +772,14 @@ final class RequestHandlerTest extends TestCase
     {
         // Used to leave the property uninitialised.
         $this->expectException(\UnexpectedValueException::class);
-        $this->expectExceptionMessage("Context value 'city' after #[PostProcess] is empty, but");
+        $this->expectExceptionMessage("Context value 'city' after #[PostProcess(nothing)] is empty, but");
         $this->handler->handleArray(HookedContextRequest::class, [], context: ['city' => 'Kyiv']);
     }
 
     public function testCasterResultForAContextValueIsChecked(): void
     {
         $this->expectException(\UnexpectedValueException::class);
-        $this->expectExceptionMessage("Context value 'count' after #[Caster] is string, which does not fit");
+        $this->expectExceptionMessage('WordCaster)] is string, which does not fit');
         $this->handler->handleArray(HookedContextRequest::class, [], context: ['count' => 5]);
     }
 
@@ -1765,8 +1767,10 @@ final class RequestHandlerTest extends TestCase
 
     // ===== runtime guard =====
 
-    public function testPopulateInstanceSkipsNullForNonNullableTypes(): void
+    public function testPopulateInstanceRefusesNullForAPropertyThatNeedsAValue(): void
     {
+        // The last line of defence: no path leaves such a property
+        // uninitialised any more.
         $handlerReflection = new \ReflectionClass($this->handler);
         $method = $handlerReflection->getMethod('populateInstance');
 
@@ -1776,24 +1780,51 @@ final class RequestHandlerTest extends TestCase
         $metadata = $cache->get(NonNullableRequest::class);
         $instance = $metadata->reflection->newInstanceWithoutConstructor();
 
-        $dto = $method->invoke($this->handler, $instance, $metadata, [
-            'id' => null,
-            'name' => 'Test',
-        ]);
-
-        $this->assertSame('Test', $dto->name);
-        $this->assertFalse(isset($dto->id));
-        $this->assertSame(['name'], $dto->provided(), 'an uninitialised property is not provided');
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Value of 'id' is empty, but");
+        $method->invoke($this->handler, $instance, $metadata, ['id' => null, 'name' => 'Test']);
     }
 
-    public function testPropertyLeftUninitialisedByAPostProcessorIsNotProvided(): void
+    public function testPostProcessorNullResetsADefaultedProperty(): void
     {
-        $dto = $this->handler->handleArray(NullingPostProcessRequest::class, ['slug' => 'x', 'page' => 'y']);
+        $dto = $this->handler->handleArray(NullingPostProcessRequest::class, ['page' => 'y']);
 
-        $this->assertFalse($dto->has('slug'));
-        $this->assertSame(1, $dto->page, 'null resets a defaulted property');
+        $this->assertSame(1, $dto->page);
         $this->assertSame(['page'], $dto->provided());
         $this->assertSame(['page' => 1], $dto->toArray(onlyProvided: true));
+    }
+
+    public function testPostProcessorNullForARequiredPropertyThrows(): void
+    {
+        // 3.x left the property uninitialised, to fail on first read.
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Value of 'slug' after #[PostProcess(returnsNull)] is empty, but");
+        $this->handler->handleArray(NullingPostProcessRequest::class, ['slug' => 'x']);
+    }
+
+    public function testPostProcessorResultThePropertyCannotHoldThrows(): void
+    {
+        // 3.x: a TypeError while populating the DTO.
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Value of 'name' after #[PostProcess(toList)] is array, which does not fit");
+        $this->handler->handleArray(HookResultsRequest::class, ['name' => 'Desk']);
+    }
+
+    public function testCasterResultThePropertyCannotHoldThrows(): void
+    {
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage('WordCaster)] is string, which does not fit');
+        $this->handler->handleArray(HookResultsRequest::class, ['count' => '5']);
+    }
+
+    public function testHookResultIsAssignedAsPhpAssignsIt(): void
+    {
+        // A boolean for an int property, a numeric string for an int one:
+        // PHP's assignment converts them, as it always did.
+        $dto = $this->handler->handleArray(HookResultsRequest::class, ['active' => 'yes', 'total' => 'x']);
+
+        $this->assertSame(1, $dto->active);
+        $this->assertSame(5, $dto->total);
     }
 
     public function testUntypedPropertyPassesValueThroughWithoutCasting(): void
@@ -3726,5 +3757,36 @@ final class WordCaster implements \Solo\RequestHandler\Contracts\CasterInterface
     public function cast(mixed $value): mixed
     {
         return 'five';
+    }
+}
+
+final class HookResultsRequest extends Request
+{
+    #[PostProcess('toList')]
+    public ?string $name = null;
+
+    #[Caster(WordCaster::class)]
+    public ?int $count = null;
+
+    #[PostProcess('isYes')]
+    public int $active = 0;
+
+    #[PostProcess('five')]
+    public int $total = 0;
+
+    /** @return list<mixed> */
+    public static function toList(mixed $value): array
+    {
+        return [$value];
+    }
+
+    public static function isYes(mixed $value): bool
+    {
+        return $value === 'yes';
+    }
+
+    public static function five(mixed $value): string
+    {
+        return '5';
     }
 }

@@ -62,7 +62,7 @@ An empty string keeps its meaning "no value": it becomes `null` for `int`, `floa
 
 An array for a `string` property is a `string` error — including a `#[FromBody]` dot-path that stops at a sub-object. To store structured input in a string property (a JSON column, say), declare [`#[Cast('json')]`](#json). Properties with a pre/post-processor or a custom caster get the value those produce, so they may accept anything.
 
-Values the application supplies — `#[FromContext]` and generators — are not client input. They go through the same casts, but one that does not fit the declared type throws `UnexpectedValueException` instead of producing a validation error: `1.5` or `true` for an `int`, `2` for a `bool`, `true` for a `string`, an array or another class for a class-typed property. A `#[PostProcess]` or `#[Caster]` on a context property decides its value without a cast, but the result is checked the same way. So does a `null` (or a `""` for a number) for a property that is neither nullable nor has a default, instead of leaving it uninitialised.
+Values the application supplies — `#[FromContext]` and generators — are not client input. They go through the same casts, but one that does not fit the declared type throws `UnexpectedValueException` instead of producing a validation error: `1.5` or `true` for an `int`, `2` for a `bool`, `true` for a `string`, an array or another class for a class-typed property. So does a `null` (or a `""` for a number) for a property that is neither nullable nor has a default, instead of leaving it uninitialised. What a `#[PostProcess]` or `#[Caster]` returns is checked the same way for every property — see [PostProcessor Skips Auto-Cast](#postprocessor-skips-auto-cast).
 
 ## Explicit Casting (`#[Cast]`)
 
@@ -261,7 +261,7 @@ $handler->register(CurrencyCaster::class, new CurrencyCaster($converter));
 
 ## PostProcessor Skips Auto-Cast
 
-When `#[PostProcess]` is defined, automatic casting is skipped (the processor is responsible for the final value):
+When `#[PostProcess]` is defined, automatic casting is skipped (the processor is responsible for the final value). PHP assigns what it returns as it assigns any value; a result the property cannot hold — or `null` for a property that is neither nullable nor has a default — throws `UnexpectedValueException` naming the processor. The same goes for a `#[Caster]`.
 
 ```php
 #[PostProcess(JsonDecoder::class)]

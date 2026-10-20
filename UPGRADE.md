@@ -18,6 +18,7 @@ Most applications need only the checklist below. The sections after it explain e
 | A property typed with a class that is not a Request subclass, enum or date — or with `object`, an intersection, a union of classes | Give it a `#[Caster]`, processor, `#[Generator]` or `#[FromContext]` ([Class types](#class-typed-properties)) |
 | `#[FromContext]` values or generator results of a looser type — `1.5` or `true` for an `int`, `2` for a `bool`, `true` for a `string` | Pass the declared type — they throw `UnexpectedValueException` now ([Values the application supplies](#values-the-application-supplies)) |
 | `#[Items]` on a `#[FromContext]` property fed with arrays | Pass the built DTOs — the arrays throw `UnexpectedValueException` now |
+| A `#[PostProcess]` / `#[Caster]` that may return `null` for a non-nullable property without a default | Make the property nullable, give it a default, or throw `ValidationException` from the handler — `null` throws `UnexpectedValueException` now ([What a handler returns](#what-a-handler-returns)) |
 | A `#[FromContext]` or generated value that may be `null` for a non-nullable property without a default | Make the property nullable or give it a default — `null` now throws `UnexpectedValueException` ([Values the application supplies](#values-the-application-supplies)) |
 | `toArray()` overridden in a Request subclass | Declare `toArray(bool $onlyProvided = false): array` |
 | `AuthorizationException` | Remove — it was never thrown |
@@ -146,6 +147,15 @@ See [Schema Export](https://solophp.github.io/Request-Handler/features/schema).
 - a `#[FromContext]` property typed with a Request subclass receives the object passed in `context` as it is — it is not built from input like a nested DTO;
 - `#[Items]` on a `#[FromContext]` list declares the class of the DTOs the application passes: they are checked, not built from arrays as in 3.x;
 - auto-trim leaves them as passed (3.x trimmed context strings), and a class-level `#[EmptyToNull]` skips them.
+
+## What a handler returns
+
+A `#[PostProcess]` or `#[Caster]` decides a property's value without a cast, and PHP assigns what it returns as it assigns any value — `true` to an `int` property still becomes `1`. What changed is the failure, for every property:
+
+- a result the property cannot hold throws `UnexpectedValueException` naming the handler — 3.x ended in a `TypeError` while populating the DTO;
+- `null` for a property that is neither nullable nor has a default throws `UnexpectedValueException` too — 3.x left the property uninitialised, to fail later on first read, and `has()` reported it missing.
+
+To reject the client's input from a handler, throw `ValidationException`; its errors are reported like the validator's.
 
 ## Request API
 

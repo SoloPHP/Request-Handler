@@ -17,10 +17,8 @@ use ReflectionUnionType;
  * consulted per call: a client-supplied value of the wrong type skips the
  * handler (validation then reports it) instead of surfacing as a TypeError.
  * A property cast member by member (a union) uses it the same way: a value
- * of a member type is kept, any other one is converted first. A value the
- * application supplies is checked against it after its cast, and throws when
- * it does not fit. The declared type is flattened into plain data up front,
- * so a check does no reflection.
+ * of a member type is kept, any other one is converted first. The declared
+ * type is flattened into plain data up front, so a check does no reflection.
  *
  * @internal
  */
