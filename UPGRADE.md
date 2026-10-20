@@ -21,6 +21,7 @@ Most applications need only the checklist below. The sections after it explain e
 | `#[Items]` on a `#[FromContext]` property fed with arrays | Pass the built DTOs — the arrays throw `UnexpectedValueException` now |
 | A `#[PostProcess]` / `#[Caster]` that may return `null` for a non-nullable property without a default | Make the property nullable, give it a default, or throw `ValidationException` from the handler — `null` throws `UnexpectedValueException` now ([What a handler returns](#what-a-handler-returns)) |
 | A `#[FromContext]` or generated value that may be `null` for a non-nullable property without a default | Make the property nullable or give it a default — `null` now throws `UnexpectedValueException` ([Values the application supplies](#values-the-application-supplies)) |
+| A `#[FromContext]` or generated value that may be `""` for a number, date or object | Pass `null` — `""` throws `UnexpectedValueException` now ([Values the application supplies](#values-the-application-supplies)) |
 | `toArray()` overridden in a Request subclass | Declare `toArray(bool $onlyProvided = false): array` |
 | `AuthorizationException` | Remove — it was never thrown |
 | `Solo\RequestHandler\Cache\*`, `Casters\BuiltInCaster`, `Pipeline\*`, `Schema\SchemaBuilder`, `RuleParser`, `InputBags` used directly | Use the public API — these classes are now `@internal` |
@@ -147,6 +148,7 @@ See [Schema Export](https://solophp.github.io/Request-Handler/features/schema).
 
 - they go through the same lossless casts as client input, but a value that does not fit throws `UnexpectedValueException` instead of a validation error. 3.x coerced it: `1.5` or `true` for an `int`, `2` for a `bool`, `true` or an array for a `string` now throw — pass the declared type;
 - `null` for a property that is neither nullable nor has a default throws `UnexpectedValueException` — 3.x left the property uninitialised, to fail later on first read;
+- `""` is a value, not the absence of one: for a type that cannot hold a string — a number, a date, an object — it throws `UnexpectedValueException` (a cleared client field, by contrast, is no value);
 - a `#[FromContext]` property typed with a Request subclass receives the object passed in `context` as it is — it is not built from input like a nested DTO;
 - `#[Items]` on a `#[FromContext]` list declares the class of the DTOs the application passes: they are checked, not built from arrays as in 3.x;
 - auto-trim leaves them as passed (3.x trimmed context strings), and a class-level `#[EmptyToNull]` skips them.
