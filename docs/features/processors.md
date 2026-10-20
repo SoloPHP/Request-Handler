@@ -61,7 +61,7 @@ public int $limit = 10;
 // ?limit=9.5  → clamp is skipped, the cast reports 'integer' (422)
 ```
 
-Only strings are converted: `42` still skips `strtolower()`.
+A pre-processor runs before validation, so only strings are converted for it — turning a JSON value into another type would decide what the validator sees: `42` still skips `strtolower()`. A post-processor runs after validation and gets any scalar converted the same way: a JSON `4.0` reaches `double(int $value)` as `4`.
 
 The same guard applies to post-processors: `#[PostProcess('strtoupper')]` on a `?string` leaves an explicit `null` as `null`. `ProcessorInterface` / `CasterInterface` handlers take `mixed` and are always called.
 
@@ -72,6 +72,7 @@ A post-processor replaces the property's cast, so when it skips the client's val
 public ?int $amount = null;
 
 // {"amount": "4"}   → 8
+// {"amount": 4.0}   → 8
 // {"amount": ""}    → null
 // {"amount": "abc"} → ['amount' => [['rule' => 'integer']]] (422)
 ```

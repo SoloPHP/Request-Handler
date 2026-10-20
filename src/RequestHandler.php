@@ -244,35 +244,32 @@ final class RequestHandler
             if ($value === null || $value === '') {
                 $values[$name] = $value === '' || $property->isNullable ? $value : $property->defaultValue;
             } else {
-                // Pre-processors see raw client input; runHook() skips a
-                // function/static-method handler that cannot take its type.
-                // The only producer of the property's type gets it converted
-                // first, or its `preProcessorFailure` once validation had its
-                // say — see PropertyMetadata.
-                // An object comes from the application, not the client: it is
-                // never the client's wrong type.
-                $input = $value;
-                $guard = $property->preProcessorGuard;
-                if ($property->preProcessorFailure !== null && $guard !== null && !is_object($value)) {
-                    $input = $this->builtInCaster->castToMembers($guard, $value);
-                }
-
-                if ($input === null) {
-                    $unprocessed[$name] = true;
-                } elseif ($property->preProcessorKind !== null) {
+                // Pre-processors see raw client input; runHook() converts a
+                // string the handler's parameter type spells, any scalar for
+                // the only producer of the property's type — which reports
+                // input it still cannot take with its `preProcessorFailure`
+                // once validation had its say. An object comes from the
+                // application: never the client's wrong type.
+                if ($property->preProcessorKind !== null) {
+                    $skipped = false;
                     try {
                         $value = $this->runHook(
                             $property->preProcessor,
                             $property->preProcessorKind,
-                            $guard,
+                            $property->preProcessorGuard,
                             [],
-                            $input,
+                            $value,
                             $className,
                             $bags,
+                            $property->preProcessorFailure !== null,
+                            $skipped,
                         );
                     } catch (ValidationException $e) {
                         $errors = $this->mergeErrors($errors, $e->getErrors());
                         continue;
+                    }
+                    if ($skipped && $property->preProcessorFailure !== null && !is_object($value)) {
+                        $unprocessed[$name] = true;
                     }
                 }
                 $values[$name] = $value;
@@ -408,13 +405,10 @@ final class RequestHandler
     }
 
     /**
-     * Run a property's post-processor. When its guard turns the client's
-     * value away — even as a string its parameter's type spells — the value
-     * is read as the property reads it without one: "" as its `blank`, the
-     * rest through its cast. A class only the post-processor produces first
-     * gets input of another type converted without loss, as for a
-     * pre-processor, and input that fits none is the client's wrong type.
-     * What the application supplies is left to populateInstance().
+     * Run a property's post-processor. It runs after validation, so any
+     * scalar its parameter's type takes without loss is converted for it.
+     * When its guard still turns the value away, the value is read as the
+     * property reads it without one — see readSkipped().
      *
      * @param array{rule: string, params?: list<string>}|null     $error
      * @param-out array{rule: string, params?: list<string>}|null $error
@@ -426,35 +420,27 @@ final class RequestHandler
         ?array &$error,
     ): mixed {
         $error = null;
-        $guard = $property->postProcessorGuard;
-        $input = $property->postProcessorFailure !== null && $guard !== null && $value !== null && !is_object($value)
-            ? $this->builtInCaster->castToMembers($guard, $value)
-            : $value;
+        $skipped = false;
+        $result = $this->runHook(
+            $property->postProcessor,
+            $property->postProcessorKind,
+            $property->postProcessorGuard,
+            $property->postProcessConfig,
+            $value,
+            $resolved->metadata->className,
+            $resolved->bags,
+            true,
+            $skipped,
+        );
 
-        // A value that no conversion made fit never reaches the handler.
-        $hookSkipped = false;
-        if ($input !== null || $value === null) {
-            $result = $this->runHook(
-                $property->postProcessor,
-                $property->postProcessorKind,
-                $guard,
-                $property->postProcessConfig,
-                $input,
-                $resolved->metadata->className,
-                $resolved->bags,
-                $hookSkipped,
-            );
-            if (!$hookSkipped) {
-                return $result;
-            }
-        }
-
-        return $this->readSkipped($property, $value, $error);
+        return $skipped ? $this->readSkipped($property, $value, $error) : $result;
     }
 
     /**
      * A value its post-processor skipped, read as the property reads it
-     * without one. What the application supplies is left to
+     * without one: "" as its `blank`, the rest through its cast. For a class
+     * only the post-processor produces, input it cannot take is the client's
+     * wrong type. What the application supplies is left to
      * populateInstance().
      *
      * @param array{rule: string, params?: list<string>}|null     $error
@@ -816,7 +802,8 @@ final class RequestHandler
      * there is none, or when its guard rejects the value's type. Query
      * strings, route values and form fields carry only strings, so a string
      * the parameter's type spells without loss is passed as that type ("5"
-     * for an int) instead.
+     * for an int) instead; with `$anyScalar`, so is any scalar (a JSON 4.0
+     * for an int).
      *
      * @param array<string, mixed> $config
      * @param class-string         $className
@@ -830,6 +817,7 @@ final class RequestHandler
         mixed $value,
         string $className,
         InputBags $bags,
+        bool $anyScalar = false,
         bool &$skipped = false,
     ): mixed {
         $skipped = false;
@@ -838,7 +826,9 @@ final class RequestHandler
         }
 
         if ($guard !== null && !$guard->accepts($value)) {
-            $converted = is_string($value) ? $this->builtInCaster->castToMembers($guard, $value) : null;
+            $converted = is_string($value) || ($anyScalar && is_scalar($value))
+                ? $this->builtInCaster->castToMembers($guard, $value)
+                : null;
             if ($converted === null) {
                 $skipped = true;
                 return $value;
