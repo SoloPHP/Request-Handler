@@ -249,9 +249,11 @@ final class RequestHandler
                 // The only producer of the property's type gets it converted
                 // first, or its `preProcessorFailure` once validation had its
                 // say — see PropertyMetadata.
+                // An object comes from the application, not the client: it is
+                // never the client's wrong type.
                 $input = $value;
                 $guard = $property->preProcessorGuard;
-                if ($property->preProcessorFailure !== null && $guard !== null) {
+                if ($property->preProcessorFailure !== null && $guard !== null && !is_object($value)) {
                     $input = $this->builtInCaster->castToMembers($guard, $value);
                 }
 
@@ -425,7 +427,7 @@ final class RequestHandler
     ): mixed {
         $error = null;
         $guard = $property->postProcessorGuard;
-        $input = $property->postProcessorFailure !== null && $guard !== null && $value !== null
+        $input = $property->postProcessorFailure !== null && $guard !== null && $value !== null && !is_object($value)
             ? $this->builtInCaster->castToMembers($guard, $value)
             : $value;
 
@@ -465,8 +467,9 @@ final class RequestHandler
             return $value;
         }
 
-        if ($property->postProcessorFailure !== null && $value !== null && $value !== '') {
-            // Nothing but the post-processor reads such a class.
+        // Nothing but the post-processor reads such a class — an object
+        // the application passed is the property's to take or refuse.
+        if ($property->postProcessorFailure !== null && $value !== null && $value !== '' && !is_object($value)) {
             $error = $property->postProcessorFailure;
             return $value;
         }

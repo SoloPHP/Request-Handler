@@ -2251,6 +2251,21 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
+    public function testObjectPassedForAHookMadeClassIsAssigned(): void
+    {
+        // Only the application can pass an object (handleArray() data): it
+        // is not the client's wrong type — before this, a 422.
+        $money = new TestMoney(5);
+        $this->assertSame($money, $this->handler->handleArray(ParsedMoneyRequest::class, ['price' => $money])->price);
+        $post = $this->handler->handleArray(PostProducedMoneyRequest::class, ['price' => $money, 'cents' => $money]);
+        $this->assertSame([$money, $money], [$post->price, $post->cents]);
+
+        // One the property cannot hold is the application's error.
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Value of 'price' after #[PostProcess(parse)] is stdClass");
+        $this->handler->handleArray(PostProducedMoneyRequest::class, ['price' => new \stdClass()]);
+    }
+
     public function testSkippedPostProcessorOnAContextValueIsStillTheApplicationsError(): void
     {
         // A string spelling the type is converted from context too.
