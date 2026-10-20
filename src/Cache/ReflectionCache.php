@@ -589,7 +589,6 @@ final class ReflectionCache
             unionCasts: $unionCasts,
             suppliedItems: $appSupplied ? $items?->class : null,
             preProcessorFailure: $preProcessorFailure,
-            holdsInput: $holdsInput,
             preProcessorCasts: $preProcessorCasts,
             blank: $blank,
         );

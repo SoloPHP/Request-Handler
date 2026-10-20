@@ -57,9 +57,6 @@ use Solo\RequestHandler\Request;
  * string is read as null. `noTrim`: auto-trim skips it — `#[NoTrim]`, or a
  * value the application supplies.
  *
- * `holdsInput` is false for a type no request input can have — a class,
- * `object`, an intersection: its value is produced.
- *
  * `blank` is what `""` from the client reads as — asked of the property's
  * own reader at build time: null (no value) for a number, a bool, a date, an
  * enum without a `""` case, a nested object or a produced class; `[]` for an
@@ -129,7 +126,6 @@ final readonly class PropertyMetadata
         public ?array $unionCasts = null,
         public ?string $suppliedItems = null,
         public ?array $preProcessorFailure = null,
-        public bool $holdsInput = true,
         public ?array $preProcessorCasts = null,
         public mixed $blank = '',
     ) {
