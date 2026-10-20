@@ -119,15 +119,20 @@ final class ReflectionCache
     ];
 
     /**
-     * Every attribute read from a property.
+     * Every property attribute but #[Ignore] — and so none may join it: an
+     * ignored property never enters the pipeline.
      */
-    private const array PROPERTY_ATTRIBUTES = [
+    private const array IGNORE_COMPANIONS = [
         ...self::INPUT_ATTRIBUTES,
         Generator::class,
         Group::class,
         Exclude::class,
-        Ignore::class,
     ];
+
+    /**
+     * Every attribute read from a property.
+     */
+    private const array PROPERTY_ATTRIBUTES = [...self::IGNORE_COMPANIONS, Ignore::class];
 
     /**
      * Date type (lower-case) → the class a date property is built as.
@@ -290,10 +295,7 @@ final class ReflectionCache
         array $attributes,
         string $className,
     ): void {
-        $companion = $this->firstPresent(
-            $attributes,
-            [...self::INPUT_ATTRIBUTES, Generator::class, Group::class, Exclude::class]
-        );
+        $companion = $this->firstPresent($attributes, self::IGNORE_COMPANIONS);
 
         if ($companion !== null) {
             throw ConfigurationException::ignoreConflict($className, $property->getName(), $companion);

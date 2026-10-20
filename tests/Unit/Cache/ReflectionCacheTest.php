@@ -161,6 +161,9 @@ final class ReflectionCacheTest extends TestCase
             'Generator' => [IgnoreWithGeneratorRequest::class, 'Generator'],
             'EmptyToNull' => [IgnoreWithEmptyToNullRequest::class, 'EmptyToNull'],
             'NoTrim' => [IgnoreWithNoTrimRequest::class, 'NoTrim'],
+            // The two that act on output, not input.
+            'Group' => [IgnoreWithGroupRequest::class, 'Group'],
+            'Exclude' => [IgnoreWithExcludeRequest::class, 'Exclude'],
         ];
     }
 
@@ -1880,4 +1883,18 @@ final class CallablePreProcessorRequest extends Request
     {
         return new CacheMoney();
     }
+}
+
+final class IgnoreWithGroupRequest extends Request
+{
+    #[Ignore]
+    #[Group('criteria')]
+    public ?string $foo = null;
+}
+
+final class IgnoreWithExcludeRequest extends Request
+{
+    #[Ignore]
+    #[Exclude]
+    public ?string $foo = null;
 }
