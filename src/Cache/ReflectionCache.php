@@ -441,10 +441,17 @@ final class ReflectionCache
 
         // A type only a typed pre-processor produces: input its guard turns
         // away can never become the value — the client sent the wrong type,
-        // reported with the rule for the type the pre-processor takes.
-        $preProcessorFailure = !$holdsInput && !$producedOtherwise && $preProcessorGuard !== null
-            ? $this->typeRule($preProcessorGuard->members())
-            : null;
+        // reported with the rule for the type the pre-processor takes. One
+        // that takes no type input can have would never run at all.
+        $preProcessorFailure = null;
+        if (!$holdsInput && !$producedOtherwise && $preProcessorGuard !== null) {
+            $preProcessorFailure = $this->typeRule($preProcessorGuard->members())
+                ?? throw ConfigurationException::preProcessorTakesNoInput(
+                    $className,
+                    $name,
+                    (string) $preProcess?->handler
+                );
+        }
 
         // An input type no cast handles — a union, a standalone `true` /
         // `false` — is cast member by member; `mixed` takes anything as it is.

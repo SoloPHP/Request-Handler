@@ -356,6 +356,20 @@ public Money $price;
 public User $user;
 ```
 
+#### preProcessorTakesNoInput
+
+The pre-processor is the only thing that produces the property's class, but its parameter takes no type request input can have — a class or `object` — so it would never run on client input, and every request carrying the field would fail.
+
+```php
+// ❌ No request input is a Money
+#[PreProcess('fromMoney')]          // fromMoney(Money $money): Money
+public ?Money $price = null;
+
+// ✅ The handler reads what the client sends
+#[PreProcess('parseMoney')]         // parseMoney(string $value): Money
+public ?Money $price = null;
+```
+
 #### abstractClass
 
 `#[Items]`, nested-DTO and `#[Generator]` classes need a concrete instantiable class.
