@@ -358,7 +358,7 @@ public User $user;
 
 #### preProcessorTakesNoInput
 
-The pre-processor is the only thing that produces the property's class, but its parameter takes no type request input can have — a class or `object` — so it would never run on client input, and every request carrying the field would fail.
+The pre-processor is the only thing that produces the property's class, but its parameter takes none of the types request input has (string, int, float, bool, array): a class or `object` never reaches it, so every request carrying the field would fail, and a `callable` would let the client name the function the handler gets.
 
 ```php
 // ❌ No request input is a Money
