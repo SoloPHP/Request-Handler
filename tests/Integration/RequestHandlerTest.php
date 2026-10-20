@@ -598,6 +598,14 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(['a', 'b', 'c', 'd'], $dto->list);
     }
 
+    public function testEmptyStringIsReadByTheTypesOwnReader(): void
+    {
+        // An enum with a "" case reads "" as that case, not as no value.
+        $filter = fn(string $input) => $this->handler->handleArray(BlankFilterRequest::class, ['filter' => $input]);
+        $this->assertSame(BlankFilter::All, $filter('')->filter);
+        $this->assertSame(BlankFilter::Active, $filter('active')->filter);
+    }
+
     public function testEmptyStringForAnItemsListIsAnEmptyList(): void
     {
         // As for a plain array property — 3.x and early 4.0: ['rule' => 'array'].
@@ -4138,4 +4146,15 @@ final class CentsMoneyRequest extends Request
     {
         return new TestMoney($cents);
     }
+}
+
+enum BlankFilter: string
+{
+    case All = '';
+    case Active = 'active';
+}
+
+final class BlankFilterRequest extends Request
+{
+    public ?BlankFilter $filter = null;
 }

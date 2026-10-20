@@ -319,12 +319,13 @@ final class RequestHandler
                 continue;
             }
 
+            // "" reads as the property's own reader reads it, decided once in
+            // its metadata: no value, an empty list, or "" itself.
+            if ($value === '') {
+                $values[$name] = $value = $property->blank;
+            }
+
             if ($property->buildsChildren()) {
-                // "" reads as the array cast reads it — an empty #[Items]
-                // list — and as no value for a nested object.
-                if ($value === '') {
-                    $values[$name] = $value = $property->items !== null ? [] : null;
-                }
                 if ($value !== null) {
                     $childErrors[$name] = [];
                     $children[$name] = $this->resolveChildren($property, $value, $bags->context, $childErrors[$name]);

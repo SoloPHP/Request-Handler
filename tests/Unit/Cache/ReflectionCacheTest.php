@@ -73,6 +73,28 @@ final class ReflectionCacheTest extends TestCase
 
     // ===== property metadata =====
 
+    public function testBlankInputIsReadOnceByTheTypesReader(): void
+    {
+        $properties = $this->cache->get(BlankReadingRequest::class)->properties;
+        $blank = array_map(static fn($property) => $property->blank, $properties);
+
+        $this->assertSame([
+            'count'   => null,
+            'flag'    => null,
+            'at'      => null,
+            'level'   => null,
+            'filter'  => BlankCaseFilter::All,
+            'amount'  => null,
+            'code'    => '',
+            'note'    => '',
+            'any'     => '',
+            'tags'    => [],
+            'lines'   => [],
+            'address' => null,
+            'money'   => null,
+        ], $blank);
+    }
+
     public function testAttributeNamesAreReadInAnyCase(): void
     {
         // PHP class names are case-insensitive, and so is getAttributes(X::class).
@@ -1804,4 +1826,36 @@ final class ForeignAttributeRequest extends Request
     #[FromContext('tenant')]
     #[ForeignMarker]
     public string $tenant;
+}
+
+enum BlankCaseFilter: string
+{
+    case All = '';
+    case Active = 'active';
+}
+
+final class BlankReadingRequest extends Request
+{
+    public ?int $count = null;
+    public ?bool $flag = null;
+    public ?\DateTimeImmutable $at = null;
+    public ?CacheTestStatus $level = null;
+    public ?BlankCaseFilter $filter = null;
+    public int|float $amount = 0;
+    public int|string $code = 0;
+    public ?string $note = null;
+    public mixed $any = null;
+    /** @var list<string> */
+    public array $tags = [];
+    /** @var list<ValidRequest> */
+    #[Items(ValidRequest::class)]
+    public array $lines = [];
+    public ?ValidRequest $address = null;
+    #[PreProcess('toMoney')]
+    public ?CacheMoney $money = null;
+
+    public static function toMoney(string $value): CacheMoney
+    {
+        return new CacheMoney();
+    }
 }
