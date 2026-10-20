@@ -2252,6 +2252,35 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
+    public function testSkippedPostProcessorLeavesListsAndObjectsToTheirChildren(): void
+    {
+        $handle = fn(array $input) => $this->handler->handleArray(NormalizedChildrenRequest::class, $input);
+
+        $dto = $handle(['lines' => [['sku' => 'A', 'qty' => '2']], 'address' => ['city' => 'Kyiv']]);
+        $this->assertSame([['sku' => 'A', 'qty' => 2]], array_map(static fn($line) => $line->toArray(), $dto->lines));
+        $this->assertSame('Kyiv', $dto->address?->city);
+
+        // "" skips the array-typed handlers: an empty list, no object.
+        $dto = $handle(['lines' => '', 'address' => '']);
+        $this->assertSame([], $dto->lines);
+        $this->assertNull($dto->address);
+
+        // Any other string is left for the children to reject, as without one.
+        try {
+            $handle(['lines' => 'abc']);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['lines' => [['rule' => 'array']]], $e->getErrors());
+        }
+    }
+
+    public function testContextPreProcessorGetsTheValueAStringSpells(): void
+    {
+        $dto = $this->handler->handleArray(ContextClampRequest::class, [], context: ['limit' => '5000']);
+
+        $this->assertSame(100, $dto->limit);
+    }
+
     public function testObjectPassedForAHookMadeClassIsAssigned(): void
     {
         // Only the application can pass an object (handleArray() data): it
@@ -4409,5 +4438,46 @@ final class ContextDoubledRequest extends Request
     public static function double(int $value): int
     {
         return $value * 2;
+    }
+}
+
+final class NormalizedChildrenRequest extends Request
+{
+    /** @var list<LineItemRequest> */
+    #[PostProcess('keepList')]
+    #[Items(LineItemRequest::class)]
+    public array $lines = [];
+
+    #[PostProcess('keepObject')]
+    public ?PatchAddressRequest $address = null;
+
+    /**
+     * @param array<mixed> $items
+     * @return array<mixed>
+     */
+    public static function keepList(array $items): array
+    {
+        return array_values($items);
+    }
+
+    /**
+     * @param array<mixed> $fields
+     * @return array<mixed>
+     */
+    public static function keepObject(array $fields): array
+    {
+        return $fields;
+    }
+}
+
+final class ContextClampRequest extends Request
+{
+    #[FromContext('limit')]
+    #[PreProcess('clamp')]
+    public int $limit = 10;
+
+    public static function clamp(int $value): int
+    {
+        return min($value, 100);
     }
 }
