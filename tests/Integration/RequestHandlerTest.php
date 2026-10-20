@@ -758,6 +758,20 @@ final class RequestHandlerTest extends TestCase
         $this->handler->handleArray(NullGeneratedRequest::class, []);
     }
 
+    public function testHookedContextListIsCheckedWhenAssigned(): void
+    {
+        // A hook decides the value, so the resolve pass does not check the
+        // context list — the assignment checks what the hook returned.
+        $line = new LineItemRequest();
+        $line->sku = 'A-1';
+        $dto = $this->handler->handleArray(HookedContextLinesRequest::class, [], context: ['lines' => [$line]]);
+        $this->assertSame([$line], $dto->lines);
+
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Context value 'lines' after #[PostProcess(keep)] holds array at key 0, but");
+        $this->handler->handleArray(HookedContextLinesRequest::class, [], context: ['lines' => [['sku' => 'A-1']]]);
+    }
+
     public function testEmptyStringFromTheApplicationIsAValue(): void
     {
         // A cleared client field is no value; "" the application passes for
@@ -4185,4 +4199,18 @@ final class OptionalContextAddressRequest extends Request
 {
     #[FromContext('address')]
     public ?AddressRequest $address = null;
+}
+
+final class HookedContextLinesRequest extends Request
+{
+    /** @var list<LineItemRequest> */
+    #[FromContext('lines')]
+    #[Items(LineItemRequest::class)]
+    #[PostProcess('keep')]
+    public array $lines = [];
+
+    public static function keep(mixed $lines): mixed
+    {
+        return $lines;
+    }
 }
