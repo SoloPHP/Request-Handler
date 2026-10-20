@@ -34,9 +34,9 @@ use Solo\RequestHandler\Request;
  * static-method handlers whose first parameter is typed: a value the handler
  * cannot accept skips it rather than raising a TypeError. `preProcessorFailure`
  * is set when nothing but that pre-processor produces the property's type (a
- * class): input is converted to the parameter's scalar types in
- * `preProcessorCasts` when that loses nothing, and input that fits none is
- * the client's wrong type, reported with this rule.
+ * class): input is converted to the parameter's type through the guard's
+ * lossless `casts` first, and input that fits none is the client's wrong
+ * type, reported with this rule.
  *
  * `enumClass` is set when the declared type is a `BackedEnum`; the value is
  * resolved through `tryFrom()` instead of a built-in cast.
@@ -62,12 +62,11 @@ use Solo\RequestHandler\Request;
  * enum without a `""` case, a nested object or a produced class; `[]` for an
  * array or an `#[Items]` list; `""` itself for a type that holds a string.
  *
- * `typeGuard` and `unionCasts` are set for an input type no cast handles,
- * such as `int|float` or a standalone `true`: a value of a member type is
- * kept, another one is converted to the first of `unionCasts` it fits
- * without loss — or fails with `castFailure`. `typeGuard` is also set for a
- * value the application supplies (context, generator), checked right after
- * its cast.
+ * `memberGuard` is set for an input type no cast handles, such as
+ * `int|float` or a standalone `true`: a value of a member type is kept,
+ * another one is converted to the first of the guard's lossless `casts` it
+ * fits — or fails with `castFailure`. `typeGuard` is set for a value the
+ * application supplies (context, generator), checked right after its cast.
  *
  * @internal
  */
@@ -82,10 +81,8 @@ final readonly class PropertyMetadata
      * @param array{rule: string, params?: list<string>}|null $castFailure
      * @param class-string<DateTime|DateTimeImmutable>|null    $dateClass
      * @param class-string<Request>|null                       $nested
-     * @param list<string>|null                                $unionCasts
      * @param class-string<Request>|null                       $suppliedItems
      * @param array{rule: string}|null                         $preProcessorFailure
-     * @param list<string>|null                                $preProcessorCasts
      */
     public function __construct(
         public string $name,
@@ -123,10 +120,9 @@ final readonly class PropertyMetadata
         public bool $emptyToNull = false,
         public bool $noTrim = false,
         public ?ParameterTypeGuard $typeGuard = null,
-        public ?array $unionCasts = null,
+        public ?ParameterTypeGuard $memberGuard = null,
         public ?string $suppliedItems = null,
         public ?array $preProcessorFailure = null,
-        public ?array $preProcessorCasts = null,
         public mixed $blank = '',
     ) {
     }

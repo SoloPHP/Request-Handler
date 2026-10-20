@@ -325,12 +325,13 @@ final class BuiltInCasterTest extends TestCase
         $intOrBool = static fn(int|bool $value): int|bool => $value;
         $guard = ParameterTypeGuard::fromType((new \ReflectionFunction($intOrBool))->getParameters()[0]->getType());
         $this->assertNotNull($guard);
+        $this->assertSame(['int', 'bool'], $guard->casts, 'coercion order');
 
-        $this->assertSame(true, $this->caster->castToMembers($guard, ['int', 'bool'], true), 'a member type is kept');
-        $this->assertSame(999, $this->caster->castToMembers($guard, ['int', 'bool'], '999'));
-        $this->assertSame(false, $this->caster->castToMembers($guard, ['int', 'bool'], 'off'));
-        $this->assertNull($this->caster->castToMembers($guard, ['int', 'bool'], '9.5'));
-        $this->assertNull($this->caster->castToMembers($guard, ['int', 'bool'], ['1']));
+        $this->assertSame(true, $this->caster->castToMembers($guard, true), 'a member type is kept');
+        $this->assertSame(999, $this->caster->castToMembers($guard, '999'));
+        $this->assertSame(false, $this->caster->castToMembers($guard, 'off'));
+        $this->assertNull($this->caster->castToMembers($guard, '9.5'));
+        $this->assertNull($this->caster->castToMembers($guard, ['1']));
     }
 
     public function testCastEnumPassesInstanceThrough(): void

@@ -25,12 +25,22 @@ use ReflectionUnionType;
 final readonly class ParameterTypeGuard
 {
     /**
+     * The scalar types a value of none of the members may be converted to,
+     * in PHP's own coercion order.
+     */
+    private const array CASTS = ['int', 'float', 'string', 'bool'];
+
+    /**
      * @param list<list<string>> $alternatives Union members, each an intersection
      *                                         of type names (built-in names lower-cased).
+     * @param list<string>       $casts        The scalar members a value of none of the types is
+     *                                         converted to without loss, in coercion order; a
+     *                                         literal `true` / `false` is reached through bool.
      */
     private function __construct(
         private bool $allowsNull,
         private array $alternatives,
+        public array $casts,
     ) {
     }
 
@@ -54,7 +64,13 @@ final readonly class ParameterTypeGuard
             $alternatives[] = $intersection;
         }
 
-        return new self($type->allowsNull(), $alternatives);
+        $members = self::singleTypes($alternatives);
+        $casts = array_values(array_intersect(self::CASTS, $members));
+        if (!in_array('bool', $casts, true) && array_intersect(['true', 'false'], $members) !== []) {
+            $casts[] = 'bool';
+        }
+
+        return new self($type->allowsNull(), $alternatives, $casts);
     }
 
     /**
@@ -65,8 +81,17 @@ final readonly class ParameterTypeGuard
      */
     public function members(): array
     {
+        return self::singleTypes($this->alternatives);
+    }
+
+    /**
+     * @param list<list<string>> $alternatives
+     * @return list<string>
+     */
+    private static function singleTypes(array $alternatives): array
+    {
         $members = [];
-        foreach ($this->alternatives as $intersection) {
+        foreach ($alternatives as $intersection) {
             if (count($intersection) === 1) {
                 $members[] = $intersection[0];
             }

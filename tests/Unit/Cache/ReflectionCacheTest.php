@@ -735,28 +735,26 @@ final class ReflectionCacheTest extends TestCase
     {
         $properties = $this->cache->get(UnionCastRequest::class)->properties;
 
-        $this->assertNotNull($properties['amount']->typeGuard);
-        $this->assertSame(['int', 'float'], $properties['amount']->unionCasts);
+        $this->assertSame(['int', 'float'], $properties['amount']->memberGuard?->casts);
         $this->assertSame(['rule' => 'numeric'], $properties['amount']->castFailure);
 
-        $this->assertSame(['int', 'string'], $properties['code']->unionCasts);
+        $this->assertSame(['int', 'string'], $properties['code']->memberGuard?->casts);
         $this->assertSame(['rule' => 'string'], $properties['code']->castFailure);
 
         // A member class may still be passed through context or a processor.
-        $this->assertSame(['string'], $properties['when']->unionCasts);
+        $this->assertSame(['string'], $properties['when']->memberGuard?->casts);
 
         // #[Cast] decides on its own — no guard.
-        $this->assertNull($properties['price']->typeGuard);
+        $this->assertNull($properties['price']->memberGuard);
     }
 
     public function testStandaloneTrueTypeIsCastThroughBool(): void
     {
         $properties = $this->cache->get(LiteralTypesRequest::class)->properties;
 
-        $this->assertNotNull($properties['accepted']->typeGuard);
-        $this->assertSame(['bool'], $properties['accepted']->unionCasts);
+        $this->assertSame(['bool'], $properties['accepted']->memberGuard?->casts);
         $this->assertSame(['rule' => 'boolean'], $properties['accepted']->castFailure);
-        $this->assertSame(['string', 'bool'], $properties['nickname']->unionCasts);
+        $this->assertSame(['string', 'bool'], $properties['nickname']->memberGuard?->casts);
     }
 
     public function testIterableHasItsOwnCast(): void
@@ -774,7 +772,7 @@ final class ReflectionCacheTest extends TestCase
         // parseAmount(string|int $value): the widest type it takes names the rule.
         $this->assertSame(['rule' => 'string'], $properties['amount']->preProcessorFailure);
         // Input of another type converts in PHP's coercion order: int, then string.
-        $this->assertSame(['int', 'string'], $properties['amount']->preProcessorCasts);
+        $this->assertSame(['int', 'string'], $properties['amount']->preProcessorGuard?->casts);
         $this->assertNull($properties['amount']->blank, 'a class: "" there is no value');
         $this->assertSame('', $properties['trimmed']->blank);
         // A caster could still produce the class; a string property holds input.
