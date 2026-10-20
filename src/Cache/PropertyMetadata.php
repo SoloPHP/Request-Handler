@@ -62,7 +62,9 @@ use Solo\RequestHandler\Request;
  * `typeGuard` and `unionCasts` are set for an input type no cast handles,
  * such as `int|float` or a standalone `true`: a value of a member type is
  * kept, another one is converted to the first of `unionCasts` it fits
- * without loss — or fails with `castFailure`.
+ * without loss — or fails with `castFailure`. `typeGuard` is also set for a
+ * value the application supplies (context, generator), checked right after
+ * its cast — before any hook or generator runs.
  *
  * @internal
  */

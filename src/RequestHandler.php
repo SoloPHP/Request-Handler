@@ -636,8 +636,9 @@ final class RequestHandler
     /**
      * Cast a value the application supplied (context, generator). One that
      * does not fit the declared type is a programming error, not a client
-     * mistake, so it raises instead of becoming a validation error — the cast
-     * here, the rest when populateInstance() assigns it.
+     * mistake, so it raises instead of becoming a validation error — here,
+     * before any hook or generator runs for the request. What a hook makes
+     * of the value is checked when populateInstance() assigns it.
      */
     private function castTrusted(PropertyMetadata $property, mixed $value, string $className): mixed
     {
@@ -653,7 +654,43 @@ final class RequestHandler
             ));
         }
 
+        if ($cast === null) {
+            if ($this->requiresValue($property)) {
+                throw $this->emptyValue($property, $className);
+            }
+        } elseif ($property->typeGuard?->accepts($cast) === false) {
+            throw $this->wrongType($property, $cast, $className);
+        } elseif ($property->suppliedItems !== null) {
+            $this->checkSuppliedItems($property, $property->suppliedItems, $cast, $className);
+        }
+
         return $cast;
+    }
+
+    private function emptyValue(PropertyMetadata $property, string $className): \UnexpectedValueException
+    {
+        return new \UnexpectedValueException(sprintf(
+            "%s is empty, but %s::\$%s is neither nullable nor has a default.",
+            $this->describeValue($property),
+            $className,
+            $property->name,
+        ));
+    }
+
+    private function wrongType(
+        PropertyMetadata $property,
+        mixed $value,
+        string $className,
+        ?\Throwable $previous = null,
+    ): \UnexpectedValueException {
+        return new \UnexpectedValueException(sprintf(
+            "%s is %s, which does not fit %s::\$%s (%s).",
+            $this->describeValue($property),
+            get_debug_type($value),
+            $className,
+            $property->name,
+            (string) $property->type,
+        ), 0, $previous);
     }
 
     /**
@@ -829,30 +866,19 @@ final class RequestHandler
             // property. A hook's result is assigned as PHP assigns any value.
             if ($value === null && !$property->isNullable) {
                 if (!$property->hasDefault) {
-                    throw new \UnexpectedValueException(sprintf(
-                        "%s is empty, but %s::\$%s is neither nullable nor has a default.",
-                        $this->describeValue($property),
-                        $metadata->className,
-                        $name,
-                    ));
+                    throw $this->emptyValue($property, $metadata->className);
                 }
                 // null resets a defaulted property to its default
             } else {
-                if ($property->suppliedItems !== null) {
+                // A context list without a hook was checked by castTrusted().
+                if ($property->suppliedItems !== null && $property->decidedInTransform()) {
                     $this->checkSuppliedItems($property, $property->suppliedItems, $value, $metadata->className);
                 }
 
                 try {
                     $property->reflection->setValue($instance, $value);
                 } catch (\TypeError $e) {
-                    throw new \UnexpectedValueException(sprintf(
-                        "%s is %s, which does not fit %s::\$%s (%s).",
-                        $this->describeValue($property),
-                        get_debug_type($value),
-                        $metadata->className,
-                        $name,
-                        (string) $property->type,
-                    ), 0, $e);
+                    throw $this->wrongType($property, $value, $metadata->className, $e);
                 }
             }
 

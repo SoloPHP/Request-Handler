@@ -812,6 +812,29 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame('X', $dto->label);
     }
 
+    public function testContextValueIsCheckedBeforeAnyHookOrGeneratorRuns(): void
+    {
+        // A hook or a generator may have side effects (a sequence): neither
+        // runs for a request the application misconfigured.
+        CountingGenerator::$calls = 0;
+        CountingJsonItemsProcessor::$calls = 0;
+        $body = ['tags' => '["a"]'];
+
+        foreach ([['tenant' => null], ['tenant' => 'acme', 'address' => ['city' => 'Kyiv']]] as $context) {
+            try {
+                $this->handler->handleArray(ContextBeforeHooksRequest::class, $body, context: $context);
+                $this->fail('Expected UnexpectedValueException');
+            } catch (\UnexpectedValueException) {
+                $this->assertSame(0, CountingJsonItemsProcessor::$calls, (string) json_encode($context));
+                $this->assertSame(0, CountingGenerator::$calls, (string) json_encode($context));
+            }
+        }
+
+        $dto = $this->handler->handleArray(ContextBeforeHooksRequest::class, $body, context: ['tenant' => 'acme']);
+        $this->assertSame(['a'], $dto->tags);
+        $this->assertSame(1, $dto->sequence);
+    }
+
     public function testRequestTypedContextValueIsKeptAsPassed(): void
     {
         $address = new AddressRequest();
@@ -3881,4 +3904,20 @@ final class ParsedMoneyRequest extends Request
     {
         return new TestMoney((int) round((float) $value * 100));
     }
+}
+
+final class ContextBeforeHooksRequest extends Request
+{
+    #[Generator(CountingGenerator::class)]
+    public int $sequence;
+
+    /** @var list<string>|null */
+    #[PostProcess(CountingJsonItemsProcessor::class)]
+    public ?array $tags = null;
+
+    #[FromContext('tenant')]
+    public string $tenant;
+
+    #[FromContext('address')]
+    public ?AddressRequest $address = null;
 }
