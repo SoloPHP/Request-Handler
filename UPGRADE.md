@@ -124,6 +124,8 @@ public ?AddressRequest $billing = null;
 
 Any **other class type** needs something that produces it — `#[Caster]`, a pre/post-processor, `#[Generator]` or `#[FromContext]` (backed enums and DateTime classes are produced by their type). Otherwise building the metadata throws `ConfigurationException::unproducibleType` — at the first use of the class, not at the first request carrying the field. This includes pure (non-backed) enums, `object`, intersection types and unions of classes only. An object passed for such a property in the `handleArray()` data belongs in `context`, read with `#[FromContext]`.
 
+A class only a **typed pre-processor** produces (`#[PreProcess('parseMoney')]` with `parseMoney(string $value): Money`) reported input the pre-processor could not take as a `TypeError` in 3.x; it is now a validation error named after the type the pre-processor takes (`string` here).
+
 A **union with a scalar member** and no `#[Cast]` (`int|float`, `int|string`) reached the property unconverted in 3.x: PHP coerced what it could and threw a `TypeError` for the rest. Now a value of a member type is kept, another one is converted to the first scalar member it fits without loss (`"5"` → `5` for `int|float`), and a value that fits none is a validation error — `numeric` for `int|float`, `string` for a union with `string`. An `iterable` property keeps an array or a Traversable as it is and reads anything else like `array`.
 
 ## Schema v2

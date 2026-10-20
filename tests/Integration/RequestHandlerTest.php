@@ -1785,6 +1785,39 @@ final class RequestHandlerTest extends TestCase
         $method->invoke($this->handler, $instance, $metadata, ['id' => null, 'name' => 'Test']);
     }
 
+    // ===== a class only a typed pre-processor produces =====
+
+    public function testTypedPreProcessorProducesTheClass(): void
+    {
+        $dto = $this->handler->handleArray(ParsedMoneyRequest::class, ['price' => '9.99']);
+
+        $this->assertSame(999, $dto->price?->cents);
+    }
+
+    public function testInputThePreProcessorCannotTakeIsAValidationError(): void
+    {
+        // The guard skips parseMoney(string) for an array; nothing else could
+        // turn it into a TestMoney. 3.x: a TypeError, a 500.
+        try {
+            $this->handler->handleArray(ParsedMoneyRequest::class, ['price' => ['9.99']]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['price' => [['rule' => 'string']]], $e->getErrors());
+        }
+    }
+
+    public function testValidatorErrorComesInsteadOfTheSkippedPreProcessorOne(): void
+    {
+        $this->validator->method('validate')->willReturn(['price' => [['rule' => 'numeric']]]);
+
+        try {
+            $this->handler->handleArray(ParsedMoneyRequest::class, ['price' => ['9.99']]);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['price' => [['rule' => 'numeric']]], $e->getErrors(), 'reported once');
+        }
+    }
+
     public function testPostProcessorNullResetsADefaultedProperty(): void
     {
         $dto = $this->handler->handleArray(NullingPostProcessRequest::class, ['page' => 'y']);
@@ -3788,5 +3821,24 @@ final class HookResultsRequest extends Request
     public static function five(mixed $value): string
     {
         return '5';
+    }
+}
+
+final class TestMoney
+{
+    public function __construct(public readonly int $cents)
+    {
+    }
+}
+
+final class ParsedMoneyRequest extends Request
+{
+    #[PreProcess('parseMoney')]
+    #[Validate('nullable|numeric')]
+    public ?TestMoney $price = null;
+
+    public static function parseMoney(string $value): TestMoney
+    {
+        return new TestMoney((int) round((float) $value * 100));
     }
 }

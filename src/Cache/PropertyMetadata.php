@@ -32,7 +32,9 @@ use Solo\RequestHandler\Request;
  *
  * `preProcessorGuard` / `postProcessorGuard` are set for function and
  * static-method handlers whose first parameter is typed: a value the handler
- * cannot accept skips it rather than raising a TypeError.
+ * cannot accept skips it rather than raising a TypeError. `preProcessorFailure`
+ * is set when nothing but that pre-processor produces the property's type (a
+ * class): input it skips is the client's wrong type, reported with this rule.
  *
  * `enumClass` is set when the declared type is a `BackedEnum`; the value is
  * resolved through `tryFrom()` instead of a built-in cast.
@@ -73,6 +75,7 @@ final readonly class PropertyMetadata
      * @param class-string<Request>|null                       $nested
      * @param list<string>|null                                $unionCasts
      * @param class-string<Request>|null                       $suppliedItems
+     * @param array{rule: string}|null                         $preProcessorFailure
      */
     public function __construct(
         public string $name,
@@ -112,6 +115,7 @@ final readonly class PropertyMetadata
         public ?ParameterTypeGuard $typeGuard = null,
         public ?array $unionCasts = null,
         public ?string $suppliedItems = null,
+        public ?array $preProcessorFailure = null,
     ) {
     }
 

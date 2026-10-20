@@ -57,6 +57,24 @@ final readonly class ParameterTypeGuard
         return new self($type->allowsNull(), $alternatives);
     }
 
+    /**
+     * The type's single-type members — built-ins lower-cased, class names as
+     * written; intersections are left out. Names what the type accepts.
+     *
+     * @return list<string>
+     */
+    public function members(): array
+    {
+        $members = [];
+        foreach ($this->alternatives as $intersection) {
+            if (count($intersection) === 1) {
+                $members[] = $intersection[0];
+            }
+        }
+
+        return $members;
+    }
+
     public function accepts(mixed $value): bool
     {
         if ($value === null) {

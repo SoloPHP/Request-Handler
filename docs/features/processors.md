@@ -53,6 +53,16 @@ public string $email;
 
 The same guard applies to post-processors: `#[PostProcess('strtoupper')]` on a `?string` leaves an explicit `null` as `null`. `ProcessorInterface` / `CasterInterface` handlers take `mixed` and are always called.
 
+When the property's type is a class only that pre-processor produces, nothing could turn skipped input into it, so the field reports the rule for the type the pre-processor takes — unless a validation rule rejected the value first:
+
+```php
+#[PreProcess('parseMoney')]          // parseMoney(string $value): Money
+public ?Money $price = null;
+
+// {"price": "9.99"}   → Money(999)
+// {"price": ["9.99"]} → ['price' => [['rule' => 'string']]] (422)
+```
+
 ## Rejecting Input From a Handler
 
 A pre-processor, post-processor or custom caster may throw `ValidationException` itself. Its errors are merged with the others of the same pass instead of aborting it, and inside `#[Items]` they are reported under the item path (`lines.1.amount`):

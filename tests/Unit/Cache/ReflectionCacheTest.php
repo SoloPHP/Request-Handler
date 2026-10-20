@@ -713,6 +713,19 @@ final class ReflectionCacheTest extends TestCase
         $this->assertNull($property->castFailure, 'reading like an array never fails');
     }
 
+    public function testOnlyATypedPreProcessorProducingAClassNamesItsRule(): void
+    {
+        $properties = $this->cache->get(PreProcessorProducerRequest::class)->properties;
+
+        // parseAmount(string|int $value): the widest type it takes names the rule.
+        $this->assertSame(['rule' => 'string'], $properties['amount']->preProcessorFailure);
+        // A caster could still produce the class; a string property holds input.
+        $this->assertNull($properties['casted']->preProcessorFailure);
+        $this->assertNull($properties['trimmed']->preProcessorFailure);
+        // A ProcessorInterface takes anything: never skipped.
+        $this->assertNull($properties['processed']->preProcessorFailure);
+    }
+
     public function testClassTypesWithAProducerAreAccepted(): void
     {
         $metadata = $this->cache->get(ProducibleObjectsRequest::class);
@@ -1674,4 +1687,25 @@ final class ParentOfHookedChildRequest extends Request
     public ?WrapsHookedChildRequest $grandchild = null;
 
     public ?ItemRequest $plain = null;
+}
+
+final class PreProcessorProducerRequest extends Request
+{
+    #[PreProcess('parseAmount')]
+    public ?CacheMoney $amount = null;
+
+    #[PreProcess('parseAmount')]
+    #[Caster(DummyCaster::class)]
+    public ?CacheMoney $casted = null;
+
+    #[PreProcess('trim')]
+    public ?string $trimmed = null;
+
+    #[PreProcess(GuardTestProcessor::class)]
+    public ?CacheMoney $processed = null;
+
+    public static function parseAmount(string|int $value): CacheMoney
+    {
+        return new CacheMoney();
+    }
 }
