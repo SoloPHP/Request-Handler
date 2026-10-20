@@ -60,6 +60,7 @@ When the property's type is a class only that pre-processor produces, nothing co
 public ?Money $price = null;
 
 // {"price": "9.99"}   → Money(999)
+// {"price": ""}       → null — "" is no value, the pre-processor does not see it
 // {"price": ["9.99"]} → ['price' => [['rule' => 'string']]] (422)
 ```
 
