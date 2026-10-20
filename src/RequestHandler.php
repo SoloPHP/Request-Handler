@@ -429,8 +429,9 @@ final class RequestHandler
             ? $this->builtInCaster->castToMembers($guard, $value)
             : $value;
 
-        $skipped = $input === null && $value !== null;
-        if (!$skipped) {
+        // A value that no conversion made fit never reaches the handler.
+        $hookSkipped = false;
+        if ($input !== null || $value === null) {
             $result = $this->runHook(
                 $property->postProcessor,
                 $property->postProcessorKind,
@@ -439,13 +440,27 @@ final class RequestHandler
                 $input,
                 $resolved->metadata->className,
                 $resolved->bags,
-                $skipped,
+                $hookSkipped,
             );
-            if (!$skipped) {
+            if (!$hookSkipped) {
                 return $result;
             }
         }
 
+        return $this->readSkipped($property, $value, $error);
+    }
+
+    /**
+     * A value its post-processor skipped, read as the property reads it
+     * without one. What the application supplies is left to
+     * populateInstance().
+     *
+     * @param array{rule: string, params?: list<string>}|null     $error
+     * @param-out array{rule: string, params?: list<string>}|null $error
+     */
+    private function readSkipped(PropertyMetadata $property, mixed $value, ?array &$error): mixed
+    {
+        $error = null;
         if ($property->source === FieldSource::Context) {
             return $value;
         }
