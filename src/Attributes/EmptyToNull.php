@@ -8,7 +8,7 @@ use Attribute;
 
 /**
  * A blank string — `""`, or only whitespace — is no value: it becomes `null`
- * before pre-processing and validation. The property then holds `null` when
+ * after normalization and before validation. The property then holds `null` when
  * nullable, keeps its default when it has one, and reports `required`
  * otherwise. A filled string passes through as it is.
  *

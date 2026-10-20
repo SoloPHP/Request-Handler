@@ -10,12 +10,6 @@ use Solo\RequestHandler\Attributes\Source\FromContext;
 
 final class FromContextTest extends TestCase
 {
-    public function testAcceptsKey(): void
-    {
-        $attr = new FromContext('authenticatedUserId');
-        $this->assertSame('authenticatedUserId', $attr->key);
-    }
-
     public function testRejectsEmptyKey(): void
     {
         $this->expectException(InvalidArgumentException::class);

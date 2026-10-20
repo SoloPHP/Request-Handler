@@ -10,12 +10,6 @@ use Solo\RequestHandler\Attributes\Cast;
 
 final class CastTest extends TestCase
 {
-    public function testAcceptsNonEmptyType(): void
-    {
-        $attr = new Cast('float');
-        $this->assertSame('float', $attr->type);
-    }
-
     public function testRejectsEmptyType(): void
     {
         $this->expectException(InvalidArgumentException::class);

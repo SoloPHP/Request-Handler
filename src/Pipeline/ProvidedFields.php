@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Pipeline;
 
-use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Cache\RequestMetadata;
 use Solo\RequestHandler\Request;
 use WeakMap;
@@ -15,48 +14,36 @@ use WeakMap;
  * property normalizers see only the DTO's own fields. An entry lives as long
  * as its DTO.
  *
- * An entry is an int with a bit per property (`RequestMetadata::$bits`), so
- * it takes no memory beyond its slot in the table. A class with more
- * properties than an int has bits keeps the names instead.
+ * Each entry is a set of property names in declaration order, including
+ * explicitly supplied nulls and generated values. A DTO supplied in full
+ * shares its class's set rather than holding a copy, and DTOs of one class
+ * supplied with the same fields — the items of a list — share one set too.
  *
  * @internal Read it through `Request::provided()`.
  */
 final class ProvidedFields
 {
-    /**
-     * How many decoded name sets one class keeps — a client chooses which
-     * fields it sends, so a long-running worker must not keep every shape.
-     * A full class starts over, so the shapes in use now get decoded once.
-     */
-    private const int DECODED_PER_CLASS = 64;
-
-    /** @var WeakMap<Request, int|array<string, true>>|null */
+    /** @var WeakMap<Request, array<string, true>>|null */
     private static ?WeakMap $fields = null;
 
-    /**
-     * Name sets decoded from an int entry, by class and entry: the DTOs of a
-     * list share their shape, so reading them decodes it once.
-     *
-     * @var array<string, array<int, array<string, true>>>
-     */
-    private static array $decoded = [];
+    /** @var array<string, array<string, true>> The last partial set recorded per class. */
+    private static array $partial = [];
 
     /**
      * @param array<string, mixed> $values What the handler assigned, keyed by property name.
      */
     public static function record(Request $dto, RequestMetadata $metadata, array $values): void
     {
-        $bits = $metadata->bits;
-        if ($bits === null) {
-            // Declaration order: hydrate() adds generated values last.
-            $provided = array_fill_keys(array_keys(array_intersect_key($metadata->properties, $values)), true);
+        if (count($values) === count($metadata->names)) {
+            $provided = $metadata->names;
         } else {
-            $provided = 0;
-            foreach ($values as $name => $value) {
-                $provided |= $bits[$name];
+            $provided = self::$partial[$metadata->className] ?? [];
+            if (count($provided) !== count($values) || array_diff_key($values, $provided) !== []) {
+                // Declaration order, whatever the order of $values: finalize()
+                // adds generated values last.
+                $provided = self::$partial[$metadata->className] = array_intersect_key($metadata->names, $values);
             }
         }
-
         self::$fields ??= new WeakMap();
         self::$fields[$dto] = $provided;
     }
@@ -68,46 +55,15 @@ final class ProvidedFields
      */
     public static function of(Request $dto): array
     {
-        $provided = self::$fields[$dto] ?? [];
-        if (!is_int($provided)) {
-            return $provided;
-        }
-
-        return self::$decoded[$dto::class][$provided] ?? self::decode($dto::class, $provided);
+        return self::$fields[$dto] ?? [];
     }
 
     /**
-     * @param class-string $className
-     * @return array<string, true>
-     */
-    private static function decode(string $className, int $provided): array
-    {
-        $names = [];
-        foreach (ReflectionCache::of($className)->bits ?? [] as $name => $bit) {
-            if (($provided & $bit) !== 0) {
-                $names[$name] = true;
-            }
-        }
-
-        if (count(self::$decoded[$className] ?? []) >= self::DECODED_PER_CLASS) {
-            self::$decoded[$className] = [];
-        }
-        self::$decoded[$className][$provided] = $names;
-
-        return $names;
-    }
-
-    /**
-     * Whether the request supplied the property — one bit, with no set to
-     * decode.
+     * Whether the request supplied the property.
      */
     public static function has(Request $dto, string $name): bool
     {
-        $provided = self::$fields[$dto] ?? [];
-
-        return is_int($provided)
-            ? ($provided & (ReflectionCache::of($dto::class)->bits[$name] ?? 0)) !== 0
-            : isset($provided[$name]);
+        return isset(self::$fields[$dto][$name]);
     }
 
     /**

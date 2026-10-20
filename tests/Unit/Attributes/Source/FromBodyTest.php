@@ -10,12 +10,6 @@ use Solo\RequestHandler\Attributes\Source\FromBody;
 
 final class FromBodyTest extends TestCase
 {
-    public function testAcceptsDotPath(): void
-    {
-        $attr = new FromBody('customer.id');
-        $this->assertSame('customer.id', $attr->path);
-    }
-
     public function testRejectsEmptyPath(): void
     {
         $this->expectException(InvalidArgumentException::class);

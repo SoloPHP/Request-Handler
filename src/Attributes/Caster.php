@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Solo\RequestHandler\Attributes;
 
 use Attribute;
-use Solo\RequestHandler\Contracts\CasterInterface;
 
 /**
  * Custom CasterInterface class for the property value.
@@ -23,10 +22,12 @@ use Solo\RequestHandler\Contracts\CasterInterface;
 final class Caster
 {
     /**
-     * @param class-string<CasterInterface> $class
+     * @param class-string         $class Must implement CasterInterface.
+     * @param array<string, mixed> $config
      */
     public function __construct(
         public string $class,
+        public array $config = [],
     ) {
     }
 }

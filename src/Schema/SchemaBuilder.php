@@ -8,7 +8,6 @@ use BackedEnum;
 use Solo\RequestHandler\Cache\PropertyMetadata;
 use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Cache\RequestMetadata;
-use Solo\RequestHandler\FieldSource;
 use Solo\RequestHandler\RuleParser;
 use UnitEnum;
 
@@ -28,7 +27,7 @@ use UnitEnum;
  * result round-trips losslessly through `json_encode`/`json_decode`.
  *
  * Validation rules are parsed by the shared `RuleParser`, the single source of
- * truth for rule-string split semantics (also used by `ReflectionCache`).
+ * truth for rule-string split semantics (also used by `MetadataBuilder`).
  *
  * @phpstan-type NormalizedRule array{name: string, args: list<string>}
  * @phpstan-type RequiredIf array{field: string, value: string}
@@ -79,7 +78,7 @@ final readonly class SchemaBuilder
 
         $schema = [];
         foreach ($metadata->properties as $property) {
-            if ($property->generator !== null || $property->source === FieldSource::Context) {
+            if ($property->appSupplied) {
                 continue;
             }
 
