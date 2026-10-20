@@ -27,7 +27,7 @@
     "solophp/contracts": "^1.3"
   },
   "suggest": {
-    "solophp/validator": "^3.0"
+    "solophp/validator": "^4.0"
   },
   "require-dev": {
     "phpunit/phpunit": "^12.3",
