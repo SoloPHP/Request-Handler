@@ -35,11 +35,14 @@ $pagination = $dto->group('pagination');
 
 ## Flattening Behavior
 
-The `group()` method returns a flat array:
+The `group()` method reads properties in declaration order and returns a flat array:
 
-- **Associative array properties**: Contents are merged into result
+- **Associative array properties**: Contents are merged by their own keys, preserving their order and nested values
 - **Scalar properties and sequential arrays**: Added by property name (or by `mapTo` if specified)
-- **Empty arrays**: Skipped entirely
+- **Empty arrays and `null` properties**: Skipped entirely
+- **`false`, `0` and `""`**: Included as ordinary values
+
+Only the property's own `null` value is skipped. A `null` entry inside an associative array is preserved and its key participates in duplicate detection.
 
 ```php
 final class FilterRequest extends Request
@@ -147,13 +150,13 @@ $dto->group('criteria');
 // ]
 ```
 
-Duplicate leaf/column keys still throw — that remains a real conflict.
+Duplicate leaf/column keys still throw — that remains a real conflict. Connector names are case-sensitive: lowercase `and` and `or` follow ordinary duplicate-key rules.
 
 ---
 
 ## Uninitialized Properties
 
-Only initialized properties are included in group results:
+Only initialized properties are included in group results. Defaults count as initialized values; fields do not have to be listed in `provided()` to belong to a group.
 
 ```php
 final class PartialRequest extends Request
@@ -165,7 +168,8 @@ final class PartialRequest extends Request
     public ?string $category;
 }
 
-// If only 'search' was in request:
+$dto = new PartialRequest();
+$dto->search = 'test';
 $dto->group('filters');
 // ['search' => 'test']  // 'category' not included
 ```
@@ -185,7 +189,7 @@ $dto->group('nonexistent');
 
 ## Performance
 
-Group metadata is cached per class. Multiple calls to `group()` reuse cached property lists:
+Group metadata is cached per class. Multiple calls to `group()` reuse cached property lists, but read current DTO values on every call. Group results are not cached, and building a group does not modify the DTO:
 
 ```php
 $filters = $dto->group('criteria');
@@ -299,17 +303,17 @@ $query->orderBy($order['orderBy'], $order['orderDir']);
 Groups compose with the rest of the attribute family:
 
 ```php
-use Solo\RequestHandler\Attributes\{Validate, PreProcess, PostProcess, Generator, Group, Exclude};
+use Solo\RequestHandler\Attributes\{Validate, PostProcess, Generator, Group, Exclude};
 
 final class ComplexRequest extends Request
 {
     #[Validate('nullable|string')]
-    #[PreProcess('trim')]
+    // Strings are auto-trimmed by default.
     #[Group('search')]
     public ?string $query = null;
 
     #[Validate('in:asc,desc')]
-    #[PostProcess('strtoupper')]
+    #[PostProcess(UppercaseProcessor::class)]
     #[Group('sorting')]
     public string $direction = 'asc';
 
@@ -317,5 +321,21 @@ final class ComplexRequest extends Request
     #[Group('meta')]
     #[Exclude]
     public int $requestedAt;
+}
+```
+
+The `UppercaseProcessor` in the example implements the typed post-processing contract:
+
+```php
+use Solo\RequestHandler\Contracts\PostProcessorInterface;
+use Solo\RequestHandler\ProcessContext;
+
+/** @implements PostProcessorInterface<string> */
+final class UppercaseProcessor implements PostProcessorInterface
+{
+    public function postProcess(mixed $value, ProcessContext $context): string
+    {
+        return strtoupper($value);
+    }
 }
 ```

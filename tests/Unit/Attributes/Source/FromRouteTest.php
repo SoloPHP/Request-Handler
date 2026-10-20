@@ -10,18 +10,6 @@ use Solo\RequestHandler\Attributes\Source\FromRoute;
 
 final class FromRouteTest extends TestCase
 {
-    public function testDefaultsToNullKey(): void
-    {
-        $attr = new FromRoute();
-        $this->assertNull($attr->key);
-    }
-
-    public function testAcceptsExplicitKey(): void
-    {
-        $attr = new FromRoute('product_id');
-        $this->assertSame('product_id', $attr->key);
-    }
-
     public function testRejectsEmptyKey(): void
     {
         $this->expectException(InvalidArgumentException::class);

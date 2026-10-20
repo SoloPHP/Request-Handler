@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'Solo Request Handler',
-  description: 'Type-safe Request DTOs for PHP 8.2+ with validation, casting, and generators.',
+  description: 'Type-safe Request DTOs for PHP 8.3+ with validation, casting, and generators.',
   base: '/Request-Handler/',
   
   head: [
@@ -10,7 +10,7 @@ export default defineConfig({
     ['meta', { name: 'theme-color', content: '#10b981' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'Solo Request Handler' }],
-    ['meta', { property: 'og:description', content: 'Type-safe Request DTOs for PHP 8.2+ with validation, casting, and generators' }],
+    ['meta', { property: 'og:description', content: 'Type-safe Request DTOs for PHP 8.3+ with validation, casting, and generators' }],
   ],
 
   themeConfig: {
@@ -20,7 +20,7 @@ export default defineConfig({
       { text: 'Guide', link: '/guide/installation' },
       { text: 'Features', link: '/features/field-attribute' },
       { text: 'API', link: '/api/request-class' },
-      { text: 'v3.3.0', link: 'https://github.com/solophp/request-handler/releases' },
+      { text: 'v4.0.0', link: 'https://github.com/solophp/request-handler/releases' },
       {
         text: 'Links',
         items: [
@@ -45,9 +45,9 @@ export default defineConfig({
         items: [
           { text: 'Attributes', link: '/features/field-attribute' },
           { text: 'Type Casting', link: '/features/type-casting' },
-          { text: 'Processors', link: '/features/processors' },
+          { text: 'Processing Stages', link: '/features/processors' },
           { text: 'Generators', link: '/features/generators' },
-          { text: 'Nested Items', link: '/features/nested-items' },
+          { text: 'Nested Objects & Items', link: '/features/nested-items' },
           { text: 'Field Grouping', link: '/features/grouping' },
           { text: 'Validation', link: '/features/validation' },
           { text: 'Schema Export', link: '/features/schema' }

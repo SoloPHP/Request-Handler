@@ -7,7 +7,7 @@ namespace Solo\RequestHandler;
 /**
  * Single source of truth for validation rule-string split semantics.
  *
- * Shared by metadata building (`ReflectionCache`) and schema export
+ * Shared by metadata building (`MetadataBuilder`) and schema export
  * (`SchemaBuilder`) so both interpret a `#[Validate]` string identically:
  *
  * - the raw string is split on `|`;
@@ -20,6 +20,7 @@ namespace Solo\RequestHandler;
  * (e.g. `in:nullable,active` must NOT be read as a `nullable` rule).
  *
  * @phpstan-type NormalizedRule array{name: string, args: list<string>}
+ * @internal
  */
 final class RuleParser
 {

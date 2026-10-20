@@ -10,12 +10,6 @@ use Solo\RequestHandler\Attributes\Cast;
 
 final class CastTest extends TestCase
 {
-    public function testAcceptsNonEmptyType(): void
-    {
-        $attr = new Cast('datetime:immutable:Y-m-d');
-        $this->assertSame('datetime:immutable:Y-m-d', $attr->type);
-    }
-
     public function testRejectsEmptyType(): void
     {
         $this->expectException(InvalidArgumentException::class);

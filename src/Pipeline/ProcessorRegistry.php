@@ -4,26 +4,44 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Pipeline;
 
-use Solo\RequestHandler\Cache\ProcessorKind;
+use Psr\Container\ContainerInterface;
 use Solo\RequestHandler\Contracts\CasterInterface;
 use Solo\RequestHandler\Contracts\GeneratorInterface;
-use Solo\RequestHandler\Contracts\ProcessorInterface;
+use Solo\RequestHandler\Contracts\NormalizerInterface;
+use Solo\RequestHandler\Contracts\PostProcessorInterface;
+use Solo\RequestHandler\Exceptions\FieldValidationException;
+use Solo\RequestHandler\Exceptions\ValidationException;
 use Solo\RequestHandler\Exceptions\ConfigurationException;
 use Solo\RequestHandler\ProcessContext;
 
 /**
- * Lazily instantiates and caches processor / caster / generator instances
- * for the lifetime of the owning `RequestHandler`, and dispatches them by
- * their pre-classified `ProcessorKind`.
+ * Resolves normalizer / caster / post-processor / generator classes.
+ *
+ * A class resolves to the instance registered for it, else the container's
+ * entry for the class name, else a new instance built without arguments.
+ * Registered and argument-less instances live as long as the owning
+ * `RequestHandler`; a container entry is fetched on every use, so the
+ * container decides whether it is shared, built per call or request-scoped.
+ *
+ * @internal
  */
 final class ProcessorRegistry
 {
-    /** @var array<class-string, ProcessorInterface|CasterInterface|GeneratorInterface|object> */
+    /** @var array<class-string, object> */
     private array $instances = [];
 
+    /** @var array<class-string, bool> Whether the container holds a class — asked once. */
+    private array $inContainer = [];
+
+    public function __construct(
+        private readonly ?ContainerInterface $container = null,
+    ) {
+    }
+
     /**
-     * Register a pre-built instance — used when the processor/caster/generator
-     * has constructor dependencies that the registry cannot satisfy itself.
+     * Register a pre-built instance — used when the normalizer, caster,
+     * post-processor or generator has constructor dependencies that the
+     * registry cannot satisfy itself.
      *
      * Fails fast if `$instance` is not actually an instance of `$className`
      * (typical copy-paste error: `register(MyCaster::class, $logger)`).
@@ -43,74 +61,92 @@ final class ProcessorRegistry
         $this->instances[$className] = $instance;
     }
 
-    /**
-     * Dispatch a pre/postProcess handler on a value.
-     *
-     * `$context` is passed only to `ProcessorInterface` handlers; the other
-     * dispatch kinds get just the value.
-     *
-     * @param class-string $className The Request class being processed (for static-method dispatch).
-     */
-    public function runProcessor(
-        string $handler,
-        ProcessorKind $kind,
-        mixed $value,
-        string $className,
-        ProcessContext $context,
-    ): mixed {
-        return match ($kind) {
-            ProcessorKind::Func               => $handler($value), // @phpstan-ignore-line callable.nonCallable
-            ProcessorKind::ProcessorInterface => $this->invokeProcessor($handler, $value, $context),
-            ProcessorKind::CasterInterface    => $this->invokeCaster($handler, $value),
-            ProcessorKind::StaticMethod       => $className::$handler($value),
-        };
+    public function normalize(string $handler, mixed $value, ProcessContext $context): mixed
+    {
+        /** @var NormalizerInterface $normalizer */
+        $normalizer = $this->getOrCreate($handler);
+        try {
+            return $normalizer->normalize($value, $context);
+        } catch (ValidationException $e) {
+            throw $this->aggregateRejection($handler, $e);
+        }
+    }
+
+    public function cast(string $handler, mixed $value, ProcessContext $context): mixed
+    {
+        /** @var CasterInterface<mixed> $caster */
+        $caster = $this->getOrCreate($handler);
+        try {
+            return $caster->cast($value, $context);
+        } catch (ValidationException $e) {
+            throw $this->aggregateRejection($handler, $e);
+        }
+    }
+
+    public function postProcess(string $handler, mixed $value, ProcessContext $context): mixed
+    {
+        /** @var PostProcessorInterface<mixed> $processor */
+        $processor = $this->getOrCreate($handler);
+        try {
+            return $processor->postProcess($value, $context);
+        } catch (FieldValidationException | ValidationException $e) {
+            throw $this->lateRejection($handler, $e);
+        }
     }
 
     /**
      * @param class-string<GeneratorInterface> $generatorClass
-     * @param array<string, mixed>             $options
+     * @param array<string, mixed> $options
      */
     public function runGenerator(string $generatorClass, array $options): mixed
     {
         /** @var GeneratorInterface $generator */
         $generator = $this->getOrCreate($generatorClass);
-        return $generator->generate($options);
+        try {
+            return $generator->generate($options);
+        } catch (FieldValidationException | ValidationException $e) {
+            throw $this->lateRejection($generatorClass, $e);
+        }
     }
 
-    /**
-     * Apply a `CasterInterface` directly (used by `RequestHandler::transform()`
-     * for `#[Caster]`-marked properties).
-     */
-    public function invokeCaster(string $handler, mixed $value): mixed
+    private function aggregateRejection(string $handler, ValidationException $previous): \LogicException
     {
-        /** @var CasterInterface $caster */
-        $caster = $this->getOrCreate($handler);
-        return $caster->cast($value);
+        return new \LogicException("{$handler} must reject its field with FieldValidationException.", 0, $previous);
     }
 
-    private function invokeProcessor(string $handler, mixed $value, ProcessContext $context): mixed
+    private function lateRejection(string $handler, \Throwable $previous): \LogicException
     {
-        /** @var ProcessorInterface $processor */
-        $processor = $this->getOrCreate($handler);
-        return $processor->process($value, $context);
+        return new \LogicException(
+            "{$handler} cannot reject input during finalization. Move validation to a normalizer, validator or caster.",
+            0,
+            $previous,
+        );
     }
 
-    /**
-     * The class string here is validated upstream by `ReflectionCache` —
-     * `runProcessor` / `runGenerator` / `invokeCaster` are only called with
-     * names that already passed `classifyProcessor` / `validateGenerator` /
-     * `isCasterClass`.
-     */
     private function getOrCreate(string $className): object
     {
         /** @var class-string $className */
-        return $this->instances[$className] ??= $this->instantiate($className);
+        if (isset($this->instances[$className])) {
+            return $this->instances[$className];
+        }
+
+        if ($this->container !== null && ($this->inContainer[$className] ??= $this->container->has($className))) {
+            $entry = $this->container->get($className);
+            if (!$entry instanceof $className) {
+                throw ConfigurationException::containerEntryMismatch($className, get_debug_type($entry));
+            }
+
+            return $entry;
+        }
+
+        return $this->instances[$className] = $this->instantiate($className);
     }
 
     /**
      * Whether a class can be built without arguments is only decidable here:
-     * an abstract class, or one with constructor dependencies, is valid
-     * configuration as long as an instance was registered for it.
+     * an interface, an abstract class or one with constructor dependencies is
+     * valid configuration as long as an instance was registered for it or the
+     * container provides one.
      *
      * @param class-string $className
      */

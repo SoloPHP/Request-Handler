@@ -19,31 +19,34 @@ hero:
 features:
   - icon: 🎯
     title: Explicit source binding
-    details: Default source comes from the handle method (Body / Query). #[FromRoute] and #[FromContext] override per property. No implicit merging.
+    details: 'Default source comes from the handle method (Body / Query). #[FromRoute] and #[FromContext] override per property. No implicit merging.'
   - icon: 🧩
     title: Composable attributes
-    details: Each concern is its own focused attribute — #[Validate], #[Cast], #[PostProcess], #[Generator], #[Items], …
+    details: 'Each concern is its own focused attribute — #[Validate], #[Cast], #[PostProcess], #[Generator], #[Items], …'
   - icon: 🔄
     title: Automatic type casting
-    details: Driven by declared type — int, float, bool, string, array, DateTime, backed enums + custom casters. Unconvertible input is a validation error, not garbage.
+    details: Driven by declared type — int, float, bool, string, array, DateTime, backed enums + custom casters. Casts are lossless — "12abc" for an int is a validation error, not 12.
   - icon: ✅
     title: Validation rules
     details: Rules passed verbatim to your ValidatorInterface. Every field present in the request — route and context included — lands in the validation payload. All errors come back at once.
   - icon: ⚡
     title: Generators
-    details: Auto-generate field values (UUIDs, sequences) via #[Generator] with custom options.
+    details: 'Auto-generate field values (UUIDs, sequences) via #[Generator] with custom options.'
   - icon: 🔧
-    title: Pre/post processing
-    details: Transform values before validation or after it via #[PreProcess] / #[PostProcess].
+    title: Processing stages
+    details: 'Normalize raw input, cast to the declared type, then post-process decoded values.'
   - icon: 🪆
-    title: Nested items
-    details: Validate arrays of nested DTOs via #[Items] with dot-notation error paths.
+    title: Nested DTOs
+    details: 'A property typed with a Request subclass is a nested object; #[Items] makes a list of them. Errors keyed address.city, lines.0.qty.'
+  - icon: 🩹
+    title: PATCH-ready
+    details: 'provided() tells a field the client sent — even as null — from one left at its default; toArray(onlyProvided: true) is the change set. #[EmptyToNull] makes a blank field null.'
   - icon: 🛡️
     title: Fail-fast
     details: Misconfigurations throw ConfigurationException at metadata-build time, nested item classes included.
   - icon: 📐
     title: Schema export
-    details: schema() emits JSON-serializable per-field metadata (type, nullability, requiredness incl. required_if, normalized rules) — the backend as a single source of truth for the frontend.
+    details: schema() emits the JSON-serializable input contract keyed like the errors — types, requiredness incl. required_if, rules, defaults, date formats, enum cases, nested schemas.
 ---
 
 <style>
@@ -105,4 +108,6 @@ echo $dto->sku;    // string — auto-generated UUID
 composer require solophp/request-handler
 ```
 
-**Requirements:** PHP 8.2+, PSR-7 HTTP Message
+**Requirements:** PHP 8.3+, PSR-7 HTTP Message
+
+Upgrading from 3.x? See [UPGRADE.md](https://github.com/solophp/request-handler/blob/main/UPGRADE.md).

@@ -14,9 +14,10 @@ use Solo\RequestHandler\Contracts\GeneratorInterface;
  * query / route / etc. — the generator class produces the value (UUID,
  * sequential id, timestamp, …).
  *
- * Mutually exclusive with `#[Validate]`, `#[Input]`-style source attributes,
- * `#[PreProcess]`, `#[PostProcess]`, `#[Cast]`, `#[Caster]`, `#[Items]` —
- * they would have nothing to act on and trigger `ConfigurationException`.
+ * Mutually exclusive with every input attribute — the sources, `#[Validate]`,
+ * `#[Cast]`, `#[Caster]`, `#[DateFormat]`, `#[EmptyToNull]`, `#[NoTrim]`,
+ * `#[Normalize]`, `#[PostProcess]`, `#[Items]` — which would have nothing to
+ * act on and trigger `ConfigurationException`.
  *
  * `options` are passed to `GeneratorInterface::generate()`.
  *

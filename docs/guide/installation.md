@@ -2,9 +2,10 @@
 
 ## Requirements
 
-- PHP 8.2 or higher
+- PHP 8.3 or higher
 - PSR-7 HTTP Message implementation
 - Validator implementing `Solo\Contracts\Validator\ValidatorInterface`
+- Optional: a PSR-11 container for normalizers, casters, post-processors and generators with constructor dependencies
 
 ## Composer
 
@@ -14,12 +15,17 @@ Install the package via Composer:
 composer require solophp/request-handler
 ```
 
+::: tip Upgrading from 3.x
+4.0 replaces `#[PreProcess]` with `#[Normalize]`, `#[Caster]` and `#[PostProcess]`, makes casts lossless, keys errors and `schema()` by input key, and replaces `#[Cast('datetime…')]` with `#[DateFormat]`. See [UPGRADE.md](https://github.com/solophp/request-handler/blob/main/UPGRADE.md) for the checklist.
+:::
+
 ## Dependencies
 
 ```json
 {
     "require": {
-        "php": ">=8.2",
+        "php": "^8.3",
+        "psr/container": "^2.0",
         "psr/http-message": "^2.0",
         "solophp/contracts": "^1.3"
     }
