@@ -604,12 +604,12 @@ final class RequestHandler
             $property->effectiveCastType !== null => $this->builtInCaster->cast($property->effectiveCastType, $value),
             $property->unionCasts !== null && $property->typeGuard !== null
                 => $this->builtInCaster->castToMembers($property->typeGuard, $property->unionCasts, $value),
-            // A type no input can have (a class a pre-processor produces):
-            // "" there is no value, as it is for every cast type.
-            default => $value === '' && !$property->holdsInput ? null : $value,
+            default => $value,
         };
 
-        if ($cast === null && $value !== '') {
+        // "" is read like any other value: what the client's "" means was
+        // settled by the property's `blank`; the application's is a value.
+        if ($cast === null) {
             $error = $property->castFailure;
         }
 
