@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Solo\RequestHandler\Exceptions;
 
 use Exception;
+use Solo\RequestHandler\Casters\BuiltInCaster;
 
 /**
  * Thrown when an invalid Request class configuration is detected
@@ -197,10 +198,11 @@ final class ConfigurationException extends Exception
     ): self {
         return new self(sprintf(
             "Property %s::\$%s has #[Cast('%s')] which is neither a built-in type " .
-            "(int, float, bool, string, array, json) nor a known class.",
+            "(%s) nor a known class.",
             $className,
             $propertyName,
-            $castType
+            $castType,
+            implode(', ', BuiltInCaster::CAST_TYPES)
         ));
     }
 
@@ -214,11 +216,12 @@ final class ConfigurationException extends Exception
     ): self {
         return new self(sprintf(
             "Property %s::\$%s has #[Cast('%s')] but that is a class name. " .
-            "#[Cast] accepts built-in types only (int, float, bool, string, array, json). " .
+            "#[Cast] accepts built-in types only (%s). " .
             "For custom caster classes use #[Caster(%s::class)].",
             $className,
             $propertyName,
             $castType,
+            implode(', ', BuiltInCaster::CAST_TYPES),
             $castType
         ));
     }

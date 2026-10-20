@@ -75,10 +75,7 @@ final readonly class SchemaBuilder
      */
     private function describe(RequestMetadata $metadata, array $path): array
     {
-        $inputKeys = [];
-        foreach ($metadata->properties as $name => $property) {
-            $inputKeys[$name] = $property->sourceKey;
-        }
+        $inputKeys = array_column($metadata->properties, 'sourceKey', 'name');
 
         $schema = [];
         foreach ($metadata->properties as $property) {
@@ -125,10 +122,7 @@ final readonly class SchemaBuilder
             $field['format'] = $property->dateFormat;
         }
         if ($property->enumClass !== null) {
-            $field['cases'] = array_map(
-                static fn(BackedEnum $case): int|string => $case->value,
-                $property->enumClass::cases()
-            );
+            $field['cases'] = array_column($property->enumClass::cases(), 'value');
         }
         // What the client may send when the type does not say it: any JSON
         // value for #[Cast('json')], a float for #[Cast('float')] on int|float.

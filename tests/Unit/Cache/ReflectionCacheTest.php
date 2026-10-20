@@ -596,6 +596,7 @@ final class ReflectionCacheTest extends TestCase
         $metadata = $this->cache->get(TreeNodeRequest::class);
 
         $this->assertSame(TreeNodeRequest::class, $metadata->properties['children']->items);
+        $this->assertContains('children', $metadata->transformed, 'a class being built is assumed to need it');
     }
 
     // ===== datetime specs & cast compatibility =====
@@ -608,7 +609,17 @@ final class ReflectionCacheTest extends TestCase
 
         $this->assertSame(ItemRequest::class, $metadata->properties['item']->nested);
         $this->assertSame(ItemRequest::class, $metadata->properties['maybe']->nested);
-        $this->assertContains('item', $metadata->transformed);
+    }
+
+    public function testChildrenJoinTheTransformPassOnlyWhenTheirClassNeedsIt(): void
+    {
+        // ItemRequest has no post-processor or caster anywhere: nothing to run.
+        $this->assertSame([], $this->cache->get(ParentOfNestedRequest::class)->transformed);
+
+        $this->assertSame(
+            ['child', 'children', 'grandchild'],
+            $this->cache->get(ParentOfHookedChildRequest::class)->transformed
+        );
     }
 
     public function testRequestTypeProducedByCasterIsNotNested(): void
@@ -1638,4 +1649,29 @@ final class LiteralTypesRequest extends Request
 {
     public true $accepted;
     public string|false $nickname = false;
+}
+
+final class HookedChildRequest extends Request
+{
+    #[PostProcess('strtoupper')]
+    public ?string $name = null;
+}
+
+final class WrapsHookedChildRequest extends Request
+{
+    public ?HookedChildRequest $inner = null;
+}
+
+final class ParentOfHookedChildRequest extends Request
+{
+    public ?HookedChildRequest $child = null;
+
+    /** @var list<HookedChildRequest> */
+    #[Items(HookedChildRequest::class)]
+    public array $children = [];
+
+    // Two levels down: the wrapper itself has no hook, its child has.
+    public ?WrapsHookedChildRequest $grandchild = null;
+
+    public ?ItemRequest $plain = null;
 }

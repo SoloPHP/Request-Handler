@@ -18,8 +18,9 @@ final readonly class RequestMetadata
      * @param array<string, PropertyMetadata>   $properties
      * @param ReflectionClass<covariant object> $reflection
      * @param list<string>                      $generated   Names of `#[Generator]` properties
-     * @param list<string>                      $transformed Names of properties with a post-processor,
-     *                                                       custom caster or `#[Items]`
+     * @param list<string>                      $transformed Names of properties the transform pass visits:
+     *                                                       a post-processor or custom caster, or nested
+     *                                                       DTOs / `#[Items]` whose class has one somewhere
      * @param array<string, list<string>>       $groups      `#[Group]` name → member property names
      */
     public function __construct(

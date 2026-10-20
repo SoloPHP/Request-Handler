@@ -285,7 +285,7 @@ final class RequestHandler
         foreach ($values as $name => $value) {
             $property = $metadata->properties[$name];
 
-            if (isset($errors[$name]) || $this->decidedInTransform($property)) {
+            if (isset($errors[$name]) || $property->decidedInTransform()) {
                 continue;
             }
 
@@ -296,13 +296,10 @@ final class RequestHandler
                 continue;
             }
 
-            if ($property->items !== null || $property->nested !== null) {
+            if ($property->buildsChildren()) {
                 if ($value !== null) {
                     $childErrors[$name] = [];
-                    $child = $this->resolveChildren($property, $value, $bags->context, $childErrors[$name]);
-                    if ($child !== null) {
-                        $children[$name] = $child;
-                    }
+                    $children[$name] = $this->resolveChildren($property, $value, $bags->context, $childErrors[$name]);
                 } elseif ($this->requiresValue($property)) {
                     $errors[$name] = [['rule' => 'required']];
                 }
@@ -353,7 +350,7 @@ final class RequestHandler
             $value = $values[$name];
             $property = $metadata->properties[$name];
 
-            if ($this->decidedInTransform($property)) {
+            if ($property->decidedInTransform()) {
                 try {
                     if ($property->postProcessorKind !== null) {
                         $value = $this->runHook(
@@ -375,59 +372,35 @@ final class RequestHandler
                 // The hook decides a context value — but the application's
                 // value still has to fit, as castTrusted() checks otherwise.
                 if ($property->source === FieldSource::Context) {
-                    $this->checkTrusted($property, $value, $metadata->className, hooked: true);
+                    $this->checkTrusted($property, $value, $metadata->className);
                 }
                 $values[$name] = $value;
             }
 
-            if (
-                ($property->items === null && $property->nested === null)
-                || $property->source === FieldSource::Context
-            ) {
+            if (!$property->buildsChildren()) {
                 continue;
             }
 
             $childErrors[$name] = [];
             // Children built from a post-processor's output exist only now.
-            if ($this->decidedInTransform($property) && $value !== null) {
-                $child = $this->resolveChildren($property, $value, $resolved->bags->context, $childErrors[$name]);
-                if ($child !== null) {
-                    $children[$name] = $child;
-                }
-            }
-            if ($childErrors[$name] === [] && isset($children[$name])) {
-                $children[$name] = $this->transformChildren(
-                    $children[$name],
-                    $property->sourceKey,
+            if ($property->decidedInTransform() && $value !== null) {
+                $children[$name] = $this->resolveChildren(
+                    $property,
+                    $value,
+                    $resolved->bags->context,
                     $childErrors[$name]
                 );
+            }
+            if ($childErrors[$name] === []) {
+                foreach ($children[$name] ?? [] as $path => $child) {
+                    $children[$name][$path] = $this->transformChild($child, (string) $path, $childErrors[$name]);
+                }
             }
         }
 
         $errors = $this->orderErrors($metadata, $errors, $childErrors);
 
         return new ResolvedRequest($metadata, $resolved->bags, $values, $children, $errors);
-    }
-
-    /**
-     * @param ResolvedRequest|array<int|string, ResolvedRequest> $children
-     * @param ValidationErrors                                   $errors Receives path-keyed child errors.
-     * @return ResolvedRequest|array<int|string, ResolvedRequest>
-     */
-    private function transformChildren(
-        ResolvedRequest|array $children,
-        string $path,
-        array &$errors,
-    ): ResolvedRequest|array {
-        if ($children instanceof ResolvedRequest) {
-            return $this->transformChild($children, $path, $errors);
-        }
-
-        foreach ($children as $index => $child) {
-            $children[$index] = $this->transformChild($child, "{$path}.{$index}", $errors);
-        }
-
-        return $children;
     }
 
     /**
@@ -454,21 +427,15 @@ final class RequestHandler
         $errors = [];
 
         foreach ($resolved->children as $name => $children) {
-            $path = $metadata->properties[$name]->sourceKey;
-
-            if ($children instanceof ResolvedRequest) {
-                $values[$name] = $this->hydrateChild($children, $path, $errors);
-                continue;
-            }
-
             $hydrated = [];
-            foreach ($children as $index => $child) {
-                $item = $this->hydrateChild($child, "{$path}.{$index}", $errors);
+            foreach ($children as $path => $child) {
+                $item = $this->hydrateChild($child, (string) $path, $errors);
                 if ($item !== null) {
                     $hydrated[] = $item;
                 }
             }
-            $values[$name] = $hydrated;
+            // A nested DTO is the one child; #[Items], the list of them.
+            $values[$name] = $metadata->properties[$name]->nested !== null ? ($hydrated[0] ?? null) : $hydrated;
         }
 
         if ($errors !== []) {
@@ -490,25 +457,26 @@ final class RequestHandler
     }
 
     /**
-     * Resolve the children of a nested-DTO or `#[Items]` property: one
-     * ResolvedRequest, or the list of them keyed by input index (later passes
-     * report errors under the same path; hydrate() turns it into a list).
-     * Null when the nested object itself is unusable — the error is recorded.
+     * Resolve the children of a nested-DTO or `#[Items]` property, keyed by
+     * input path — `address`, or `lines.0`, `lines.1`, … — the key later
+     * passes report errors under. A child that cannot be built is left out
+     * and its error recorded.
      *
      * @param array<string, mixed> $context
      * @param ValidationErrors     $errors Receives path-keyed child errors.
-     * @return ResolvedRequest|array<int|string, ResolvedRequest>|null
+     * @return array<string, ResolvedRequest>
      */
     private function resolveChildren(
         PropertyMetadata $property,
         mixed $value,
         array $context,
         array &$errors,
-    ): ResolvedRequest|array|null {
+    ): array {
         $path = $property->sourceKey;
 
         if ($property->nested !== null) {
-            return $this->resolveChild($property->nested, $value, $path, $context, $errors);
+            $child = $this->resolveChild($property->nested, $value, $path, $context, $errors);
+            return $child !== null ? [$path => $child] : [];
         }
 
         if (!is_array($value)) {
@@ -518,15 +486,16 @@ final class RequestHandler
 
         /** @var class-string<Request> $itemsClass */
         $itemsClass = $property->items;
-        $items = [];
+        $children = [];
         foreach ($value as $index => $itemData) {
-            $item = $this->resolveChild($itemsClass, $itemData, "{$path}.{$index}", $context, $errors);
-            if ($item !== null) {
-                $items[$index] = $item;
+            $itemPath = "{$path}.{$index}";
+            $child = $this->resolveChild($itemsClass, $itemData, $itemPath, $context, $errors);
+            if ($child !== null) {
+                $children[$itemPath] = $child;
             }
         }
 
-        return $items;
+        return $children;
     }
 
     /**
@@ -607,7 +576,7 @@ final class RequestHandler
                 $value
             ),
             $property->effectiveCastType !== null => $this->builtInCaster->cast($property->effectiveCastType, $value),
-            $property->typeGuard !== null => $this->castUnion($property->typeGuard, $property->unionCasts, $value),
+            $property->unionCasts !== null => $this->castUnion($property, $property->unionCasts, $value),
             default => $value,
         };
 
@@ -626,9 +595,10 @@ final class RequestHandler
      *
      * @param list<string> $casts
      */
-    private function castUnion(ParameterTypeGuard $guard, array $casts, mixed $value): mixed
+    private function castUnion(PropertyMetadata $property, array $casts, mixed $value): mixed
     {
-        if ($guard->accepts($value)) {
+        $guard = $property->typeGuard;
+        if ($guard === null || $guard->accepts($value)) {
             return $value;
         }
 
@@ -674,16 +644,12 @@ final class RequestHandler
      * skips the cast: a value for a property that needs one, of the declared
      * type, an #[Items] list of the declared DTOs.
      */
-    private function checkTrusted(
-        PropertyMetadata $property,
-        mixed $value,
-        string $className,
-        bool $hooked = false,
-    ): void {
+    private function checkTrusted(PropertyMetadata $property, mixed $value, string $className): void
+    {
         if ($value === null && $this->requiresValue($property)) {
             throw new \UnexpectedValueException(sprintf(
                 "%s is empty, but %s::\$%s is neither nullable nor has a default.",
-                $this->describeTrusted($property, $hooked),
+                $this->describeTrusted($property),
                 $className,
                 $property->name,
             ));
@@ -691,10 +657,10 @@ final class RequestHandler
 
         // A class-typed value is passed through uncast: check it here rather
         // than let the assignment raise a TypeError.
-        if ($value !== null && $property->trustedGuard?->accepts($value) === false) {
+        if ($value !== null && $property->typeGuard?->accepts($value) === false) {
             throw new \UnexpectedValueException(sprintf(
                 "%s is %s, which does not fit %s::\$%s (%s).",
-                $this->describeTrusted($property, $hooked),
+                $this->describeTrusted($property),
                 get_debug_type($value),
                 $className,
                 $property->name,
@@ -703,44 +669,36 @@ final class RequestHandler
         }
 
         // #[Items] on a context list declares the DTOs the application built.
-        if ($property->items !== null && is_array($value)) {
+        if ($property->suppliedItems !== null && is_array($value)) {
             foreach ($value as $key => $item) {
-                if (!$item instanceof $property->items) {
+                if (!$item instanceof $property->suppliedItems) {
                     throw new \UnexpectedValueException(sprintf(
                         "%s holds %s at key %s, but %s::\$%s lists %s.",
-                        $this->describeTrusted($property, $hooked),
+                        $this->describeTrusted($property),
                         get_debug_type($item),
                         $key,
                         $className,
                         $property->name,
-                        $property->items,
+                        $property->suppliedItems,
                     ));
                 }
             }
         }
     }
 
-    private function describeTrusted(PropertyMetadata $property, bool $hooked = false): string
+    private function describeTrusted(PropertyMetadata $property): string
     {
         $what = $property->generator !== null
             ? "Value generated by {$property->generator}"
             : "Context value '{$property->sourceKey}'";
 
-        if ($hooked) {
-            $what .= $property->postProcessorKind !== null ? ' after #[PostProcess]' : ' after #[Caster]';
-        }
-
-        return $what;
-    }
-
-    /**
-     * Whether a post-processor or custom caster decides the final value —
-     * and, for nested objects and items, what they are built from. Those run
-     * in transform().
-     */
-    private function decidedInTransform(PropertyMetadata $property): bool
-    {
-        return $property->postProcessorKind !== null || $property->customCasterClass !== null;
+        // castTrusted() never sees a hooked value: only a hook's result is
+        // checked for a property that has one.
+        return match (true) {
+            $property->postProcessorKind !== null => "{$what} after #[PostProcess]",
+            $property->customCasterClass !== null => "{$what} after #[Caster]",
+            default => $what,
+        };
     }
 
     /**
@@ -834,20 +792,14 @@ final class RequestHandler
         $ordered = [];
         foreach ($metadata->properties as $name => $property) {
             if (isset($errors[$name])) {
-                $ordered[$property->sourceKey] = array_merge($ordered[$property->sourceKey] ?? [], $errors[$name]);
+                $ordered = $this->mergeErrors($ordered, [$property->sourceKey => $errors[$name]]);
                 unset($errors[$name]);
             }
-            foreach ($childErrors[$name] ?? [] as $path => $messages) {
-                $ordered[$path] = array_merge($ordered[$path] ?? [], $messages);
-            }
+            $ordered = $this->mergeErrors($ordered, $childErrors[$name] ?? []);
         }
 
         // Keys reported for something other than a property.
-        foreach ($errors as $key => $messages) {
-            $ordered[$key] = array_merge($ordered[$key] ?? [], $messages);
-        }
-
-        return $ordered;
+        return $this->mergeErrors($ordered, $errors);
     }
 
     /**
@@ -859,18 +811,15 @@ final class RequestHandler
     private function populateInstance(Request $instance, RequestMetadata $metadata, array $data): Request
     {
         // Absent keys never reach $data: what is assigned here — or reset to
-        // its default — is what the request supplied. Declaration order.
+        // its default — is what the request supplied.
         $provided = [];
 
-        foreach ($metadata->properties as $name => $property) {
-            if (!array_key_exists($name, $data)) {
-                continue;
-            }
+        foreach ($data as $name => $value) {
+            $property = $metadata->properties[$name];
 
-            $value = $data[$name];
             if ($value !== null || $property->isNullable) {
                 $property->reflection->setValue($instance, $value);
-            } elseif (!$property->hasDefault) {
+            } elseif ($this->requiresValue($property)) {
                 // Runtime guard: null for a property that can hold neither null
                 // nor a default (a post-processor's or caster's result) leaves
                 // it uninitialised rather than throwing a TypeError — and it
@@ -879,6 +828,12 @@ final class RequestHandler
             }
 
             $provided[$name] = true;
+        }
+
+        // $data follows declaration order, but hydrate() adds generated
+        // values last; provided() lists declaration order.
+        if ($metadata->generated !== []) {
+            $provided = array_fill_keys(array_keys(array_intersect_key($metadata->properties, $provided)), true);
         }
 
         ProvidedFields::record($instance, $provided);
