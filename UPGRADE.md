@@ -62,6 +62,8 @@ The type-driven casts used PHP's own coercion, so the declared type silently rew
 
 The same casts apply to `#[FromContext]` values and generator results, where a failure throws `UnexpectedValueException` — see [Values the application supplies](#values-the-application-supplies).
 
+A function or static-method processor with a typed parameter got a numeric string from a query string or form skipped in 3.x — `clamp(int $value)` never ran for `?limit=5000`. A string the parameter's type spells without loss is now passed as that type, so the handler runs as it does for a JSON number.
+
 The accepted forms are those of solophp/validator's `integer`, `numeric` and `boolean` rules — `"42"`, `"-5"`, `"9.99"`, `"1e3"`, `"true"`, `"off"`, `1`, `0` and so on still convert — except that a JSON `true` / `false` is never a number. A field whose `#[Validate]` already checks its type sees no difference — the validator reports first.
 
 Watch for properties whose type contradicts their rule: an `int` property validated as `boolean` used to turn `"true"` into `0` without a word, and a JSON `true` into `1`; now both report `integer`. Fix the type (`bool`).
