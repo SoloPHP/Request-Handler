@@ -379,15 +379,11 @@ final class RequestHandler
             if ($property->decidedInTransform()) {
                 try {
                     if ($property->postProcessorKind !== null) {
-                        $value = $this->runHook(
-                            $property->postProcessor,
-                            $property->postProcessorKind,
-                            $property->postProcessorGuard,
-                            $property->postProcessConfig,
-                            $value,
-                            $metadata->className,
-                            $resolved->bags,
-                        );
+                        $value = $this->postProcess($property, $value, $resolved, $error);
+                        if ($error !== null) {
+                            $errors[$name] = [$error];
+                            continue;
+                        }
                     } elseif ($property->customCasterClass !== null && $value !== null) {
                         $value = $this->processors->invokeCaster($property->customCasterClass, $value);
                     }
@@ -424,6 +420,67 @@ final class RequestHandler
         $errors = $this->orderErrors($metadata, $errors, $childErrors);
 
         return new ResolvedRequest($metadata, $resolved->bags, $values, $children, $errors);
+    }
+
+    /**
+     * Run a property's post-processor. When its guard turns the client's
+     * value away — even as a string its parameter's type spells — the value
+     * is read as the property reads it without one: "" as its `blank`, the
+     * rest through its cast. A class only the post-processor produces first
+     * gets input of another type converted without loss, as for a
+     * pre-processor, and input that fits none is the client's wrong type.
+     * What the application supplies is left to populateInstance().
+     *
+     * @param array{rule: string, params?: list<string>}|null     $error
+     * @param-out array{rule: string, params?: list<string>}|null $error
+     */
+    private function postProcess(
+        PropertyMetadata $property,
+        mixed $value,
+        ResolvedRequest $resolved,
+        ?array &$error,
+    ): mixed {
+        $error = null;
+        $guard = $property->postProcessorGuard;
+        $input = $property->postProcessorFailure !== null && $guard !== null && $value !== null
+            ? $this->builtInCaster->castToMembers($guard, $value)
+            : $value;
+
+        $skipped = $input === null && $value !== null;
+        if (!$skipped) {
+            $result = $this->runHook(
+                $property->postProcessor,
+                $property->postProcessorKind,
+                $guard,
+                $property->postProcessConfig,
+                $input,
+                $resolved->metadata->className,
+                $resolved->bags,
+                $skipped,
+            );
+            if (!$skipped) {
+                return $result;
+            }
+        }
+
+        if ($property->source === FieldSource::Context) {
+            return $value;
+        }
+
+        if ($value === '') {
+            $value = $property->blank;
+        } elseif ($property->postProcessorFailure !== null) {
+            // Nothing but the post-processor reads such a class.
+            $error = $value === null ? null : $property->postProcessorFailure;
+        } elseif (!$property->buildsChildren()) {
+            $value = $this->castBuiltIn($value, $property, $error);
+        }
+
+        if ($error === null && $value === null && $this->requiresValue($property)) {
+            $error = ['rule' => 'required'];
+        }
+
+        return $value;
     }
 
     /**
@@ -742,6 +799,7 @@ final class RequestHandler
      *
      * @param array<string, mixed> $config
      * @param class-string         $className
+     * @param-out bool             $skipped   Whether the guard turned the value away.
      */
     private function runHook(
         ?string $handler,
@@ -751,7 +809,9 @@ final class RequestHandler
         mixed $value,
         string $className,
         InputBags $bags,
+        bool &$skipped = false,
     ): mixed {
+        $skipped = false;
         if ($handler === null || $kind === null) {
             return $value;
         }
@@ -759,6 +819,7 @@ final class RequestHandler
         if ($guard !== null && !$guard->accepts($value)) {
             $converted = is_string($value) ? $this->builtInCaster->castToMembers($guard, $value) : null;
             if ($converted === null) {
+                $skipped = true;
                 return $value;
             }
             $value = $converted;

@@ -263,6 +263,8 @@ $handler->register(CurrencyCaster::class, new CurrencyCaster($converter));
 
 When `#[PostProcess]` is defined, automatic casting is skipped (the processor is responsible for the final value). PHP assigns what it returns as it assigns any value; a result the property cannot hold — or `null` for a property that is neither nullable nor has a default — throws `UnexpectedValueException` naming the processor. The same goes for a `#[Caster]`.
 
+A function or static-method post-processor whose parameter type the client's value does not fit — not even as a string that type spells — is skipped, and the property reads the value as it would without it: `""` as no value, anything else through the property's cast, so `"abc"` for an `int` is an `integer` error, not a 500. See [Type Guard for Functions and Static Methods](/features/processors#type-guard-for-functions-and-static-methods).
+
 ```php
 #[PostProcess(JsonDecoder::class)]
 public array $tags;

@@ -2206,6 +2206,62 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
+    public function testSkippedPostProcessorLeavesTheValueToThePropertysReading(): void
+    {
+        // Before this, the raw value reached the property: "" and "abc" for
+        // an int ended in a 500.
+        $handle = fn(array $input) => $this->handler->handleArray(TypedHookRequest::class, $input);
+        $this->assertNull($handle(['doubled' => ''])->doubled, '"" is no value');
+        $this->assertNull($handle(['doubled' => null])->doubled);
+        // Only a string is converted for the handler, but the cast reads a whole float.
+        $this->assertSame(4, $handle(['doubled' => 4.0])->doubled);
+
+        $rejected = [
+            [['doubled' => 'abc'], ['doubled' => [['rule' => 'integer']]]],
+            [['doubled' => 4.5], ['doubled' => [['rule' => 'integer']]]],
+            [['count' => ''], ['count' => [['rule' => 'required']]]],
+        ];
+        foreach ($rejected as [$input, $expected]) {
+            try {
+                $handle($input);
+                $this->fail('Expected ValidationException');
+            } catch (ValidationException $e) {
+                $this->assertSame($expected, $e->getErrors(), (string) json_encode($input));
+            }
+        }
+    }
+
+    public function testClassOnlyAPostProcessorProducesIsReadLikeAPreProcessors(): void
+    {
+        $money = fn(array $input) => $this->handler->handleArray(PostProducedMoneyRequest::class, $input);
+        // Input of another type is converted for the only producer: a number
+        // reaches parse(string) as its digits.
+        $this->assertSame(999, $money(['price' => 9.99])->price?->cents);
+        $this->assertSame(999, $money(['cents' => '999'])->cents?->cents);
+        $this->assertNull($money(['cents' => ''])->cents, '"" is no value');
+
+        foreach ([[['price' => ['9.99']], 'price', 'string'], [['cents' => 'abc'], 'cents', 'integer']] as $case) {
+            [$input, $field, $rule] = $case;
+            try {
+                $money($input);
+                $this->fail('Expected ValidationException');
+            } catch (ValidationException $e) {
+                $this->assertSame([$field => [['rule' => $rule]]], $e->getErrors());
+            }
+        }
+    }
+
+    public function testSkippedPostProcessorOnAContextValueIsStillTheApplicationsError(): void
+    {
+        // A string spelling the type is converted from context too.
+        $dto = $this->handler->handleArray(ContextDoubledRequest::class, [], context: ['n' => '4']);
+        $this->assertSame(8, $dto->n);
+
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessage("Context value 'n' after #[PostProcess(double)] is string");
+        $this->handler->handleArray(ContextDoubledRequest::class, [], context: ['n' => 'abc']);
+    }
+
     public function testPreProcessorStillRunsForAcceptedType(): void
     {
         $this->validator->method('validate')->willReturn([]);
@@ -4272,6 +4328,9 @@ final class TypedHookRequest extends Request
     #[PreProcess('shout')]
     public ?string $name = null;
 
+    #[PostProcess('double')]
+    public int $count;
+
     public static function clamp(int $value): int
     {
         return min($value, 100);
@@ -4295,5 +4354,36 @@ final class TypedHookRequest extends Request
     public static function shout(string $value): string
     {
         return strtoupper($value) . '!';
+    }
+}
+
+final class PostProducedMoneyRequest extends Request
+{
+    #[PostProcess('parse')]
+    public ?TestMoney $price = null;
+
+    #[PostProcess('fromCents')]
+    public ?TestMoney $cents = null;
+
+    public static function parse(string $value): TestMoney
+    {
+        return new TestMoney((int) round((float) $value * 100));
+    }
+
+    public static function fromCents(int $cents): TestMoney
+    {
+        return new TestMoney($cents);
+    }
+}
+
+final class ContextDoubledRequest extends Request
+{
+    #[FromContext('n')]
+    #[PostProcess('double')]
+    public ?int $n = null;
+
+    public static function double(int $value): int
+    {
+        return $value * 2;
     }
 }

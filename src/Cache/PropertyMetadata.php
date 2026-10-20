@@ -36,7 +36,8 @@ use Solo\RequestHandler\Request;
  * is set when nothing but that pre-processor produces the property's type (a
  * class): input is converted to the parameter's type through the guard's
  * lossless `casts` first, and input that fits none is the client's wrong
- * type, reported with this rule.
+ * type, reported with this rule. `postProcessorFailure` is the same for a
+ * class only a typed post-processor produces.
  *
  * `enumClass` is set when the declared type is a `BackedEnum`; the value is
  * resolved through `tryFrom()` instead of a built-in cast.
@@ -83,6 +84,7 @@ final readonly class PropertyMetadata
      * @param class-string<Request>|null                       $nested
      * @param class-string<Request>|null                       $suppliedItems
      * @param array{rule: string}|null                         $preProcessorFailure
+     * @param array{rule: string}|null                         $postProcessorFailure
      */
     public function __construct(
         public string $name,
@@ -124,6 +126,7 @@ final readonly class PropertyMetadata
         public ?string $suppliedItems = null,
         public ?array $preProcessorFailure = null,
         public mixed $blank = '',
+        public ?array $postProcessorFailure = null,
     ) {
     }
 
