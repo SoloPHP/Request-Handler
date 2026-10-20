@@ -151,6 +151,9 @@ final class ReflectionCache
     /** @var array<class-string, RequestMetadata> */
     private array $cache = [];
 
+    /** Asked what `""` reads as for a type — see buildPropertyMetadata(). */
+    private ?BuiltInCaster $caster = null;
+
     /**
      * Classes whose metadata is being built — guards the eager `#[Items]`
      * validation against self-referencing trees.
@@ -522,6 +525,28 @@ final class ReflectionCache
             && $customCasterClass === null;
         [$unionCasts, $unionFailure] = $memberCast ? $this->unionCasts($members) : [null, null];
 
+        // A list the application supplies holds its DTOs already: they are
+        // checked, not built.
+        $listItems = $appSupplied ? null : $items?->class;
+        $typeGuard = $memberCast || $appSupplied ? ParameterTypeGuard::fromType($type) : null;
+
+        // What "" reads as, asked once of the reader the type has — so it
+        // cannot drift from what that reader does with other input: no value
+        // (null), an empty list, or "" itself where the type holds a string.
+        // Children and a class a pre-processor produces have no reader: an
+        // #[Items] list is empty, the others have no value.
+        $caster = $this->caster ??= new BuiltInCaster();
+        $blank = match (true) {
+            $listItems !== null => [],
+            $nested !== null => null,
+            $enumClass !== null => $caster->castEnum($enumClass, ''),
+            $dateClass !== null => $caster->castDate($dateClass, $dateFormat?->format, ''),
+            $effectiveCastType !== null => $caster->cast($effectiveCastType, ''),
+            $unionCasts !== null && $typeGuard !== null => $caster->castToMembers($typeGuard, $unionCasts, ''),
+            !$holdsInput => null,
+            default => '',
+        };
+
         return new PropertyMetadata(
             name: $name,
             source: $source,
@@ -545,9 +570,7 @@ final class ReflectionCache
             generator: $generator?->class,
             generatorOptions: $generator !== null ? $generator->options : [],
             exclude: $excludeAttr !== null,
-            // A list the application supplies holds its DTOs already: they are
-            // checked, not built.
-            items: $appSupplied ? null : $items?->class,
+            items: $listItems,
             pathSegments: $pathSegments,
             preProcessorGuard: $preProcessorGuard,
             postProcessorGuard: $postProcessorGuard,
@@ -562,12 +585,13 @@ final class ReflectionCache
             // auto-trimmed, and left out by a class-level #[EmptyToNull].
             emptyToNull: $emptyToNull !== null || ($classEmptyToNull && !$appSupplied),
             noTrim: $noTrim !== null || $classNoTrim || $appSupplied,
-            typeGuard: $memberCast || $appSupplied ? ParameterTypeGuard::fromType($type) : null,
+            typeGuard: $typeGuard,
             unionCasts: $unionCasts,
             suppliedItems: $appSupplied ? $items?->class : null,
             preProcessorFailure: $preProcessorFailure,
             holdsInput: $holdsInput,
             preProcessorCasts: $preProcessorCasts,
+            blank: $blank,
         );
     }
 

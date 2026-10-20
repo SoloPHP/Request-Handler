@@ -58,8 +58,12 @@ use Solo\RequestHandler\Request;
  * value the application supplies.
  *
  * `holdsInput` is false for a type no request input can have — a class,
- * `object`, an intersection: its value is produced, and `""` there is no
- * value.
+ * `object`, an intersection: its value is produced.
+ *
+ * `blank` is what `""` from the client reads as — asked of the property's
+ * own reader at build time: null (no value) for a number, a bool, a date, an
+ * enum without a `""` case, a nested object or a produced class; `[]` for an
+ * array or an `#[Items]` list; `""` itself for a type that holds a string.
  *
  * `typeGuard` and `unionCasts` are set for an input type no cast handles,
  * such as `int|float` or a standalone `true`: a value of a member type is
@@ -127,6 +131,7 @@ final readonly class PropertyMetadata
         public ?array $preProcessorFailure = null,
         public bool $holdsInput = true,
         public ?array $preProcessorCasts = null,
+        public mixed $blank = '',
     ) {
     }
 

@@ -287,7 +287,7 @@ Empty string `""` is handled per type:
 | Type | `""` Result | Reason |
 |------|-------------|--------|
 | `int`, `float`, `bool` | no value | Not a number / boolean |
-| date types, enums | no value | Not a date / case |
+| date types, enums | no value — the case, for an enum with a `""` case | Not a date / case |
 | a class a pre-processor produces | no value | No class holds a string |
 | `string` | `""` | Preserved as-is |
 | `array`, an `#[Items]` list | `[]` | Empty collection |
