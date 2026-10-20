@@ -30,24 +30,17 @@ use Solo\RequestHandler\Exceptions\ConfigurationException;
 use Solo\RequestHandler\FieldSource;
 use Solo\RequestHandler\ProcessContext;
 use Solo\RequestHandler\Request;
+use Solo\RequestHandler\Tests\ExpectsExceptionMessageParts;
 
 final class ReflectionCacheTest extends TestCase
 {
+    use ExpectsExceptionMessageParts;
+
     private ReflectionCache $cache;
 
     protected function setUp(): void
     {
         $this->cache = new ReflectionCache();
-    }
-
-    /**
-     * Expect an exception message holding every part, in any order —
-     * expectExceptionMessage() keeps only the last one it is given.
-     */
-    private function expectExceptionMessageParts(string ...$parts): void
-    {
-        $lookaheads = array_map(static fn(string $part): string => '(?=.*' . preg_quote($part, '/') . ')', $parts);
-        $this->expectExceptionMessageMatches('/^' . implode('', $lookaheads) . '/s');
     }
 
     // ===== caching =====
@@ -390,15 +383,9 @@ final class ReflectionCacheTest extends TestCase
     {
         // F7: when all three source attributes are declared, the error must
         // name all three so the user can fix in one pass.
-        try {
-            $this->cache->get(ThreeSourcesRequest::class);
-            $this->fail('Expected ConfigurationException');
-        } catch (ConfigurationException $e) {
-            $msg = $e->getMessage();
-            $this->assertStringContainsString('#[FromRoute]', $msg);
-            $this->assertStringContainsString('#[FromContext]', $msg);
-            $this->assertStringContainsString('#[FromBody]', $msg);
-        }
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessageParts('#[FromRoute]', '#[FromContext]', '#[FromBody]');
+        $this->cache->get(ThreeSourcesRequest::class);
     }
 
     // ===== F6: ambiguous processor =====
@@ -782,20 +769,25 @@ final class ReflectionCacheTest extends TestCase
         $this->assertNull($properties['processed']->preProcessorFailure);
     }
 
-    public function testPreProcessorNoInputCanReachThrows(): void
+    /**
+     * @param class-string $requestClass
+     */
+    #[DataProvider('noInputPreProcessorProvider')]
+    public function testPreProcessorTakingNoInputTypeThrows(string $requestClass, string $handler): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('#[PreProcess(fromMoney)], whose parameter takes none of the types');
-        $this->cache->get(UnreachablePreProcessorRequest::class);
+        $this->expectExceptionMessage("#[PreProcess({$handler})], whose parameter takes none of the types");
+        $this->cache->get($requestClass);
     }
 
-    public function testCallablePreProcessorParameterIsAConfigurationError(): void
+    /** @return array<string, array{0: class-string, 1: string}> */
+    public static function noInputPreProcessorProvider(): array
     {
-        // `callable` is none of the types request input has, though a
-        // string may name a function.
-        $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('#[PreProcess(pick)], whose parameter takes none of the types request input');
-        $this->cache->get(CallablePreProcessorRequest::class);
+        return [
+            'a class'  => [UnreachablePreProcessorRequest::class, 'fromMoney'],
+            // A string may name a function, but `callable` is no input type.
+            'callable' => [CallablePreProcessorRequest::class, 'pick'],
+        ];
     }
 
     public function testContextPropertyMayHaveAnObjectPreProcessor(): void
