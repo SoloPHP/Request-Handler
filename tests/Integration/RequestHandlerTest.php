@@ -1887,6 +1887,27 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
+    public function testOnlyProducerGetsInputConvertedToItsParameterType(): void
+    {
+        // Query strings and form fields carry no ints: "999" reaches
+        // fromCents(int) as 999 — before this, every such request was a 422.
+        $cents = fn(mixed $price) => $this->handler->handleArray(CentsMoneyRequest::class, ['price' => $price]);
+        $this->assertSame(999, $cents('999')->price?->cents);
+        $this->assertSame(999, $cents(999)->price?->cents);
+        // A JSON number reaches parseMoney(string) as its digits.
+        $parsed = $this->handler->handleArray(ParsedMoneyRequest::class, ['price' => 9.99]);
+        $this->assertSame(999, $parsed->price?->cents);
+
+        foreach (['9.5', 'abc', true, ['999']] as $input) {
+            try {
+                $cents($input);
+                $this->fail('Expected ValidationException');
+            } catch (ValidationException $e) {
+                $this->assertSame(['price' => [['rule' => 'integer']]], $e->getErrors(), (string) json_encode($input));
+            }
+        }
+    }
+
     public function testEmptyStringForAPreProcessedClassIsNoValue(): void
     {
         // The pre-processor never sees "" (no value), and a TestMoney cannot
@@ -4106,4 +4127,15 @@ final class Wide65Request extends Request
     public ?string $f63 = null;
     public ?string $f64 = null;
     public ?string $f65 = null;
+}
+
+final class CentsMoneyRequest extends Request
+{
+    #[PreProcess('fromCents')]
+    public ?TestMoney $price = null;
+
+    public static function fromCents(int $cents): TestMoney
+    {
+        return new TestMoney($cents);
+    }
 }

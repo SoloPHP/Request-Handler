@@ -53,13 +53,14 @@ public string $email;
 
 The same guard applies to post-processors: `#[PostProcess('strtoupper')]` on a `?string` leaves an explicit `null` as `null`. `ProcessorInterface` / `CasterInterface` handlers take `mixed` and are always called.
 
-When the property's type is a class only that pre-processor produces, nothing could turn skipped input into it, so the field reports the rule for the type the pre-processor takes — unless a validation rule rejected the value first:
+When the property's type is a class only that pre-processor produces, the handler is its only way in. Input of another type is converted to the parameter's type first when nothing is lost — as for a union property — so a query string's `"999"` reaches `fromCents(int $cents)` as `999`. Input that fits no way reports the rule for the type the pre-processor takes — unless a validation rule rejected the value first:
 
 ```php
 #[PreProcess('parseMoney')]          // parseMoney(string $value): Money
 public ?Money $price = null;
 
 // {"price": "9.99"}   → Money(999)
+// {"price": 9.99}     → Money(999) — the number reaches parseMoney() as "9.99"
 // {"price": ""}       → null — "" is no value, the pre-processor does not see it
 // {"price": ["9.99"]} → ['price' => [['rule' => 'string']]] (422)
 ```

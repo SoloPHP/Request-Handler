@@ -10,6 +10,7 @@ use DateTimeImmutable;
 use DateTimeInterface;
 use InvalidArgumentException;
 use ReflectionEnum;
+use Solo\RequestHandler\Pipeline\ParameterTypeGuard;
 
 /**
  * Handles built-in type casting
@@ -75,6 +76,32 @@ final class BuiltInCaster
             'iterable' => is_iterable($value) ? $value : $this->toArray($value),
             default => throw new InvalidArgumentException("Unknown cast type: {$type}"),
         };
+    }
+
+    /**
+     * A value for a type cast member by member — a union property, a
+     * standalone `true` / `false`, a typed pre-processor's parameter: one of
+     * a member type stays as it is, any other one becomes the first of
+     * `$casts` it converts to without loss — PHP's coercion order, int,
+     * float, string, bool — and that the type then accepts (`"0"` is a bool,
+     * but no `true`). Null when none.
+     *
+     * @param list<string> $casts
+     */
+    public function castToMembers(ParameterTypeGuard $guard, array $casts, mixed $value): mixed
+    {
+        if ($guard->accepts($value)) {
+            return $value;
+        }
+
+        foreach ($casts as $type) {
+            $cast = $this->cast($type, $value);
+            if ($cast !== null && $guard->accepts($cast)) {
+                return $cast;
+            }
+        }
+
+        return null;
     }
 
     /**
