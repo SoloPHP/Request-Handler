@@ -320,6 +320,14 @@ final class BuiltInCasterTest extends TestCase
         $this->assertNull($this->caster->castEnum(CasterTestLevel::class, true));
     }
 
+    public function testBlankIsWhatEachCastReadsAnEmptyStringAs(): void
+    {
+        foreach ([...BuiltInCaster::CAST_TYPES, 'iterable'] as $type) {
+            $this->assertArrayHasKey($type, BuiltInCaster::BLANK, $type);
+            $this->assertSame($this->caster->cast($type, ''), BuiltInCaster::BLANK[$type], $type);
+        }
+    }
+
     public function testCastToMembersConvertsOnlyWithoutLoss(): void
     {
         $intOrBool = static fn(int|bool $value): int|bool => $value;
