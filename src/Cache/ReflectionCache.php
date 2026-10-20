@@ -501,8 +501,9 @@ final class ReflectionCache
         // is converted to the parameter's scalar types when that loses
         // nothing; input that fits none can never become the value — the
         // client sent the wrong type, reported with the rule for the type the
-        // pre-processor takes. One that takes no type input can have would
-        // never run at all.
+        // pre-processor takes. A parameter that takes none of the types input
+        // has is a configuration error: a class or `object` never reaches
+        // it, and a `callable` would let the client name the function.
         $preProcessorFailure = null;
         $preProcessorCasts = null;
         if (!$holdsInput && !$producedOtherwise && $preProcessorGuard !== null) {

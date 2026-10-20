@@ -780,8 +780,17 @@ final class ReflectionCacheTest extends TestCase
     public function testPreProcessorNoInputCanReachThrows(): void
     {
         $this->expectException(ConfigurationException::class);
-        $this->expectExceptionMessage('#[PreProcess(fromMoney)], whose parameter takes no type request input');
+        $this->expectExceptionMessage('#[PreProcess(fromMoney)], whose parameter takes none of the types');
         $this->cache->get(UnreachablePreProcessorRequest::class);
+    }
+
+    public function testCallablePreProcessorParameterIsAConfigurationError(): void
+    {
+        // A string can name a function: the client must not choose the one
+        // the handler gets.
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('#[PreProcess(pick)], whose parameter takes none of the types request input');
+        $this->cache->get(CallablePreProcessorRequest::class);
     }
 
     public function testContextPropertyMayHaveAnObjectPreProcessor(): void
@@ -1857,6 +1866,17 @@ final class BlankReadingRequest extends Request
     public ?CacheMoney $money = null;
 
     public static function toMoney(string $value): CacheMoney
+    {
+        return new CacheMoney();
+    }
+}
+
+final class CallablePreProcessorRequest extends Request
+{
+    #[PreProcess('pick')]
+    public ?CacheMoney $handler = null;
+
+    public static function pick(callable $name): CacheMoney
     {
         return new CacheMoney();
     }

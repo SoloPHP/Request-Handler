@@ -265,8 +265,9 @@ final class ConfigurationException extends Exception
     }
 
     /**
-     * A class only a pre-processor produces, whose parameter takes no type
-     * request input can have: the handler would never run.
+     * A class only a pre-processor produces, whose parameter takes none of
+     * the types request input has: a class or `object` never reaches it, and
+     * a `callable` would let the client name the function it gets.
      *
      * Example: #[PreProcess('fromMoney')] public Money $price; — fromMoney(Money $m).
      */
@@ -276,9 +277,9 @@ final class ConfigurationException extends Exception
         string $handler
     ): self {
         return new self(sprintf(
-            "Property %s::\$%s is produced only by #[PreProcess(%s)], whose parameter takes no type request " .
-            "input can have (string, int, float, bool or array), so the handler would never run. Type the " .
-            "parameter for the input it reads, add a #[Caster], or read the value #[FromContext(...)].",
+            "Property %s::\$%s is produced only by #[PreProcess(%s)], whose parameter takes none of the types " .
+            "request input has (string, int, float, bool, array). Type the parameter for the input it reads, " .
+            "add a #[Caster], or read the value #[FromContext(...)].",
             $className,
             $propertyName,
             $handler
