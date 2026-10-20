@@ -20,11 +20,10 @@ use Solo\RequestHandler\InputBags;
 final readonly class ResolvedRequest
 {
     /**
-     * @param array<string, mixed>                                              $values   Present fields
-     * @param array<string, ResolvedRequest|array<int|string, ResolvedRequest>> $children Nested DTOs; `#[Items]`
-     *                                                                                    lists by input key
-     * @param ValidationErrors                                                  $errors   Errors of this object
-     *                                                                                    and its children
+     * @param array<string, mixed>                          $values   Present fields
+     * @param array<string, array<string, ResolvedRequest>> $children Per nested-DTO or `#[Items]` property,
+     *                                                                its children keyed by input path
+     * @param ValidationErrors                              $errors   Errors of this object and its children
      */
     public function __construct(
         public RequestMetadata $metadata,

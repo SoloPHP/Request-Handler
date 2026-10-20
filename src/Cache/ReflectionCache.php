@@ -83,10 +83,11 @@ final class ReflectionCache
     private const array UNION_CASTS = ['int', 'float', 'string', 'bool'];
 
     /**
-     * Union member → the error when a value fits no member, widest member
-     * first: a string accepts any scalar, a float any number.
+     * Type → the validator rule a value that is not of it fails, widest first
+     * (a string accepts any scalar, a float any number): a union reports the
+     * first of its members.
      */
-    private const array UNION_FAILURES = [
+    private const array TYPE_RULES = [
         'string'   => 'string',
         'float'    => 'numeric',
         'int'      => 'integer',
@@ -95,6 +96,25 @@ final class ReflectionCache
         'false'    => 'boolean',
         'array'    => 'array',
         'iterable' => 'array',
+    ];
+
+    /**
+     * Attributes that act on a property's input: none may join #[Generator] —
+     * a generated value reads no input — or #[Ignore].
+     */
+    private const array INPUT_ATTRIBUTES = [
+        FromRoute::class,
+        FromContext::class,
+        FromBody::class,
+        Validate::class,
+        Cast::class,
+        Caster::class,
+        DateFormat::class,
+        EmptyToNull::class,
+        NoTrim::class,
+        PreProcess::class,
+        PostProcess::class,
+        Items::class,
     ];
 
     /**
@@ -129,6 +149,19 @@ final class ReflectionCache
     public function get(string $className): RequestMetadata
     {
         return $this->cache[$className] ??= $this->build($className);
+    }
+
+    /**
+     * The shared registry's metadata of a class in one call — the path the
+     * `Request` accessors take on every call.
+     *
+     * @param class-string $className
+     */
+    public static function of(string $className): RequestMetadata
+    {
+        $shared = self::$shared ??= new self();
+
+        return $shared->cache[$className] ??= $shared->build($className);
     }
 
     /**
@@ -175,16 +208,12 @@ final class ReflectionCache
                 $properties,
                 static fn(PropertyMetadata $property): bool => $property->generator !== null
             ));
-            // Children are built only from client input: a #[FromContext]
-            // list holds the application's DTOs as they are.
+            // Children join the transform pass only when their class has
+            // something to run there.
             $transformed = array_keys(array_filter(
                 $properties,
-                static fn(PropertyMetadata $property): bool => $property->postProcessorKind !== null
-                    || $property->customCasterClass !== null
-                    || (
-                        ($property->items !== null || $property->nested !== null)
-                        && $property->source !== FieldSource::Context
-                    )
+                fn(PropertyMetadata $property): bool => $property->decidedInTransform()
+                    || ($property->buildsChildren() && $this->needsTransform($property->items ?? $property->nested))
             ));
 
             $groups = [];
@@ -207,29 +236,42 @@ final class ReflectionCache
      */
     private function assertIgnoreHasNoCompanions(ReflectionProperty $property, string $className): void
     {
-        $companions = [
-            Validate::class    => 'Validate',
-            Cast::class        => 'Cast',
-            Caster::class      => 'Caster',
-            DateFormat::class  => 'DateFormat',
-            EmptyToNull::class => 'EmptyToNull',
-            NoTrim::class      => 'NoTrim',
-            PreProcess::class  => 'PreProcess',
-            PostProcess::class => 'PostProcess',
-            Generator::class   => 'Generator',
-            Items::class       => 'Items',
-            Group::class       => 'Group',
-            Exclude::class     => 'Exclude',
-            FromRoute::class   => 'FromRoute',
-            FromContext::class => 'FromContext',
-            FromBody::class    => 'FromBody',
-        ];
+        $companion = $this->firstPresent(
+            $property,
+            [...self::INPUT_ATTRIBUTES, Generator::class, Group::class, Exclude::class]
+        );
 
-        foreach ($companions as $attrClass => $attrName) {
-            if (!empty($property->getAttributes($attrClass))) {
-                throw ConfigurationException::ignoreConflict($className, $property->getName(), $attrName);
+        if ($companion !== null) {
+            throw ConfigurationException::ignoreConflict($className, $property->getName(), $companion);
+        }
+    }
+
+    /**
+     * The short name of the first of the attributes the property carries.
+     *
+     * @param list<class-string> $attributes
+     */
+    private function firstPresent(ReflectionProperty $property, array $attributes): ?string
+    {
+        foreach ($attributes as $attribute) {
+            if ($property->getAttributes($attribute) !== []) {
+                return (new ReflectionClass($attribute))->getShortName();
             }
         }
+
+        return null;
+    }
+
+    /**
+     * Whether the DTOs of a nested or `#[Items]` class have anything to run in
+     * the transform pass. A class still being built — a self-referencing
+     * tree — is assumed to.
+     *
+     * @param class-string<Request>|null $class
+     */
+    private function needsTransform(?string $class): bool
+    {
+        return $class !== null && (isset($this->building[$class]) || $this->get($class)->transformed !== []);
     }
 
     /**
@@ -301,7 +343,11 @@ final class ReflectionCache
         $hasDefault = $property->hasDefaultValue();
         $defaultValue = $hasDefault ? $property->getDefaultValue() : null;
 
-        [$phpType, $isNullable, $classType] = $this->resolvePropertyType($property->getType());
+        $type = $property->getType();
+        [$phpType, $isNullable, $classType] = $this->resolvePropertyType($type);
+        // Lower-cased names of the type's named members; null when untyped.
+        $members = $phpType === null ? null : explode('|', strtolower($phpType));
+        $appSupplied = $source === FieldSource::Context || $generator !== null;
 
         $isRequired = $this->hasRule($rules, 'required');
         $validatesWhenAbsent = RuleParser::hasNamePrefix($rules, 'required');
@@ -324,21 +370,20 @@ final class ReflectionCache
                 }
                 throw ConfigurationException::unknownCastType($className, $name, $cast->type);
             }
-            if ($phpType !== null && !$this->isCastCompatible($castType, $phpType)) {
-                throw ConfigurationException::castTypeMismatch($className, $name, $cast->type, $phpType);
+            $compatible = [...self::CAST_COMPATIBILITY[$castType], 'mixed'];
+            if ($members !== null && array_intersect($members, $compatible) === []) {
+                throw ConfigurationException::castTypeMismatch($className, $name, $cast->type, (string) $phpType);
             }
         }
 
-        $dateClass = $this->resolveDateClass(
-            $dateFormat,
-            $cast,
-            $caster,
-            $items,
-            $phpType,
-            $classType,
-            $className,
-            $name
-        );
+        if ($dateFormat !== null) {
+            $conflict = $this->firstPresent($property, [Cast::class, Caster::class, Items::class]);
+            if ($conflict !== null) {
+                throw ConfigurationException::dateFormatConflict($className, $name, $conflict);
+            }
+        }
+
+        $dateClass = $this->resolveDateClass($dateFormat, $cast, $caster, $phpType, $classType, $className, $name);
 
         if ($customCasterClass !== null && !$this->isCasterClass($customCasterClass)) {
             throw ConfigurationException::invalidCaster($className, $name, $customCasterClass);
@@ -356,30 +401,22 @@ final class ReflectionCache
                 throw ConfigurationException::itemsRequiresArrayType($className, $name, $phpType);
             }
 
-            if ($cast !== null) {
-                throw ConfigurationException::itemsCastConflict($className, $name, 'Cast');
-            }
-            if ($caster !== null) {
-                throw ConfigurationException::itemsCastConflict($className, $name, 'Caster');
+            $conflict = $this->firstPresent($property, [Cast::class, Caster::class]);
+            if ($conflict !== null) {
+                throw ConfigurationException::itemsCastConflict($className, $name, $conflict);
             }
         }
 
-        [$effectiveCastType, $resolvedCasterClass, $enumClass] = $this->resolveCast(
-            $castType,
-            $customCasterClass,
-            $phpType,
-            $classType
-        );
+        [$effectiveCastType, $enumClass] = $this->resolveCast($castType, $customCasterClass, $phpType, $classType);
 
         // A property typed with a Request subclass is a nested DTO — unless a
-        // caster or generator produces the object itself, or the application
-        // passes it through context.
+        // caster produces the object itself, or the application supplies it
+        // (a generator, context).
         $nested = null;
         if (
             $classType !== null
             && $caster === null
-            && $generator === null
-            && $source !== FieldSource::Context
+            && !$appSupplied
             && is_subclass_of($classType, Request::class)
         ) {
             $this->validateChildClass($classType, $className, $name, 'nested');
@@ -393,33 +430,26 @@ final class ReflectionCache
             || $dateClass !== null
             || $enumClass !== null
             || $effectiveCastType !== null
-            || $resolvedCasterClass !== null
+            || $customCasterClass !== null
             || $preProcessorKind !== null
             || $postProcessorKind !== null
-            || $generator !== null
-            || $source === FieldSource::Context;
-
-        $type = $property->getType();
-        $members = $this->typeMembers($type);
+            || $appSupplied;
         $holdsInput = $members === null || array_intersect($members, self::INPUT_TYPES) !== [];
 
         if (!$produced && !$holdsInput) {
             throw ConfigurationException::unproducibleType($className, $name, (string) $phpType);
         }
 
-        // A union, or a standalone `true` / `false`, is cast member by member.
-        [$typeGuard, $unionCasts, $unionFailure] = [null, [], null];
-        if (
-            $type !== null
-            && ($type instanceof \ReflectionUnionType || $members === ['true'] || $members === ['false'])
+        // An input type no cast handles — a union, a standalone `true` /
+        // `false` — is cast member by member; `mixed` takes anything as it is.
+        $memberCast = $members !== null
+            && $members !== ['mixed']
             && $holdsInput
             && $effectiveCastType === null
             && $enumClass === null
             && $dateClass === null
-            && $resolvedCasterClass === null
-        ) {
-            [$typeGuard, $unionCasts, $unionFailure] = $this->unionCast($type, (array) $members);
-        }
+            && $customCasterClass === null;
+        [$unionCasts, $unionFailure] = $memberCast ? $this->unionCasts($members) : [null, null];
 
         return new PropertyMetadata(
             name: $name,
@@ -431,7 +461,7 @@ final class ReflectionCache
             defaultValue: $defaultValue,
             validationRules: $rules,
             effectiveCastType: $effectiveCastType,
-            customCasterClass: $resolvedCasterClass,
+            customCasterClass: $customCasterClass,
             preProcessor: $preProcess?->handler,
             preProcessorKind: $preProcessorKind,
             postProcessor: $postProcess?->handler,
@@ -444,7 +474,9 @@ final class ReflectionCache
             generator: $generator?->class,
             generatorOptions: $generator !== null ? $generator->options : [],
             exclude: $excludeAttr !== null,
-            items: $items?->class,
+            // A list the application supplies holds its DTOs already: they are
+            // checked, not built.
+            items: $appSupplied ? null : $items?->class,
             pathSegments: $pathSegments,
             preProcessorGuard: $preProcessorGuard,
             postProcessorGuard: $postProcessorGuard,
@@ -455,59 +487,30 @@ final class ReflectionCache
             dateClass: $dateClass,
             dateFormat: $dateFormat?->format,
             nested: $nested,
-            // What the application supplies — generated and #[FromContext]
-            // values — is kept as it is: never auto-trimmed, and left out by
-            // a class-level #[EmptyToNull].
-            emptyToNull: $generator === null
-                && ($emptyToNull !== null || ($classEmptyToNull && $source !== FieldSource::Context)),
-            noTrim: $generator === null
-                && ($noTrim !== null || $classNoTrim || $source === FieldSource::Context),
-            typeGuard: $typeGuard,
+            // What the application supplies is kept as it is: never
+            // auto-trimmed, and left out by a class-level #[EmptyToNull].
+            emptyToNull: $emptyToNull !== null || ($classEmptyToNull && !$appSupplied),
+            noTrim: $noTrim !== null || $classNoTrim || $appSupplied,
+            typeGuard: $memberCast || $appSupplied ? ParameterTypeGuard::fromType($type) : null,
             unionCasts: $unionCasts,
-            trustedGuard: $source === FieldSource::Context || $generator !== null
-                ? ParameterTypeGuard::fromType($property->getType())
-                : null,
+            suppliedItems: $appSupplied ? $items?->class : null,
         );
     }
 
     /**
-     * The lower-cased names of a type's named members — one for a named type,
-     * the named ones of a union, none for an intersection. Null when untyped.
-     * Whether a value read from request input can have the type is whether
-     * one of them is in INPUT_TYPES.
+     * For a type cast member by member (`int|float`, `int|string`, `true`):
+     * the scalar members a value of none of its types is converted to, and
+     * the error when none fits. A literal `true` / `false` member is reached
+     * through the bool cast; the type's guard then keeps only the literal's
+     * own value.
      *
-     * @return list<string>|null
+     * @param list<string> $members Lower-cased member names.
+     * @return array{0: list<string>, 1: array{rule: string}|null}
      */
-    private function typeMembers(?\ReflectionType $type): ?array
-    {
-        if ($type === null) {
-            return null;
-        }
-
-        $members = [];
-        foreach ($type instanceof \ReflectionUnionType ? $type->getTypes() : [$type] as $member) {
-            if ($member instanceof \ReflectionNamedType) {
-                $members[] = strtolower($member->getName());
-            }
-        }
-
-        return $members;
-    }
-
-    /**
-     * A union no cast applies to (`int|float`, `int|string`) — or a standalone
-     * `true` / `false`: the guard that keeps a value of a member type, the
-     * scalar members another value is converted to, and the error when none
-     * fits. A literal `true` / `false` member is reached through the bool
-     * cast; the guard then keeps only the literal's own value.
-     *
-     * @param list<string> $members From typeMembers().
-     * @return array{0: ?ParameterTypeGuard, 1: list<string>, 2: array{rule: string}|null}
-     */
-    private function unionCast(\ReflectionType $type, array $members): array
+    private function unionCasts(array $members): array
     {
         $failure = null;
-        foreach (self::UNION_FAILURES as $member => $rule) {
+        foreach (self::TYPE_RULES as $member => $rule) {
             if (in_array($member, $members, true)) {
                 $failure = ['rule' => $rule];
                 break;
@@ -519,7 +522,7 @@ final class ReflectionCache
             $casts[] = 'bool';
         }
 
-        return [ParameterTypeGuard::fromType($type), $casts, $failure];
+        return [$casts, $failure];
     }
 
     /**
@@ -534,20 +537,11 @@ final class ReflectionCache
         ?DateFormat $dateFormat,
         ?Cast $cast,
         ?Caster $caster,
-        ?Items $items,
         ?string $phpType,
         ?string $classType,
         string $className,
         string $name,
     ): ?string {
-        if ($dateFormat !== null) {
-            foreach (['Cast' => $cast, 'Caster' => $caster, 'Items' => $items] as $attribute => $present) {
-                if ($present !== null) {
-                    throw ConfigurationException::dateFormatConflict($className, $name, $attribute);
-                }
-            }
-        }
-
         if ($cast !== null || $caster !== null) {
             return null;
         }
@@ -567,7 +561,7 @@ final class ReflectionCache
     /**
      * The validation error reported when a built-in cast cannot convert
      * non-empty input — named like the validator rule for that type. Null for
-     * an array cast, which accepts any input.
+     * an array or iterable cast, which accepts any input.
      *
      * @param class-string<BackedEnum>|null $enumClass
      * @return array{rule: string, params?: list<string>}|null
@@ -579,13 +573,7 @@ final class ReflectionCache
         ?string $enumClass
     ): ?array {
         if ($enumClass !== null) {
-            return [
-                'rule' => 'in',
-                'params' => array_map(
-                    static fn(BackedEnum $case): string => (string) $case->value,
-                    $enumClass::cases()
-                ),
-            ];
+            return ['rule' => 'in', 'params' => array_map('strval', array_column($enumClass::cases(), 'value'))];
         }
 
         if ($dateClass !== null) {
@@ -593,12 +581,9 @@ final class ReflectionCache
         }
 
         return match ($effectiveCastType) {
-            'int' => ['rule' => 'integer'],
-            'float' => ['rule' => 'numeric'],
-            'bool' => ['rule' => 'boolean'],
-            'string' => ['rule' => 'string'],
+            'int', 'float', 'bool', 'string' => ['rule' => self::TYPE_RULES[$effectiveCastType]],
             'json' => ['rule' => 'json'],
-            default => null,
+            default => null, // array / iterable read any input
         };
     }
 
@@ -661,25 +646,10 @@ final class ReflectionCache
         string $className,
         string $propertyName,
     ): void {
-        $conflicts = [
-            FromRoute::class   => 'FromRoute',
-            FromContext::class => 'FromContext',
-            FromBody::class    => 'FromBody',
-            Validate::class    => 'Validate',
-            Cast::class        => 'Cast',
-            Caster::class      => 'Caster',
-            DateFormat::class  => 'DateFormat',
-            EmptyToNull::class => 'EmptyToNull',
-            NoTrim::class      => 'NoTrim',
-            PreProcess::class  => 'PreProcess',
-            PostProcess::class => 'PostProcess',
-            Items::class       => 'Items',
-        ];
+        $conflict = $this->firstPresent($property, self::INPUT_ATTRIBUTES);
 
-        foreach ($conflicts as $attrClass => $name) {
-            if (!empty($property->getAttributes($attrClass))) {
-                throw ConfigurationException::generatorConflict($className, $propertyName, $name);
-            }
+        if ($conflict !== null) {
+            throw ConfigurationException::generatorConflict($className, $propertyName, $conflict);
         }
     }
 
@@ -846,17 +816,17 @@ final class ReflectionCache
     }
 
     /**
-     * Resolve cast configuration. Returns [effectiveCastType, customCasterClass, enumClass].
+     * Resolve the built-in cast. Returns [effectiveCastType, enumClass].
      * Dates are resolved separately (`resolveDateClass`).
      *
-     * - explicit `#[Caster(...)]`              → [null, casterClass, null]
-     * - explicit `#[Cast('int'|…|'json')]`    → [castType, null, null]
-     * - no attribute, scalar property type     → [propertyType, null, null]
-     * - no attribute, `iterable`               → ['iterable', null, null]
-     * - no attribute, BackedEnum property type → [null, null, enumClass]
-     * - anything else                          → [null, null, null]
+     * - explicit `#[Caster(...)]`              → [null, null] — the caster decides
+     * - explicit `#[Cast('int'|…|'json')]`    → [castType, null]
+     * - no attribute, built-in property type   → [propertyType, null]
+     * - no attribute, `iterable`               → ['iterable', null]
+     * - no attribute, BackedEnum property type → [null, enumClass]
+     * - anything else                          → [null, null]
      *
-     * @return array{0: ?string, 1: ?string, 2: ?class-string<BackedEnum>}
+     * @return array{0: ?string, 1: ?class-string<BackedEnum>}
      */
     private function resolveCast(
         ?string $castType,
@@ -865,50 +835,27 @@ final class ReflectionCache
         ?string $classType
     ): array {
         if ($customCasterClass !== null) {
-            return [null, $customCasterClass, null];
+            return [null, null];
         }
 
         if ($castType !== null) {
-            // castType is validated upstream to be a scalar built-in.
-            return [$castType, null, null];
+            // castType is validated upstream to be a built-in.
+            return [$castType, null];
         }
 
         if ($propertyType !== null && BuiltInCaster::isBuiltIn($propertyType)) {
-            return [$propertyType, null, null];
+            return [$propertyType, null];
         }
 
         if ($propertyType === 'iterable') {
-            return ['iterable', null, null];
+            return ['iterable', null];
         }
 
         if ($classType !== null && is_subclass_of($classType, BackedEnum::class)) {
-            return [null, null, $classType];
+            return [null, $classType];
         }
 
-        return [null, null, null];
-    }
-
-    /**
-     * `#[Cast]` compatibility check. castType is guaranteed to be a scalar
-     * built-in by upstream validation.
-     */
-    private function isCastCompatible(string $castType, string $propertyType): bool
-    {
-        return $this->isTypeInUnion($propertyType, self::CAST_COMPATIBILITY[$castType] ?? []);
-    }
-
-    /**
-     * @param array<string> $allowedTypes Lower-case type names.
-     */
-    private function isTypeInUnion(string $propertyType, array $allowedTypes): bool
-    {
-        foreach (explode('|', strtolower($propertyType)) as $type) {
-            if ($type === 'mixed' || in_array($type, $allowedTypes, true)) {
-                return true;
-            }
-        }
-
-        return false;
+        return [null, null];
     }
 
     /**

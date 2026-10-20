@@ -31,9 +31,6 @@ final class BuiltInCaster
      */
     private const array ROLLOVER_WARNINGS = ['The parsed date was invalid', 'The parsed time was invalid'];
 
-    private const array TRUE_STRINGS = ['true' => true, '1' => true, 'yes' => true, 'on' => true];
-    private const array FALSE_STRINGS = ['false' => true, '0' => true, 'no' => true, 'off' => true];
-
     /**
      * Memoised "does this format parse no time-of-day field" lookups.
      *
@@ -209,11 +206,9 @@ final class BuiltInCaster
             return null;
         }
 
-        $lower = strtolower($value);
-
-        return match (true) {
-            isset(self::TRUE_STRINGS[$lower]) => true,
-            isset(self::FALSE_STRINGS[$lower]) => false,
+        return match (strtolower($value)) {
+            'true', '1', 'yes', 'on' => true,
+            'false', '0', 'no', 'off' => false,
             default => null,
         };
     }

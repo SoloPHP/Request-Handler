@@ -65,12 +65,12 @@ abstract class Request
             if ($value instanceof self) {
                 $value = $value->toArray($onlyProvided && ProvidedFields::knows($value));
             } elseif (is_array($value)) {
-                $value = array_map(
-                    static fn($item) => $item instanceof self
-                        ? $item->toArray($onlyProvided && ProvidedFields::knows($item))
-                        : $item,
-                    $value
-                );
+                // Only DTO items are converted — the array is copied only then.
+                foreach ($value as $key => $item) {
+                    if ($item instanceof self) {
+                        $value[$key] = $item->toArray($onlyProvided && ProvidedFields::knows($item));
+                    }
+                }
             }
 
             $result[$name] = $value;
@@ -194,6 +194,6 @@ abstract class Request
 
     private function metadata(): RequestMetadata
     {
-        return ReflectionCache::shared()->get(static::class);
+        return ReflectionCache::of(static::class);
     }
 }
