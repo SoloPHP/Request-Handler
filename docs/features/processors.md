@@ -88,7 +88,7 @@ public ?Money $price = null;
 // {"price": ["9.99"]} → ['price' => [['rule' => 'string']]] (422)
 ```
 
-A class only a typed post-processor produces is read the same way, once validation has passed.
+A class only a typed post-processor produces is read the same way, once validation has passed. An object — which only the application can pass, in `handleArray()` data — is never the client's wrong type: the handler skips it, and the property takes it if it fits.
 
 A pre-processor whose parameter takes none of the types request input has — a class, `object` or `callable` — cannot be the only producer of such a property, so building the metadata throws `ConfigurationException::preProcessorTakesNoInput`. On a `#[FromContext]` property it is fine: the application supplies the object.
 
