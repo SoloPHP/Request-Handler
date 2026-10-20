@@ -290,7 +290,8 @@ Empty string `""` is handled per type:
 | date types, enums | no value | Not a date / case |
 | a class a pre-processor produces | no value | No class holds a string |
 | `string` | `""` | Preserved as-is |
-| `array` | `[]` | Empty collection |
+| `array`, an `#[Items]` list | `[]` | Empty collection |
+| a nested DTO | no value | No object |
 
 "No value" means `null` on a nullable property, the default on one that has a default, and the `required` error otherwise. [`#[EmptyToNull]`](/features/field-attribute#emptytonull) extends that to `string` and `array` properties — on one property or a whole class.
 

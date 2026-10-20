@@ -35,7 +35,7 @@ $dto->address->city;   // 'Kyiv'
 $dto->toArray();       // ['carrier' => 'ups', 'address' => ['city' => 'Kyiv', 'zip' => '01001'], 'billing' => null]
 ```
 
-Errors use the property path: `address.zip` for a field of the nested object, `address` itself (`['rule' => 'array']`) when the value is not an object. A `#[PostProcess]` on the property runs first, so it can turn a JSON string into the object to read. Nested objects can contain `#[Items]` lists and further nested objects (`from.stock.0.quantity`).
+Errors use the property path: `address.zip` for a field of the nested object, `address` itself (`['rule' => 'array']`) when the value is not an object. `""` is no value — `null`, or `required` for a non-nullable property — and for an `#[Items]` list an empty list, as for any array property. A `#[PostProcess]` on the property runs first, so it can turn a JSON string into the object to read. Nested objects can contain `#[Items]` lists and further nested objects (`from.stock.0.quantity`).
 
 The nested class must be concrete; it is validated together with its parent when metadata is built.
 

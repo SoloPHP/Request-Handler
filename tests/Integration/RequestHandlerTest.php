@@ -598,6 +598,28 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(['a', 'b', 'c', 'd'], $dto->list);
     }
 
+    public function testEmptyStringForAnItemsListIsAnEmptyList(): void
+    {
+        // As for a plain array property — 3.x and early 4.0: ['rule' => 'array'].
+        $dto = $this->handler->handleArray(PatchOrderRequest::class, ['lines' => '']);
+
+        $this->assertSame([], $dto->lines);
+        $this->assertSame(['lines'], $dto->provided());
+    }
+
+    public function testEmptyStringForANestedObjectIsNoValue(): void
+    {
+        $dto = $this->handler->handleArray(PatchOrderRequest::class, ['address' => '']);
+        $this->assertNull($dto->address);
+
+        try {
+            $this->handler->handleArray(ShipmentRequest::class, ['carrier' => 'ups', 'address' => '']);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['address' => [['rule' => 'required']]], $e->getErrors());
+        }
+    }
+
     public function testUnionWithOnlyArrayAmongInputTypesReportsArray(): void
     {
         $dto = $this->handler->handleArray(IterableRequest::class, ['data' => ['a']]);
