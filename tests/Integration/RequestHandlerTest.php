@@ -2213,8 +2213,9 @@ final class RequestHandlerTest extends TestCase
         $handle = fn(array $input) => $this->handler->handleArray(TypedHookRequest::class, $input);
         $this->assertNull($handle(['doubled' => ''])->doubled, '"" is no value');
         $this->assertNull($handle(['doubled' => null])->doubled);
-        // Only a string is converted for the handler, but the cast reads a whole float.
-        $this->assertSame(4, $handle(['doubled' => 4.0])->doubled);
+        // A post-processor runs after validation: any scalar is converted for it.
+        $this->assertSame(8, $handle(['doubled' => 4.0])->doubled);
+        $this->assertSame('42!', $handle(['code' => 42])->code);
 
         $rejected = [
             [['doubled' => 'abc'], ['doubled' => [['rule' => 'integer']]]],
@@ -4345,6 +4346,14 @@ final class TypedHookRequest extends Request
 
     #[PostProcess('double')]
     public int $count;
+
+    #[PostProcess('exclaim')]
+    public ?string $code = null;
+
+    public static function exclaim(string $value): string
+    {
+        return $value . '!';
+    }
 
     public static function clamp(int $value): int
     {
