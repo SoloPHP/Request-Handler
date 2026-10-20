@@ -249,19 +249,25 @@ final class RequestHandler
                 // When only that handler could produce the property's type,
                 // the skipped input is the client's wrong type — reported
                 // once validation had its say.
-                if (
-                    $property->preProcessorFailure !== null
-                    && $property->preProcessorGuard?->accepts($value) === false
-                ) {
+                // Its only producer gets input of another type converted to its
+                // parameter's when that loses nothing ("999" for an int), as
+                // a union property does.
+                $input = $value;
+                $guard = $property->preProcessorGuard;
+                if ($property->preProcessorFailure !== null && $guard !== null) {
+                    $input = $this->builtInCaster->castToMembers($guard, $property->preProcessorCasts ?? [], $value);
+                }
+
+                if ($input === null) {
                     $unprocessed[$name] = true;
                 } elseif ($property->preProcessorKind !== null) {
                     try {
                         $value = $this->runHook(
                             $property->preProcessor,
                             $property->preProcessorKind,
-                            $property->preProcessorGuard,
+                            $guard,
                             [],
-                            $value,
+                            $input,
                             $className,
                             $bags,
                         );
@@ -595,7 +601,8 @@ final class RequestHandler
                 $value
             ),
             $property->effectiveCastType !== null => $this->builtInCaster->cast($property->effectiveCastType, $value),
-            $property->unionCasts !== null => $this->castUnion($property, $property->unionCasts, $value),
+            $property->unionCasts !== null && $property->typeGuard !== null
+                => $this->builtInCaster->castToMembers($property->typeGuard, $property->unionCasts, $value),
             // A type no input can have (a class a pre-processor produces):
             // "" there is no value, as it is for every cast type.
             default => $value === '' && !$property->holdsInput ? null : $value,
@@ -606,31 +613,6 @@ final class RequestHandler
         }
 
         return $cast;
-    }
-
-    /**
-     * A union no cast applies to: a value of a member type stays as it is,
-     * any other one becomes the first scalar member it converts to without
-     * loss — PHP's coercion order, int, float, string, bool — and that the
-     * type then accepts (`"0"` is a bool, but no `true`). Null when none.
-     *
-     * @param list<string> $casts
-     */
-    private function castUnion(PropertyMetadata $property, array $casts, mixed $value): mixed
-    {
-        $guard = $property->typeGuard;
-        if ($guard === null || $guard->accepts($value)) {
-            return $value;
-        }
-
-        foreach ($casts as $type) {
-            $cast = $this->builtInCaster->cast($type, $value);
-            if ($cast !== null && $guard->accepts($cast)) {
-                return $cast;
-            }
-        }
-
-        return null;
     }
 
     /**

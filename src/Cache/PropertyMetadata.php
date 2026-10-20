@@ -34,7 +34,9 @@ use Solo\RequestHandler\Request;
  * static-method handlers whose first parameter is typed: a value the handler
  * cannot accept skips it rather than raising a TypeError. `preProcessorFailure`
  * is set when nothing but that pre-processor produces the property's type (a
- * class): input it skips is the client's wrong type, reported with this rule.
+ * class): input is converted to the parameter's scalar types in
+ * `preProcessorCasts` when that loses nothing, and input that fits none is
+ * the client's wrong type, reported with this rule.
  *
  * `enumClass` is set when the declared type is a `BackedEnum`; the value is
  * resolved through `tryFrom()` instead of a built-in cast.
@@ -82,6 +84,7 @@ final readonly class PropertyMetadata
      * @param list<string>|null                                $unionCasts
      * @param class-string<Request>|null                       $suppliedItems
      * @param array{rule: string}|null                         $preProcessorFailure
+     * @param list<string>|null                                $preProcessorCasts
      */
     public function __construct(
         public string $name,
@@ -123,6 +126,7 @@ final readonly class PropertyMetadata
         public ?string $suppliedItems = null,
         public ?array $preProcessorFailure = null,
         public bool $holdsInput = true,
+        public ?array $preProcessorCasts = null,
     ) {
     }
 

@@ -6,6 +6,7 @@ namespace Solo\RequestHandler\Tests\Unit\Casters;
 
 use PHPUnit\Framework\TestCase;
 use Solo\RequestHandler\Casters\BuiltInCaster;
+use Solo\RequestHandler\Pipeline\ParameterTypeGuard;
 use DateTime;
 use DateTimeImmutable;
 
@@ -317,6 +318,19 @@ final class BuiltInCasterTest extends TestCase
         $this->assertNull($this->caster->castEnum(CasterTestLevel::class, 2.5));
         $this->assertNull($this->caster->castEnum(CasterTestLevel::class, '2.5'));
         $this->assertNull($this->caster->castEnum(CasterTestLevel::class, true));
+    }
+
+    public function testCastToMembersConvertsOnlyWithoutLoss(): void
+    {
+        $intOrBool = static fn(int|bool $value): int|bool => $value;
+        $guard = ParameterTypeGuard::fromType((new \ReflectionFunction($intOrBool))->getParameters()[0]->getType());
+        $this->assertNotNull($guard);
+
+        $this->assertSame(true, $this->caster->castToMembers($guard, ['int', 'bool'], true), 'a member type is kept');
+        $this->assertSame(999, $this->caster->castToMembers($guard, ['int', 'bool'], '999'));
+        $this->assertSame(false, $this->caster->castToMembers($guard, ['int', 'bool'], 'off'));
+        $this->assertNull($this->caster->castToMembers($guard, ['int', 'bool'], '9.5'));
+        $this->assertNull($this->caster->castToMembers($guard, ['int', 'bool'], ['1']));
     }
 
     public function testCastEnumPassesInstanceThrough(): void

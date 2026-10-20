@@ -494,18 +494,21 @@ final class ReflectionCache
             throw ConfigurationException::unproducibleType($className, $name, (string) $phpType);
         }
 
-        // A type only a typed pre-processor produces: input its guard turns
-        // away can never become the value — the client sent the wrong type,
-        // reported with the rule for the type the pre-processor takes. One
-        // that takes no type input can have would never run at all.
+        // A type only a typed pre-processor produces: input of another type
+        // is converted to the parameter's scalar types when that loses
+        // nothing; input that fits none can never become the value — the
+        // client sent the wrong type, reported with the rule for the type the
+        // pre-processor takes. One that takes no type input can have would
+        // never run at all.
         $preProcessorFailure = null;
+        $preProcessorCasts = null;
         if (!$holdsInput && !$producedOtherwise && $preProcessorGuard !== null) {
-            $preProcessorFailure = $this->typeRule($preProcessorGuard->members())
-                ?? throw ConfigurationException::preProcessorTakesNoInput(
-                    $className,
-                    $name,
-                    (string) $preProcess?->handler
-                );
+            [$preProcessorCasts, $preProcessorFailure] = $this->unionCasts($preProcessorGuard->members());
+            $preProcessorFailure ??= throw ConfigurationException::preProcessorTakesNoInput(
+                $className,
+                $name,
+                (string) $preProcess?->handler
+            );
         }
 
         // An input type no cast handles — a union, a standalone `true` /
@@ -564,11 +567,13 @@ final class ReflectionCache
             suppliedItems: $appSupplied ? $items?->class : null,
             preProcessorFailure: $preProcessorFailure,
             holdsInput: $holdsInput,
+            preProcessorCasts: $preProcessorCasts,
         );
     }
 
     /**
-     * For a type cast member by member (`int|float`, `int|string`, `true`):
+     * For a type cast member by member (`int|float`, `int|string`, `true`, a
+     * typed pre-processor's parameter):
      * the scalar members a value of none of its types is converted to, and
      * the error when none fits. A literal `true` / `false` member is reached
      * through the bool cast; the type's guard then keeps only the literal's
