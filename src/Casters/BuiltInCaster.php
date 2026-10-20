@@ -10,7 +10,7 @@ use DateTimeImmutable;
 use DateTimeInterface;
 use InvalidArgumentException;
 use ReflectionEnum;
-use Solo\RequestHandler\Pipeline\ParameterTypeGuard;
+use Solo\RequestHandler\Pipeline\TypeGuard;
 
 /**
  * Handles built-in type casting
@@ -96,14 +96,14 @@ final class BuiltInCaster
     }
 
     /**
-     * A value for a type cast member by member — a union property, a
-     * standalone `true` / `false`, a typed pre-processor's parameter: one of
-     * a member type stays as it is, any other one becomes the first of the
+     * A value for a type cast member by member — a union property or a
+     * standalone `true` / `false`. A value of a member type stays as it is;
+     * any other one becomes the first of the
      * guard's `casts` it converts to without loss — PHP's coercion order,
      * int, float, string, bool — and that the type then accepts (`"0"` is a
      * bool, but no `true`). Null when none.
      */
-    public function castToMembers(ParameterTypeGuard $guard, mixed $value): mixed
+    public function castToMembers(TypeGuard $guard, mixed $value): mixed
     {
         if ($guard->accepts($value)) {
             return $value;

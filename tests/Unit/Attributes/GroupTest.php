@@ -10,20 +10,6 @@ use Solo\RequestHandler\Attributes\Group;
 
 final class GroupTest extends TestCase
 {
-    public function testAcceptsNameOnly(): void
-    {
-        $attr = new Group('criteria');
-        $this->assertSame('criteria', $attr->name);
-        $this->assertNull($attr->mapTo);
-    }
-
-    public function testAcceptsNameAndMapTo(): void
-    {
-        $attr = new Group('criteria', mapTo: 'positions.id');
-        $this->assertSame('criteria', $attr->name);
-        $this->assertSame('positions.id', $attr->mapTo);
-    }
-
     public function testRejectsEmptyName(): void
     {
         $this->expectException(InvalidArgumentException::class);

@@ -6,6 +6,7 @@ namespace Solo\RequestHandler;
 
 use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Cache\RequestMetadata;
+use Solo\RequestHandler\Grouping\GroupBuilder;
 use Solo\RequestHandler\Pipeline\ProvidedFields;
 
 /**
@@ -29,14 +30,6 @@ use Solo\RequestHandler\Pipeline\ProvidedFields;
  */
 abstract class Request
 {
-    /**
-     * Logical group wrappers that more than one grouped property may legitimately
-     * contribute (e.g. a multi-word search and a stock filter both emitting an
-     * 'AND' group). On a key collision in group() these fold into a list entry
-     * instead of erroring; a duplicate leaf/column key is still a real conflict.
-     */
-    private const array GROUP_KEYS = ['AND', 'OR'];
-
     /**
      * Returns all initialized properties as array (skips uninitialized and #[Exclude]-marked).
      *
@@ -62,16 +55,19 @@ abstract class Request
             }
 
             $value = $property->reflection->getValue($this);
+            $onlyProvidedChildren = $onlyProvided && $property->buildsChildren;
 
             if ($value instanceof self) {
-                $value = $value->toArray($onlyProvided && ProvidedFields::knows($value));
+                $value = $value->toArray($onlyProvidedChildren && ProvidedFields::knows($value));
             } elseif (is_array($value)) {
-                // Only DTO items are converted — the array is copied only then.
+                // Build a new array: its entries may reference the original DTO.
+                $exported = [];
                 foreach ($value as $key => $item) {
-                    if ($item instanceof self) {
-                        $value[$key] = $item->toArray($onlyProvided && ProvidedFields::knows($item));
-                    }
+                    $exported[$key] = $item instanceof self
+                        ? $item->toArray($onlyProvidedChildren && ProvidedFields::knows($item))
+                        : $item;
                 }
+                $value = $exported;
             }
 
             $result[$name] = $value;
@@ -138,45 +134,11 @@ abstract class Request
      *   multiple logical groups coexist (the criteria builder AND-combines them).
      *
      * @throws \LogicException When duplicate non-connector keys are detected.
-     * @return array<string, mixed>
+     * @return array<array-key, mixed>
      */
     public function group(string $groupName): array
     {
-        $metadata = $this->metadata();
-        $result = [];
-
-        foreach ($metadata->groups[$groupName] ?? [] as $name) {
-            $property = $metadata->properties[$name];
-            if (!$property->reflection->isInitialized($this)) {
-                continue;
-            }
-
-            $value = $property->reflection->getValue($this);
-
-            // Skip empty arrays and nulls — they convey "no criteria for this slot".
-            if ($value === [] || $value === null) {
-                continue;
-            }
-
-            $entries = (is_array($value) && !array_is_list($value))
-                ? $value
-                : [($property->groupMapTo ?? $name) => $value];
-
-            foreach ($entries as $key => $v) {
-                if (array_key_exists($key, $result)) {
-                    if (in_array($key, self::GROUP_KEYS, true)) {
-                        $result[] = [$key => $v];
-                        continue;
-                    }
-                    throw new \LogicException(
-                        "Duplicate key '$key' in group '$groupName' from property '{$name}'"
-                    );
-                }
-                $result[$key] = $v;
-            }
-        }
-
-        return $result;
+        return GroupBuilder::build($this, $this->metadata(), $groupName);
     }
 
     /**

@@ -18,6 +18,35 @@ use Solo\RequestHandler\Casters\BuiltInCaster;
 final class ConfigurationException extends Exception
 {
     /**
+     * An attribute in the library's namespace that it does not read where it
+     * stands — a typo, a wrong namespace, a property attribute on a class.
+     * With a known attribute of the same short name, the message names it.
+     */
+    public static function unknownAttribute(
+        string $className,
+        ?string $propertyName,
+        string $attribute,
+        ?string $suggestion,
+    ): self {
+        $where = $propertyName === null ? "Class {$className}" : "Property {$className}::\${$propertyName}";
+        $kind = $propertyName === null ? 'class' : 'property';
+
+        return new self("{$where} has #[{$attribute}], which is not a RequestHandler {$kind} attribute."
+            . ($suggestion === null ? '' : " Did you mean #[{$suggestion}]?"));
+    }
+
+    public static function invalidHandler(
+        string $className,
+        string $propertyName,
+        string $attribute,
+        string $handler,
+        string $interface,
+    ): self {
+        return new self("Property {$className}::\${$propertyName} has invalid #[{$attribute}({$handler})]: " .
+            "class must implement {$interface}.");
+    }
+
+    /**
      * Nullable rule used with non-nullable property type
      *
      * Example: #[Validate('nullable')] public string $name;
@@ -76,28 +105,6 @@ final class ConfigurationException extends Exception
     }
 
     /**
-     * Invalid processor (preProcess or postProcess)
-     *
-     * Example: #[PreProcess('nonExistentFunction')] public string $name;
-     */
-    public static function invalidProcessor(
-        string $className,
-        string $propertyName,
-        string $processorType,
-        string $processorName
-    ): self {
-        return new self(sprintf(
-            "Property %s::\$%s has invalid %s '%s'. " .
-            "Processor must be: a global function, a class implementing ProcessorInterface/CasterInterface, " .
-            "or a static method on the Request class.",
-            $className,
-            $propertyName,
-            $processorType,
-            $processorName
-        ));
-    }
-
-    /**
      * Invalid items class
      *
      * Example: #[Items('NonExistentClass')] public ?array $items = null;
@@ -137,26 +144,6 @@ final class ConfigurationException extends Exception
     }
 
     /**
-     * Invalid generator class
-     *
-     * Example: #[Generator('NonExistentClass')] public string $id;
-     */
-    public static function invalidGenerator(
-        string $className,
-        string $propertyName,
-        string $generatorClass,
-        string $reason
-    ): self {
-        return new self(sprintf(
-            "Property %s::\$%s has invalid generator '%s': %s.",
-            $className,
-            $propertyName,
-            $generatorClass,
-            $reason
-        ));
-    }
-
-    /**
      * Both #[Cast] and #[Caster] declared on the same property.
      */
     public static function castAndCasterConflict(
@@ -168,23 +155,6 @@ final class ConfigurationException extends Exception
             "Use one or the other — they are mutually exclusive.",
             $className,
             $propertyName
-        ));
-    }
-
-    /**
-     * Custom caster class is missing or does not implement CasterInterface.
-     */
-    public static function invalidCaster(
-        string $className,
-        string $propertyName,
-        string $casterClass
-    ): self {
-        return new self(sprintf(
-            "Property %s::\$%s has invalid #[Caster(%s)]: " .
-            "class does not exist or does not implement CasterInterface.",
-            $className,
-            $propertyName,
-            $casterClass
         ));
     }
 
@@ -216,38 +186,18 @@ final class ConfigurationException extends Exception
     ): self {
         return new self(sprintf(
             "Property %s::\$%s has #[Cast('%s')] but that is a class name. " .
-            "#[Cast] accepts built-in types only (%s). " .
-            "For custom caster classes use #[Caster(%s::class)].",
+            "#[Cast] accepts built-in types only (%s).",
             $className,
             $propertyName,
             $castType,
-            implode(', ', BuiltInCaster::CAST_TYPES),
-            $castType
-        ));
-    }
-
-    /**
-     * #[Cast('datetime…')] — removed in 4.0: dates are cast by the property type.
-     */
-    public static function castDateTimeRemoved(
-        string $className,
-        string $propertyName,
-        string $castType
-    ): self {
-        return new self(sprintf(
-            "Property %s::\$%s has #[Cast('%s')]: datetime casts were removed in 4.0. " .
-            "Type the property DateTimeImmutable / DateTime / DateTimeInterface — the class " .
-            "comes from the type — and add #[DateFormat('…')] for a fixed format.",
-            $className,
-            $propertyName,
-            $castType
+            implode(', ', BuiltInCaster::CAST_TYPES)
         ));
     }
 
     /**
      * A class-typed property that nothing can produce from request input.
      *
-     * Example: public Money $price; — no #[Caster], processor or #[FromContext].
+     * Example: public Money $price; — no #[Caster] or #[FromContext].
      */
     public static function unproducibleType(
         string $className,
@@ -256,33 +206,11 @@ final class ConfigurationException extends Exception
     ): self {
         return new self(sprintf(
             "Property %s::\$%s has type '%s', which cannot be produced from request input. " .
-            "Add #[Caster(...)], a pre/post-processor or a #[Generator], read it #[FromContext(...)], " .
+            "Add #[Caster(...)], a #[Generator], read it #[FromContext(...)], " .
             "or type it as a Request subclass, a BackedEnum or a DateTime class.",
             $className,
             $propertyName,
             $type
-        ));
-    }
-
-    /**
-     * A class only a pre-processor produces, whose parameter takes none of
-     * the types request input has (a class, `object`, `callable`): there is
-     * no rule to report for input it cannot take.
-     *
-     * Example: #[PreProcess('fromMoney')] public Money $price; — fromMoney(Money $m).
-     */
-    public static function preProcessorTakesNoInput(
-        string $className,
-        string $propertyName,
-        string $handler
-    ): self {
-        return new self(sprintf(
-            "Property %s::\$%s is produced only by #[PreProcess(%s)], whose parameter takes none of the types " .
-            "request input has (string, int, float, bool, array). Type the parameter for the input it reads, " .
-            "add a #[Caster], or read the value #[FromContext(...)].",
-            $className,
-            $propertyName,
-            $handler
         ));
     }
 
@@ -341,29 +269,7 @@ final class ConfigurationException extends Exception
     }
 
     /**
-     * Processor name resolves both as a global function and as a static method
-     * on the Request class — ambiguous dispatch.
-     */
-    public static function ambiguousProcessor(
-        string $className,
-        string $propertyName,
-        string $processorType,
-        string $processorName
-    ): self {
-        return new self(sprintf(
-            "Property %s::\$%s has %s '%s' that is BOTH a global function and a static method on %s. " .
-            "This is ambiguous — rename the method, or pass an explicit class-string " .
-            "(e.g. MyProcessor::class) to disambiguate.",
-            $className,
-            $propertyName,
-            $processorType,
-            $processorName,
-            $className
-        ));
-    }
-
-    /**
-     * #[Items] / nested-DTO / #[Generator] class is abstract and cannot be instantiated.
+     * #[Items] / nested-DTO class is abstract and cannot be instantiated.
      */
     public static function abstractClass(
         string $className,
@@ -439,73 +345,14 @@ final class ConfigurationException extends Exception
     }
 
     /**
-     * Processor handler refers to a non-static method on the Request class — cannot be called statically.
-     */
-    public static function processorMethodNotStatic(
-        string $className,
-        string $propertyName,
-        string $processorType,
-        string $methodName
-    ): self {
-        return new self(sprintf(
-            "Property %s::\$%s has %s '%s' that exists on the Request class as a NON-static method. " .
-            "Mark it static, or use a class implementing ProcessorInterface/CasterInterface.",
-            $className,
-            $propertyName,
-            $processorType,
-            $methodName
-        ));
-    }
-
-    /**
-     * Processor handler refers to a static method that is not public — the handler cannot call it.
-     */
-    public static function processorMethodNotPublic(
-        string $className,
-        string $propertyName,
-        string $processorType,
-        string $methodName
-    ): self {
-        return new self(sprintf(
-            "Property %s::\$%s has %s '%s' that exists on the Request class as a NON-public method. " .
-            "Make it public static.",
-            $className,
-            $propertyName,
-            $processorType,
-            $methodName
-        ));
-    }
-
-    /**
-     * Function / static-method processor cannot be called with the value as its only argument.
-     *
-     * Example: #[PreProcess('explode')] — explode() needs two arguments.
-     */
-    public static function invalidProcessorSignature(
-        string $className,
-        string $propertyName,
-        string $processorType,
-        string $processorName
-    ): self {
-        return new self(sprintf(
-            "Property %s::\$%s has %s '%s' that cannot be called with a single argument (the value). " .
-            "Wrap it in a static method or a ProcessorInterface class.",
-            $className,
-            $propertyName,
-            $processorType,
-            $processorName
-        ));
-    }
-
-    /**
-     * Processor / caster / generator class cannot be instantiated without arguments
-     * and no instance was registered for it.
+     * Normalizer, caster, post-processor or generator class cannot be
+     * instantiated without arguments and no instance was registered for it.
      */
     public static function handlerNotInstantiable(string $handlerClass): self
     {
         return new self(sprintf(
-            "Cannot instantiate %s automatically: it is abstract, has a non-public constructor " .
-            "or requires constructor arguments. Provide it through the container passed to " .
+            "Cannot instantiate %s automatically: it is an interface or abstract, has a non-public " .
+            "constructor or requires constructor arguments. Provide it through the container passed to " .
             "RequestHandler, or register an instance with RequestHandler::register(%s::class, \$instance).",
             $handlerClass,
             $handlerClass

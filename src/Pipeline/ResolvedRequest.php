@@ -6,13 +6,10 @@ namespace Solo\RequestHandler\Pipeline;
 
 use Solo\RequestHandler\Cache\RequestMetadata;
 use Solo\RequestHandler\Exceptions\ValidationException;
-use Solo\RequestHandler\InputBags;
 
 /**
- * One request object between the passes of `RequestHandler`: input read,
- * pre-processed, validated and cast (resolve), then post-processed and
- * custom-cast (transform). It is hydrated into a DTO only when the whole tree
- * is free of errors.
+ * Normalized, validated and decoded input awaiting finalization.
+ * Children are finalized into DTOs only after the entire tree is valid.
  *
  * @phpstan-import-type ValidationErrors from ValidationException
  * @internal
@@ -20,17 +17,19 @@ use Solo\RequestHandler\InputBags;
 final readonly class ResolvedRequest
 {
     /**
-     * @param array<string, mixed>                          $values   Present fields
-     * @param array<string, array<string, ResolvedRequest>> $children Per nested-DTO or `#[Items]` property,
-     *                                                                its children keyed by input path
-     * @param ValidationErrors                              $errors   Errors of this object and its children
+     * @param array<string, mixed>                 $values   Present fields
+     * @param array<string, list<ResolvedRequest>> $children Per property, in input order
+     * @param ValidationErrors                    $errors   Errors of this object and its children
+     * @param array<string, mixed>                 $route    Route available to this node's post-processors
+     * @param array<string, mixed>                 $context  Application context passed through the tree
      */
     public function __construct(
         public RequestMetadata $metadata,
-        public InputBags $bags,
         public array $values,
         public array $children,
         public array $errors,
+        public array $route,
+        public array $context,
     ) {
     }
 }

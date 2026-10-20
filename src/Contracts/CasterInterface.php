@@ -4,23 +4,17 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Contracts;
 
+use Solo\RequestHandler\ProcessContext;
+
 /**
- * Interface for custom type casters
+ * Pure conversion of normalized input into the property's declared type.
+ * Reject input with FieldValidationException. A result of the wrong type is
+ * a programming error. Null/blank policy is applied before invoking the caster.
  *
- * Implement this interface to create custom casting logic for complex types
- *
- * Example:
- * ```php
- * final class MoneyCaster implements CasterInterface
- * {
- *     public function cast(mixed $value): Money
- *     {
- *         return new Money((int) round((float) $value * 100));
- *     }
- * }
- * ```
+ * @template-covariant T
  */
 interface CasterInterface
 {
-    public function cast(mixed $value): mixed;
+    /** @return T */
+    public function cast(mixed $value, ProcessContext $context): mixed;
 }

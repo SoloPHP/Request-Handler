@@ -8,73 +8,43 @@ use BackedEnum;
 use DateTime;
 use DateTimeImmutable;
 use ReflectionProperty;
+use Solo\RequestHandler\Contracts\GeneratorInterface;
 use Solo\RequestHandler\FieldSource;
-use Solo\RequestHandler\Pipeline\ParameterTypeGuard;
+use Solo\RequestHandler\Pipeline\TypeGuard;
 use Solo\RequestHandler\Request;
 
 /**
- * Cached metadata for a single field.
+ * Immutable per-field input binding and type information.
+ * Null source uses the handle method's default. Normalizers prepare raw input;
+ * one built-in/custom decoder produces its type; post-processors receive that
+ * type only after the whole tree is valid. `blank` describes how a client
+ * empty string is read before decoding. `appSupplied` marks a value the
+ * application supplies — context or a generator — instead of the client.
  *
- * `source` is null when the property uses the default source dictated by the
- * `handle*` method (Body for `handleBody`/`handleArray`, Query for `handleQuery`).
- * `sourceKey` is always populated.
- *
- * `validatesWhenAbsent` marks a field whose rule chain can produce an error
- * even when the key is missing from the payload — the literal `required` rule
- * and the whole conditional-presence family (`required_if`, `required_with`,
- * `required_without_all`, ...). `isRequired` stays literal-`required` only,
- * because it also drives the "required field cannot have a default" check and
- * the exported schema.
- *
- * `pathSegments` is non-null only when the property is sourced via
- * `#[FromBody('a.b.c')]` — in that case `InputBags::lookup` walks the body
- * bag segment by segment instead of doing a flat array_key_exists lookup.
- *
- * `preProcessorGuard` / `postProcessorGuard` are set for function and
- * static-method handlers whose first parameter is typed: a value the handler
- * cannot accept skips it rather than raising a TypeError. `preProcessorFailure`
- * is set when nothing but that pre-processor produces the property's type (a
- * class): input is converted to the parameter's type through the guard's
- * lossless `casts` first, and input that fits none is the client's wrong
- * type, reported with this rule. `postProcessorFailure` is the same for a
- * class only a typed post-processor produces.
- *
- * `enumClass` is set when the declared type is a `BackedEnum`; the value is
- * resolved through `tryFrom()` instead of a built-in cast.
- *
- * `dateClass` is set for a date property: the class built from the input,
- * read in `dateFormat` when `#[DateFormat]` gives one.
- *
- * `nested` and `items` are set when the handler builds DTOs from the value:
- * one nested object, or an `#[Items]` list of them. A list the application
- * supplies (context) holds its DTOs already: `suppliedItems` names their
- * class, and they are only checked.
- *
- * `castFailure` is the error reported when the built-in cast cannot convert
- * non-empty input (`integer`, `numeric`, `boolean`, `string`, `json`,
- * `array`, `in`, `date`, `date_format`) — decided once, at build time.
- *
- * `emptyToNull` (`#[EmptyToNull]` on the property or its class): a blank
- * string is read as null. `noTrim`: auto-trim skips it — `#[NoTrim]`, or a
- * value the application supplies.
- *
- * `blank` is what `""` from the client reads as — asked of the property's
- * own reader at build time: null (no value) for a number, a bool, a date, an
- * enum without a `""` case, a nested object or a produced class; `[]` for an
- * array or an `#[Items]` list; `""` itself for a type that holds a string.
- *
- * `memberGuard` is set for an input type no cast handles, such as
- * `int|float` or a standalone `true`: a value of a member type is kept,
- * another one is converted to the first of the guard's lossless `casts` it
- * fits — or fails with `castFailure`. `typeGuard` is set for a value the
- * application supplies (context, generator), checked right after its cast.
+ * `resultGuard` is set where something other than a built-in decoder produces
+ * the value — a custom caster, a post-processor, the application (context, a
+ * generator) — to check that value, and for a type decoded member by member,
+ * where `memberGuard` is the same guard. It is null where a built-in decoder
+ * or child construction already yields the declared type, and for an untyped
+ * or `mixed` property, which accepts anything. `producedItems` is the
+ * `#[Items]` class of a list something other than the handler builds —
+ * context, a generator, a post-processor — whose members are checked.
  *
  * @internal
  */
 final readonly class PropertyMetadata
 {
     /**
+     * Whether the handler builds DTOs from the value: a nested object or an
+     * `#[Items]` list.
+     */
+    public bool $buildsChildren;
+
+    /**
+     * @param array<string, mixed>            $normalizeConfig
+     * @param array<string, mixed>            $casterConfig
      * @param array<string, mixed>            $postProcessConfig
+     * @param class-string<GeneratorInterface>|null $generator
      * @param array<string, mixed>            $generatorOptions
      * @param class-string<Request>|null      $items
      * @param list<string>|null               $pathSegments
@@ -82,14 +52,13 @@ final readonly class PropertyMetadata
      * @param array{rule: string, params?: list<string>}|null $castFailure
      * @param class-string<DateTime|DateTimeImmutable>|null    $dateClass
      * @param class-string<Request>|null                       $nested
-     * @param class-string<Request>|null                       $suppliedItems
-     * @param array{rule: string}|null                         $preProcessorFailure
-     * @param array{rule: string}|null                         $postProcessorFailure
+     * @param class-string<Request>|null                       $producedItems
      */
     public function __construct(
         public string $name,
         public ?FieldSource $source,
         public string $sourceKey,
+        public bool $appSupplied,
         public ?string $type,
         public bool $isNullable,
         public bool $hasDefault,
@@ -97,55 +66,33 @@ final readonly class PropertyMetadata
         public ?string $validationRules,
         public ?string $effectiveCastType,
         public ?string $customCasterClass,
-        public ?string $preProcessor,
-        public ?ProcessorKind $preProcessorKind,
+        public ?string $normalizer,
+        public array $normalizeConfig,
+        public array $casterConfig,
         public ?string $postProcessor,
-        public ?ProcessorKind $postProcessorKind,
         public array $postProcessConfig,
         public ?string $group,
         public bool $isRequired,
         public bool $validatesWhenAbsent,
         public ReflectionProperty $reflection,
-        public ?string $generator = null,
-        public array $generatorOptions = [],
-        public bool $exclude = false,
-        public ?string $items = null,
-        public ?array $pathSegments = null,
-        public ?ParameterTypeGuard $preProcessorGuard = null,
-        public ?ParameterTypeGuard $postProcessorGuard = null,
-        public ?string $enumClass = null,
-        public ?array $castFailure = null,
-        public ?string $groupMapTo = null,
-        public ?string $dateClass = null,
-        public ?string $dateFormat = null,
-        public ?string $nested = null,
-        public bool $emptyToNull = false,
-        public bool $noTrim = false,
-        public ?ParameterTypeGuard $typeGuard = null,
-        public ?ParameterTypeGuard $memberGuard = null,
-        public ?string $suppliedItems = null,
-        public ?array $preProcessorFailure = null,
-        public mixed $blank = '',
-        public ?array $postProcessorFailure = null,
+        public ?string $generator,
+        public array $generatorOptions,
+        public bool $exclude,
+        public ?string $items,
+        public ?array $pathSegments,
+        public ?string $enumClass,
+        public ?array $castFailure,
+        public ?string $groupMapTo,
+        public ?string $dateClass,
+        public ?string $dateFormat,
+        public ?string $nested,
+        public bool $emptyToNull,
+        public bool $noTrim,
+        public ?TypeGuard $resultGuard,
+        public ?TypeGuard $memberGuard,
+        public ?string $producedItems,
+        public mixed $blank,
     ) {
-    }
-
-    /**
-     * Whether a post-processor or custom caster decides the final value — and,
-     * for nested objects and items, what they are built from. Those run in
-     * the transform pass.
-     */
-    public function decidedInTransform(): bool
-    {
-        return $this->postProcessorKind !== null || $this->customCasterClass !== null;
-    }
-
-    /**
-     * Whether the handler builds DTOs from the value: a nested object or an
-     * `#[Items]` list.
-     */
-    public function buildsChildren(): bool
-    {
-        return $this->items !== null || $this->nested !== null;
+        $this->buildsChildren = $items !== null || $nested !== null;
     }
 }
