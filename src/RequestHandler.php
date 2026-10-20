@@ -859,11 +859,12 @@ final class RequestHandler
         foreach ($data as $name => $value) {
             $property = $metadata->properties[$name];
 
-            // Every final value passes here. Client input that cannot fit was
-            // a validation error already; a value that still does not came
-            // from the application — a hook, context, a generator — and is a
-            // programming error rather than a TypeError or an uninitialised
-            // property. A hook's result is assigned as PHP assigns any value.
+            // Every final value passes here. Client input the property
+            // cannot take was a validation error or no value already, and
+            // context and generated values were checked when cast: a value
+            // that still does not fit is what a hook returned — a programming
+            // error rather than a TypeError or an uninitialised property. A
+            // hook's result is assigned as PHP assigns any value.
             if ($value === null && !$property->isNullable) {
                 if (!$property->hasDefault) {
                     throw $this->emptyValue($property, $metadata->className);

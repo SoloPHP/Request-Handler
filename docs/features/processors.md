@@ -64,6 +64,8 @@ public ?Money $price = null;
 // {"price": ["9.99"]} → ['price' => [['rule' => 'string']]] (422)
 ```
 
+A pre-processor whose parameter takes no type request input can have — a class, `object` — would never run for such a property, so building the metadata throws `ConfigurationException::preProcessorTakesNoInput`. On a `#[FromContext]` property it is fine: the application supplies the object.
+
 ## Rejecting Input From a Handler
 
 A pre-processor, post-processor or custom caster may throw `ValidationException` itself. Its errors are merged with the others of the same pass instead of aborting it, and inside `#[Items]` they are reported under the item path (`lines.1.amount`):
