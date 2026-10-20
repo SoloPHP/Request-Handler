@@ -7,6 +7,7 @@ namespace Solo\RequestHandler\Cache;
 use BackedEnum;
 use DateTime;
 use DateTimeImmutable;
+use ReflectionAttribute;
 use ReflectionClass;
 use ReflectionFunction;
 use ReflectionFunctionAbstract;
@@ -118,6 +119,17 @@ final class ReflectionCache
     ];
 
     /**
+     * Every attribute read from a property.
+     */
+    private const array PROPERTY_ATTRIBUTES = [
+        ...self::INPUT_ATTRIBUTES,
+        Generator::class,
+        Group::class,
+        Exclude::class,
+        Ignore::class,
+    ];
+
+    /**
      * Date type (lower-case) → the class a date property is built as.
      * `DateTimeInterface` gets the immutable implementation.
      */
@@ -126,6 +138,15 @@ final class ReflectionCache
         'datetime'          => DateTime::class,
         'datetimeinterface' => DateTimeImmutable::class,
     ];
+
+    /**
+     * Name of a property attribute → its class: the name as declared and in
+     * lower case, so another spelling finds the class as getAttributes(X::class)
+     * does. Built on first use.
+     *
+     * @var array<string, class-string>|null
+     */
+    private static ?array $attributeClasses = null;
 
     /** @var array<class-string, RequestMetadata> */
     private array $cache = [];
@@ -195,12 +216,13 @@ final class ReflectionCache
                     continue;
                 }
 
-                if (!empty($property->getAttributes(Ignore::class))) {
-                    $this->assertIgnoreHasNoCompanions($property, $className);
+                $attributes = $this->attributesOf($property);
+                if (isset($attributes[Ignore::class])) {
+                    $this->assertIgnoreHasNoCompanions($property, $attributes, $className);
                     continue;
                 }
 
-                $metadata = $this->buildPropertyMetadata($property, $className, $emptyToNull, $noTrim);
+                $metadata = $this->buildPropertyMetadata($property, $attributes, $className, $emptyToNull, $noTrim);
                 $properties[$metadata->name] = $metadata;
             }
 
@@ -230,14 +252,43 @@ final class ReflectionCache
     }
 
     /**
+     * The property's attributes by class, read in one call instead of a
+     * getAttributes(X::class) call per class. Attributes of other libraries
+     * keep their name and are never instantiated.
+     *
+     * @return array<string, non-empty-list<ReflectionAttribute<object>>>
+     */
+    private function attributesOf(ReflectionProperty $property): array
+    {
+        if (self::$attributeClasses === null) {
+            $classes = array_combine(self::PROPERTY_ATTRIBUTES, self::PROPERTY_ATTRIBUTES);
+            self::$attributeClasses = array_change_key_case($classes) + $classes;
+        }
+
+        $attributes = [];
+        foreach ($property->getAttributes() as $attribute) {
+            $name = $attribute->getName();
+            $class = self::$attributeClasses[$name] ?? self::$attributeClasses[strtolower($name)] ?? $name;
+            $attributes[$class][] = $attribute;
+        }
+
+        return $attributes;
+    }
+
+    /**
      * #[Ignore] cannot coexist with any other RequestHandler attribute —
      * an ignored property never enters the pipeline, so a companion attribute
      * would silently never run. Surface that as a build-time failure.
+     *
+     * @param array<string, non-empty-list<ReflectionAttribute<object>>> $attributes
      */
-    private function assertIgnoreHasNoCompanions(ReflectionProperty $property, string $className): void
-    {
+    private function assertIgnoreHasNoCompanions(
+        ReflectionProperty $property,
+        array $attributes,
+        string $className,
+    ): void {
         $companion = $this->firstPresent(
-            $property,
+            $attributes,
             [...self::INPUT_ATTRIBUTES, Generator::class, Group::class, Exclude::class]
         );
 
@@ -247,15 +298,17 @@ final class ReflectionCache
     }
 
     /**
-     * The short name of the first of the attributes the property carries.
+     * The short name of the first of the classes the property carries an
+     * attribute of.
      *
-     * @param list<class-string> $attributes
+     * @param array<string, non-empty-list<ReflectionAttribute<object>>> $attributes
+     * @param list<class-string>                                        $classes
      */
-    private function firstPresent(ReflectionProperty $property, array $attributes): ?string
+    private function firstPresent(array $attributes, array $classes): ?string
     {
-        foreach ($attributes as $attribute) {
-            if ($property->getAttributes($attribute) !== []) {
-                return (new ReflectionClass($attribute))->getShortName();
+        foreach ($classes as $class) {
+            if (isset($attributes[$class])) {
+                return (new ReflectionClass($class))->getShortName();
             }
         }
 
@@ -294,6 +347,7 @@ final class ReflectionCache
     }
 
     /**
+     * @param array<string, non-empty-list<ReflectionAttribute<object>>> $attributes By class: attributesOf().
      * @param class-string $requestClass     The class being built — static-method
      *                                       processors are looked up (and later called) on it,
      *                                       which may be a subclass of the declaring class.
@@ -302,6 +356,7 @@ final class ReflectionCache
      */
     private function buildPropertyMetadata(
         ReflectionProperty $property,
+        array $attributes,
         string $requestClass,
         bool $classEmptyToNull,
         bool $classNoTrim,
@@ -309,20 +364,20 @@ final class ReflectionCache
         $name = $property->getName();
         $className = $property->getDeclaringClass()->getName();
 
-        $validate = $this->firstAttribute($property, Validate::class);
-        $cast = $this->firstAttribute($property, Cast::class);
-        $caster = $this->firstAttribute($property, Caster::class);
-        $dateFormat = $this->firstAttribute($property, DateFormat::class);
-        $preProcess = $this->firstAttribute($property, PreProcess::class);
-        $postProcess = $this->firstAttribute($property, PostProcess::class);
-        $generator = $this->firstAttribute($property, Generator::class);
-        $items = $this->firstAttribute($property, Items::class);
-        $group = $this->firstAttribute($property, Group::class);
-        $excludeAttr = $this->firstAttribute($property, Exclude::class);
-        $emptyToNull = $this->firstAttribute($property, EmptyToNull::class);
-        $noTrim = $this->firstAttribute($property, NoTrim::class);
+        $validate = isset($attributes[Validate::class]) ? $this->first($attributes, Validate::class) : null;
+        $cast = isset($attributes[Cast::class]) ? $this->first($attributes, Cast::class) : null;
+        $caster = isset($attributes[Caster::class]) ? $this->first($attributes, Caster::class) : null;
+        $dateFormat = isset($attributes[DateFormat::class]) ? $this->first($attributes, DateFormat::class) : null;
+        $preProcess = isset($attributes[PreProcess::class]) ? $this->first($attributes, PreProcess::class) : null;
+        $postProcess = isset($attributes[PostProcess::class]) ? $this->first($attributes, PostProcess::class) : null;
+        $generator = isset($attributes[Generator::class]) ? $this->first($attributes, Generator::class) : null;
+        $items = isset($attributes[Items::class]) ? $this->first($attributes, Items::class) : null;
+        $group = isset($attributes[Group::class]) ? $this->first($attributes, Group::class) : null;
+        $excludeAttr = isset($attributes[Exclude::class]) ? $this->first($attributes, Exclude::class) : null;
+        $emptyToNull = isset($attributes[EmptyToNull::class]) ? $this->first($attributes, EmptyToNull::class) : null;
+        $noTrim = isset($attributes[NoTrim::class]) ? $this->first($attributes, NoTrim::class) : null;
 
-        [$source, $sourceKey, $pathSegments] = $this->detectSource($property, $name, $className);
+        [$source, $sourceKey, $pathSegments] = $this->detectSource($attributes, $name, $className);
 
         $rules = $validate?->rules;
         $castType = $cast !== null ? strtolower($cast->type) : null;
@@ -337,7 +392,7 @@ final class ReflectionCache
         // otherwise surface a less-relevant error first.
         if ($generator !== null) {
             $this->validateGenerator($generator->class, $className, $name);
-            $this->checkGeneratorConflicts($property, $className, $name);
+            $this->checkGeneratorConflicts($attributes, $className, $name);
         }
 
         $hasDefault = $property->hasDefaultValue();
@@ -377,7 +432,7 @@ final class ReflectionCache
         }
 
         if ($dateFormat !== null) {
-            $conflict = $this->firstPresent($property, [Cast::class, Caster::class, Items::class]);
+            $conflict = $this->firstPresent($attributes, [Cast::class, Caster::class, Items::class]);
             if ($conflict !== null) {
                 throw ConfigurationException::dateFormatConflict($className, $name, $conflict);
             }
@@ -401,7 +456,7 @@ final class ReflectionCache
                 throw ConfigurationException::itemsRequiresArrayType($className, $name, $phpType);
             }
 
-            $conflict = $this->firstPresent($property, [Cast::class, Caster::class]);
+            $conflict = $this->firstPresent($attributes, [Cast::class, Caster::class]);
             if ($conflict !== null) {
                 throw ConfigurationException::itemsCastConflict($className, $name, $conflict);
             }
@@ -621,13 +676,14 @@ final class ReflectionCache
      * The third tuple element is non-null only for `#[FromBody]`: an array of
      * dot-path segments used for nested traversal.
      *
+     * @param array<string, non-empty-list<ReflectionAttribute<object>>> $attributes
      * @return array{0: ?FieldSource, 1: string, 2: ?list<string>}
      */
-    private function detectSource(ReflectionProperty $property, string $name, string $className): array
+    private function detectSource(array $attributes, string $name, string $className): array
     {
-        $fromRoute = $property->getAttributes(FromRoute::class);
-        $fromContext = $property->getAttributes(FromContext::class);
-        $fromBody = $property->getAttributes(FromBody::class);
+        $fromRoute = $attributes[FromRoute::class] ?? [];
+        $fromContext = $attributes[FromContext::class] ?? [];
+        $fromBody = $attributes[FromBody::class] ?? [];
 
         $declared = [];
         if (!empty($fromRoute)) {
@@ -666,12 +722,15 @@ final class ReflectionCache
         return [null, $name, null];
     }
 
+    /**
+     * @param array<string, non-empty-list<ReflectionAttribute<object>>> $attributes
+     */
     private function checkGeneratorConflicts(
-        ReflectionProperty $property,
+        array $attributes,
         string $className,
         string $propertyName,
     ): void {
-        $conflict = $this->firstPresent($property, self::INPUT_ATTRIBUTES);
+        $conflict = $this->firstPresent($attributes, self::INPUT_ATTRIBUTES);
 
         if ($conflict !== null) {
             throw ConfigurationException::generatorConflict($className, $propertyName, $conflict);
@@ -679,14 +738,20 @@ final class ReflectionCache
     }
 
     /**
+     * The first attribute of the class the property carries, instantiated.
+     * Called only when it carries one: the call is what looking up an absent
+     * attribute would cost, and most properties carry few.
+     *
      * @template TAttr of object
-     * @param class-string<TAttr> $attributeClass
+     * @param array<string, non-empty-list<ReflectionAttribute<object>>> $attributes
+     * @param class-string<TAttr>                                        $attributeClass
      * @return TAttr|null
      */
-    private function firstAttribute(ReflectionProperty $property, string $attributeClass): ?object
+    private function first(array $attributes, string $attributeClass): ?object
     {
-        $attributes = $property->getAttributes($attributeClass);
-        return !empty($attributes) ? $attributes[0]->newInstance() : null;
+        $attribute = isset($attributes[$attributeClass]) ? $attributes[$attributeClass][0]->newInstance() : null;
+
+        return $attribute instanceof $attributeClass ? $attribute : null;
     }
 
     /**

@@ -73,6 +73,26 @@ final class ReflectionCacheTest extends TestCase
 
     // ===== property metadata =====
 
+    public function testAttributeNamesAreReadInAnyCase(): void
+    {
+        // PHP class names are case-insensitive, and so is getAttributes(X::class).
+        // Composer loads a class only by its exact name: load them first.
+        $this->assertTrue(class_exists(FromRoute::class) && class_exists(EmptyToNull::class));
+        $metadata = $this->cache->get(OddCaseAttributeRequest::class);
+
+        $this->assertSame(FieldSource::Route, $metadata->properties['id']->source);
+        $this->assertSame('key', $metadata->properties['id']->sourceKey);
+        $this->assertTrue($metadata->properties['note']->emptyToNull);
+    }
+
+    public function testAttributesOfOtherLibrariesAreNotInstantiated(): void
+    {
+        $metadata = $this->cache->get(ForeignAttributeRequest::class);
+
+        $this->assertTrue($metadata->properties['note']->emptyToNull);
+        $this->assertSame(FieldSource::Context, $metadata->properties['tenant']->source);
+    }
+
     public function testStaticPropertiesAreIgnored(): void
     {
         $metadata = $this->cache->get(StaticPropertyRequest::class);
@@ -1753,4 +1773,35 @@ final class ContextObjectPreProcessorRequest extends Request
     {
         return $money;
     }
+}
+
+final class OddCaseAttributeRequest extends Request
+{
+    // @phpstan-ignore class.nameCase (the spelling is what the test is about)
+    #[\Solo\RequestHandler\Attributes\Source\FROMROUTE('key')]
+    public int $id;
+
+    // @phpstan-ignore class.nameCase (the spelling is what the test is about)
+    #[\solo\requesthandler\attributes\emptytonull]
+    public ?string $note = null;
+}
+
+#[\Attribute(\Attribute::TARGET_PROPERTY)]
+final class ForeignMarker
+{
+    public function __construct()
+    {
+        throw new \LogicException('An attribute of another library was instantiated.');
+    }
+}
+
+final class ForeignAttributeRequest extends Request
+{
+    #[ForeignMarker]
+    #[EmptyToNull]
+    public ?string $note = null;
+
+    #[FromContext('tenant')]
+    #[ForeignMarker]
+    public string $tenant;
 }
