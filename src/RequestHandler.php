@@ -619,9 +619,11 @@ final class RequestHandler
     /**
      * Cast a value the application supplied (context, generator). One that
      * does not fit the declared type is a programming error, not a client
-     * mistake, so it raises instead of becoming a validation error — here,
-     * before any hook or generator runs for the request. What a hook makes
-     * of the value is checked when populateInstance() assigns it.
+     * mistake, so it raises instead of becoming a validation error. A
+     * context value is checked in the resolve pass — after the
+     * pre-processors, before any post-processor, caster or generator runs —
+     * a generated one as its generator returns. What a hook makes of a value
+     * is checked when populateInstance() assigns it.
      */
     private function castTrusted(PropertyMetadata $property, mixed $value, string $className): mixed
     {

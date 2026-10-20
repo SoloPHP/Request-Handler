@@ -67,7 +67,7 @@ use Solo\RequestHandler\Request;
  * kept, another one is converted to the first of `unionCasts` it fits
  * without loss — or fails with `castFailure`. `typeGuard` is also set for a
  * value the application supplies (context, generator), checked right after
- * its cast — before any hook or generator runs.
+ * its cast.
  *
  * @internal
  */
