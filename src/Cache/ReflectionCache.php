@@ -504,7 +504,7 @@ final class ReflectionCache
             // auto-trimmed, and left out by a class-level #[EmptyToNull].
             emptyToNull: $emptyToNull !== null || ($classEmptyToNull && !$appSupplied),
             noTrim: $noTrim !== null || $classNoTrim || $appSupplied,
-            typeGuard: $memberCast ? ParameterTypeGuard::fromType($type) : null,
+            typeGuard: $memberCast || $appSupplied ? ParameterTypeGuard::fromType($type) : null,
             unionCasts: $unionCasts,
             suppliedItems: $appSupplied ? $items?->class : null,
             preProcessorFailure: $preProcessorFailure,
