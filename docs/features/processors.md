@@ -65,7 +65,7 @@ public ?Money $price = null;
 // {"price": ["9.99"]} → ['price' => [['rule' => 'string']]] (422)
 ```
 
-A pre-processor whose parameter takes none of the types request input has — a class, `object`, or a `callable` the client would get to name — cannot produce such a property from client input, so building the metadata throws `ConfigurationException::preProcessorTakesNoInput`. On a `#[FromContext]` property it is fine: the application supplies the object.
+A pre-processor whose parameter takes none of the types request input has — a class, `object` or `callable` — cannot be the only producer of such a property, so building the metadata throws `ConfigurationException::preProcessorTakesNoInput`. On a `#[FromContext]` property it is fine: the application supplies the object.
 
 ## Rejecting Input From a Handler
 
