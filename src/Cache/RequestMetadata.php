@@ -14,6 +14,14 @@ use ReflectionClass;
 final readonly class RequestMetadata
 {
     /**
+     * A bit per property, in declaration order — how `provided()` is
+     * recorded. Null for a class with more properties than an int has bits.
+     *
+     * @var array<string, int>|null
+     */
+    public ?array $bits;
+
+    /**
      * @param class-string                      $className
      * @param array<string, PropertyMetadata>   $properties
      * @param ReflectionClass<covariant object> $reflection
@@ -31,5 +39,15 @@ final readonly class RequestMetadata
         public array $transformed = [],
         public array $groups = [],
     ) {
+        $bits = null;
+        if (count($properties) <= PHP_INT_SIZE * 8) {
+            $bits = [];
+            $bit = 1;
+            foreach ($properties as $name => $property) {
+                $bits[$name] = $bit;
+                $bit <<= 1;
+            }
+        }
+        $this->bits = $bits;
     }
 }

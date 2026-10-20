@@ -1020,6 +1020,42 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(['address' => []], $order->toArray(onlyProvided: true));
     }
 
+    public function testProvidedFollowsDeclarationOrderWhenAGeneratorComesFirst(): void
+    {
+        // hydrate() adds generated values after the others.
+        $dto = $this->handler->handleArray(GeneratedFirstPatchRequest::class, ['note' => 'n']);
+
+        $this->assertSame(['stamp', 'note'], $dto->provided());
+        $this->assertSame(['stamp' => 'generated', 'note' => 'n'], $dto->toArray(onlyProvided: true));
+    }
+
+    public function testProvidedUsesEveryBitOfTheMask(): void
+    {
+        // The 64th property takes the int's sign bit.
+        $dto = $this->handler->handleArray(Wide64Request::class, ['f64' => 'last', 'f1' => 'first']);
+
+        $this->assertSame(['f1', 'f64'], $dto->provided());
+        $this->assertTrue($dto->isProvided('f64'));
+        $this->assertFalse($dto->isProvided('f63'));
+        $this->assertFalse($dto->isProvided('unknown'));
+        $this->assertSame(['f1' => 'first', 'f64' => 'last'], $dto->toArray(onlyProvided: true));
+    }
+
+    public function testProvidedOfAClassWiderThanTheMask(): void
+    {
+        // 65 properties do not fit an int: the names are kept instead.
+        $dto = $this->handler->handleArray(Wide65Request::class, ['f65' => 'last', 'f2' => 'second']);
+
+        $this->assertSame(['f1', 'f2', 'f65'], $dto->provided());
+        $this->assertTrue($dto->isProvided('f65'));
+        $this->assertFalse($dto->isProvided('f64'));
+        $this->assertFalse($dto->isProvided('unknown'));
+        $this->assertSame(
+            ['f1' => 'generated', 'f2' => 'second', 'f65' => 'last'],
+            $dto->toArray(onlyProvided: true)
+        );
+    }
+
     public function testDtoBuiltByHandHasNothingProvided(): void
     {
         $dto = new PatchAddressRequest();
@@ -3920,4 +3956,154 @@ final class ContextBeforeHooksRequest extends Request
 
     #[FromContext('address')]
     public ?AddressRequest $address = null;
+}
+
+final class GeneratedFirstPatchRequest extends Request
+{
+    #[Generator(ConflictTestGenerator::class)]
+    public string $stamp;
+
+    public ?string $name = null;
+    public ?string $note = null;
+}
+
+/** As many properties as an int has bits. */
+final class Wide64Request extends Request
+{
+    public ?string $f1 = null;
+    public ?string $f2 = null;
+    public ?string $f3 = null;
+    public ?string $f4 = null;
+    public ?string $f5 = null;
+    public ?string $f6 = null;
+    public ?string $f7 = null;
+    public ?string $f8 = null;
+    public ?string $f9 = null;
+    public ?string $f10 = null;
+    public ?string $f11 = null;
+    public ?string $f12 = null;
+    public ?string $f13 = null;
+    public ?string $f14 = null;
+    public ?string $f15 = null;
+    public ?string $f16 = null;
+    public ?string $f17 = null;
+    public ?string $f18 = null;
+    public ?string $f19 = null;
+    public ?string $f20 = null;
+    public ?string $f21 = null;
+    public ?string $f22 = null;
+    public ?string $f23 = null;
+    public ?string $f24 = null;
+    public ?string $f25 = null;
+    public ?string $f26 = null;
+    public ?string $f27 = null;
+    public ?string $f28 = null;
+    public ?string $f29 = null;
+    public ?string $f30 = null;
+    public ?string $f31 = null;
+    public ?string $f32 = null;
+    public ?string $f33 = null;
+    public ?string $f34 = null;
+    public ?string $f35 = null;
+    public ?string $f36 = null;
+    public ?string $f37 = null;
+    public ?string $f38 = null;
+    public ?string $f39 = null;
+    public ?string $f40 = null;
+    public ?string $f41 = null;
+    public ?string $f42 = null;
+    public ?string $f43 = null;
+    public ?string $f44 = null;
+    public ?string $f45 = null;
+    public ?string $f46 = null;
+    public ?string $f47 = null;
+    public ?string $f48 = null;
+    public ?string $f49 = null;
+    public ?string $f50 = null;
+    public ?string $f51 = null;
+    public ?string $f52 = null;
+    public ?string $f53 = null;
+    public ?string $f54 = null;
+    public ?string $f55 = null;
+    public ?string $f56 = null;
+    public ?string $f57 = null;
+    public ?string $f58 = null;
+    public ?string $f59 = null;
+    public ?string $f60 = null;
+    public ?string $f61 = null;
+    public ?string $f62 = null;
+    public ?string $f63 = null;
+    public ?string $f64 = null;
+}
+
+/** One property more than an int has bits. */
+final class Wide65Request extends Request
+{
+    #[Generator(ConflictTestGenerator::class)]
+    public string $f1;
+
+    public ?string $f2 = null;
+    public ?string $f3 = null;
+    public ?string $f4 = null;
+    public ?string $f5 = null;
+    public ?string $f6 = null;
+    public ?string $f7 = null;
+    public ?string $f8 = null;
+    public ?string $f9 = null;
+    public ?string $f10 = null;
+    public ?string $f11 = null;
+    public ?string $f12 = null;
+    public ?string $f13 = null;
+    public ?string $f14 = null;
+    public ?string $f15 = null;
+    public ?string $f16 = null;
+    public ?string $f17 = null;
+    public ?string $f18 = null;
+    public ?string $f19 = null;
+    public ?string $f20 = null;
+    public ?string $f21 = null;
+    public ?string $f22 = null;
+    public ?string $f23 = null;
+    public ?string $f24 = null;
+    public ?string $f25 = null;
+    public ?string $f26 = null;
+    public ?string $f27 = null;
+    public ?string $f28 = null;
+    public ?string $f29 = null;
+    public ?string $f30 = null;
+    public ?string $f31 = null;
+    public ?string $f32 = null;
+    public ?string $f33 = null;
+    public ?string $f34 = null;
+    public ?string $f35 = null;
+    public ?string $f36 = null;
+    public ?string $f37 = null;
+    public ?string $f38 = null;
+    public ?string $f39 = null;
+    public ?string $f40 = null;
+    public ?string $f41 = null;
+    public ?string $f42 = null;
+    public ?string $f43 = null;
+    public ?string $f44 = null;
+    public ?string $f45 = null;
+    public ?string $f46 = null;
+    public ?string $f47 = null;
+    public ?string $f48 = null;
+    public ?string $f49 = null;
+    public ?string $f50 = null;
+    public ?string $f51 = null;
+    public ?string $f52 = null;
+    public ?string $f53 = null;
+    public ?string $f54 = null;
+    public ?string $f55 = null;
+    public ?string $f56 = null;
+    public ?string $f57 = null;
+    public ?string $f58 = null;
+    public ?string $f59 = null;
+    public ?string $f60 = null;
+    public ?string $f61 = null;
+    public ?string $f62 = null;
+    public ?string $f63 = null;
+    public ?string $f64 = null;
+    public ?string $f65 = null;
 }
