@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Solo\RequestHandler\Pipeline;
 
+use Solo\RequestHandler\Cache\ReflectionCache;
 use Solo\RequestHandler\Cache\RequestMetadata;
 use Solo\RequestHandler\Request;
 use WeakMap;
@@ -22,8 +23,22 @@ use WeakMap;
  */
 final class ProvidedFields
 {
+    /**
+     * How many decoded name sets one class keeps — a client chooses which
+     * fields it sends, so a long-running worker must not keep every shape.
+     */
+    private const int DECODED_PER_CLASS = 64;
+
     /** @var WeakMap<Request, int|array<string, true>>|null */
     private static ?WeakMap $fields = null;
+
+    /**
+     * Name sets decoded from an int entry, by class and entry: the DTOs of a
+     * list share their shape, so reading them decodes it once.
+     *
+     * @var array<string, array<int, array<string, true>>>
+     */
+    private static array $decoded = [];
 
     /**
      * @param array<string, mixed> $values What the handler assigned, keyed by property name.
@@ -50,30 +65,34 @@ final class ProvidedFields
      *
      * @return array<string, true>
      */
-    public static function of(Request $dto, RequestMetadata $metadata): array
+    public static function of(Request $dto): array
     {
         $provided = self::$fields[$dto] ?? [];
         if (!is_int($provided)) {
             return $provided;
         }
 
+        return self::$decoded[$dto::class][$provided] ?? self::decode($dto::class, $provided);
+    }
+
+    /**
+     * @param class-string $className
+     * @return array<string, true>
+     */
+    private static function decode(string $className, int $provided): array
+    {
         $names = [];
-        foreach ($metadata->bits ?? [] as $name => $bit) {
+        foreach (ReflectionCache::of($className)->bits ?? [] as $name => $bit) {
             if (($provided & $bit) !== 0) {
                 $names[$name] = true;
             }
         }
 
+        if (count(self::$decoded[$className] ?? []) < self::DECODED_PER_CLASS) {
+            self::$decoded[$className][$provided] = $names;
+        }
+
         return $names;
-    }
-
-    public static function has(Request $dto, RequestMetadata $metadata, string $name): bool
-    {
-        $provided = self::$fields[$dto] ?? [];
-
-        return is_int($provided)
-            ? ($provided & ($metadata->bits[$name] ?? 0)) !== 0
-            : isset($provided[$name]);
     }
 
     /**

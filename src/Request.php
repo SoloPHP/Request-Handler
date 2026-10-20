@@ -51,7 +51,7 @@ abstract class Request
     {
         $result = [];
         $metadata = $this->metadata();
-        $provided = $onlyProvided ? ProvidedFields::of($this, $metadata) : [];
+        $provided = $onlyProvided ? ProvidedFields::of($this) : [];
 
         foreach ($metadata->properties as $name => $property) {
             if ($property->exclude || !$property->reflection->isInitialized($this)) {
@@ -102,7 +102,7 @@ abstract class Request
      */
     public function provided(): array
     {
-        return array_keys(ProvidedFields::of($this, $this->metadata()));
+        return array_keys(ProvidedFields::of($this));
     }
 
     /**
@@ -111,7 +111,7 @@ abstract class Request
      */
     public function isProvided(string $name): bool
     {
-        return ProvidedFields::has($this, $this->metadata(), $name);
+        return array_key_exists($name, ProvidedFields::of($this));
     }
 
     /**

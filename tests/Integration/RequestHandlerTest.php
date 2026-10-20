@@ -1085,6 +1085,24 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(['f1' => 'first', 'f64' => 'last'], $dto->toArray(onlyProvided: true));
     }
 
+    public function testProvidedStaysRightPastTheDecodedShapesKept(): void
+    {
+        // 127 shapes of one class — more than ProvidedFields keeps decoded.
+        $shapes = [];
+        for ($i = 1; $i <= 64; $i++) {
+            $shapes[] = ["f{$i}"];
+        }
+        for ($i = 2; $i <= 64; $i++) {
+            $shapes[] = ['f1', "f{$i}"];
+        }
+
+        foreach ($shapes as $names) {
+            $dto = $this->handler->handleArray(Wide64Request::class, array_fill_keys($names, 'x'));
+            $this->assertSame($names, $dto->provided());
+            $this->assertSame(array_fill_keys($names, 'x'), $dto->toArray(onlyProvided: true));
+        }
+    }
+
     public function testProvidedOfAClassWiderThanTheMask(): void
     {
         // 65 properties do not fit an int: the names are kept instead.
