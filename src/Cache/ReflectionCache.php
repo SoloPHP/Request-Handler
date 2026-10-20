@@ -512,6 +512,19 @@ final class ReflectionCache
                 );
         }
 
+        // The same for a class only a typed post-processor produces. Children
+        // are built from what it is given, and an enum or a date reads what
+        // it skips itself.
+        $postProcessorFailure = !$holdsInput
+            && !$appSupplied
+            && $nested === null
+            && $enumClass === null
+            && $dateClass === null
+            && $customCasterClass === null
+            && $postProcessorGuard !== null
+                ? $this->typeRule($postProcessorGuard->members())
+                : null;
+
         // An input type no cast handles — a union, a standalone `true` /
         // `false` — is cast member by member; `mixed` takes anything as it is.
         $memberCast = $members !== null
@@ -589,6 +602,7 @@ final class ReflectionCache
             suppliedItems: $appSupplied ? $items?->class : null,
             preProcessorFailure: $preProcessorFailure,
             blank: $blank,
+            postProcessorFailure: $postProcessorFailure,
         );
     }
 
