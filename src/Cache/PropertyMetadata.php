@@ -55,6 +55,10 @@ use Solo\RequestHandler\Request;
  * string is read as null. `noTrim`: auto-trim skips it — `#[NoTrim]`, or a
  * value the application supplies.
  *
+ * `holdsInput` is false for a type no request input can have — a class,
+ * `object`, an intersection: its value is produced, and `""` there is no
+ * value.
+ *
  * `typeGuard` and `unionCasts` are set for an input type no cast handles,
  * such as `int|float` or a standalone `true`: a value of a member type is
  * kept, another one is converted to the first of `unionCasts` it fits
@@ -116,6 +120,7 @@ final readonly class PropertyMetadata
         public ?array $unionCasts = null,
         public ?string $suppliedItems = null,
         public ?array $preProcessorFailure = null,
+        public bool $holdsInput = true,
     ) {
     }
 

@@ -591,7 +591,9 @@ final class RequestHandler
             ),
             $property->effectiveCastType !== null => $this->builtInCaster->cast($property->effectiveCastType, $value),
             $property->unionCasts !== null => $this->castUnion($property, $property->unionCasts, $value),
-            default => $value,
+            // A type no input can have (a class a pre-processor produces):
+            // "" there is no value, as it is for every cast type.
+            default => $value === '' && !$property->holdsInput ? null : $value,
         };
 
         if ($cast === null && $value !== '') {

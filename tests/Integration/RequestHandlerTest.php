@@ -1806,6 +1806,21 @@ final class RequestHandlerTest extends TestCase
         }
     }
 
+    public function testEmptyStringForAPreProcessedClassIsNoValue(): void
+    {
+        // The pre-processor never sees "" (no value), and a TestMoney cannot
+        // hold it: null on a nullable property — before this, a 500.
+        $dto = $this->handler->handleArray(ParsedMoneyRequest::class, ['price' => '']);
+        $this->assertNull($dto->price);
+
+        try {
+            $this->handler->handleArray(ParsedMoneyRequest::class, ['total' => '']);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['total' => [['rule' => 'required']]], $e->getErrors());
+        }
+    }
+
     public function testValidatorErrorComesInsteadOfTheSkippedPreProcessorOne(): void
     {
         $this->validator->method('validate')->willReturn(['price' => [['rule' => 'numeric']]]);
@@ -3836,6 +3851,9 @@ final class ParsedMoneyRequest extends Request
     #[PreProcess('parseMoney')]
     #[Validate('nullable|numeric')]
     public ?TestMoney $price = null;
+
+    #[PreProcess('parseMoney')]
+    public TestMoney $total;
 
     public static function parseMoney(string $value): TestMoney
     {

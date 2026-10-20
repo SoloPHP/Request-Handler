@@ -719,6 +719,8 @@ final class ReflectionCacheTest extends TestCase
 
         // parseAmount(string|int $value): the widest type it takes names the rule.
         $this->assertSame(['rule' => 'string'], $properties['amount']->preProcessorFailure);
+        $this->assertFalse($properties['amount']->holdsInput, 'a class: "" there is no value');
+        $this->assertTrue($properties['trimmed']->holdsInput);
         // A caster could still produce the class; a string property holds input.
         $this->assertNull($properties['casted']->preProcessorFailure);
         $this->assertNull($properties['trimmed']->preProcessorFailure);
