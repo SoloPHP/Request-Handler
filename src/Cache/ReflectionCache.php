@@ -498,13 +498,10 @@ final class ReflectionCache
             throw ConfigurationException::unproducibleType($className, $name, (string) $phpType);
         }
 
-        // A type only a typed pre-processor produces: input of another type
-        // is converted to the parameter's scalar types when that loses
-        // nothing; input that fits none can never become the value — the
-        // client sent the wrong type, reported with the rule for the type the
-        // pre-processor takes. A parameter that takes none of the types input
-        // has is a configuration error: a class or `object` never reaches
-        // it, and a `callable` would let the client name the function.
+        // A type only a typed pre-processor produces — see PropertyMetadata.
+        // A parameter that takes none of the types request input has (a
+        // class, `object`, `callable`) has no rule to report: a
+        // configuration error.
         $preProcessorFailure = null;
         if (!$holdsInput && !$producedOtherwise && $preProcessorGuard !== null) {
             $preProcessorFailure = $this->typeRule($preProcessorGuard->members())

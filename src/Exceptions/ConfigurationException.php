@@ -266,8 +266,8 @@ final class ConfigurationException extends Exception
 
     /**
      * A class only a pre-processor produces, whose parameter takes none of
-     * the types request input has: a class or `object` never reaches it, and
-     * a `callable` would let the client name the function it gets.
+     * the types request input has (a class, `object`, `callable`): there is
+     * no rule to report for input it cannot take.
      *
      * Example: #[PreProcess('fromMoney')] public Money $price; — fromMoney(Money $m).
      */

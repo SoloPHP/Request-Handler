@@ -246,11 +246,9 @@ final class RequestHandler
             } else {
                 // Pre-processors see raw client input; runHook() skips a
                 // function/static-method handler that cannot take its type.
-                // When only that handler could produce the property's type,
-                // input of another type is first converted to its parameter's
-                // when that loses nothing ("999" for an int), as a union
-                // property's is; input that fits none is the client's wrong
-                // type — reported once validation had its say.
+                // The only producer of the property's type gets it converted
+                // first, or its `preProcessorFailure` once validation had its
+                // say — see PropertyMetadata.
                 $input = $value;
                 $guard = $property->preProcessorGuard;
                 if ($property->preProcessorFailure !== null && $guard !== null) {

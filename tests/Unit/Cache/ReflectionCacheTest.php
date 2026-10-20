@@ -791,8 +791,8 @@ final class ReflectionCacheTest extends TestCase
 
     public function testCallablePreProcessorParameterIsAConfigurationError(): void
     {
-        // A string can name a function: the client must not choose the one
-        // the handler gets.
+        // `callable` is none of the types request input has, though a
+        // string may name a function.
         $this->expectException(ConfigurationException::class);
         $this->expectExceptionMessage('#[PreProcess(pick)], whose parameter takes none of the types request input');
         $this->cache->get(CallablePreProcessorRequest::class);
