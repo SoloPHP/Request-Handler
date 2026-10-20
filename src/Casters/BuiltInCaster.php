@@ -27,24 +27,40 @@ final class BuiltInCaster
     public const array CAST_TYPES = ['int', 'float', 'bool', 'string', 'array', 'json'];
 
     /**
+     * What cast() returns for `""` by type — kept as data, so a property's
+     * `blank` costs no call while its metadata is built.
+     */
+    public const array BLANK = [
+        'int'      => null,
+        'float'    => null,
+        'bool'     => null,
+        'string'   => '',
+        'array'    => [],
+        'json'     => '',
+        'iterable' => [],
+    ];
+
+    /**
      * Parser warnings for an impossible date or time it rolled over into a
      * real one (2024-02-31 → 2024-03-02, 23:61 → 00:01).
      */
     private const array ROLLOVER_WARNINGS = ['The parsed date was invalid', 'The parsed time was invalid'];
 
     /**
-     * Memoised "does this format parse no time-of-day field" lookups.
+     * Memoised "does this format parse no time-of-day field" lookups —
+     * facts about code, shared by every instance (the metadata registry and
+     * each handler have one).
      *
      * @var array<string, bool>
      */
-    private array $midnightFormats = [];
+    private static array $midnightFormats = [];
 
     /**
      * Memoised "is this enum int-backed" lookups.
      *
      * @var array<class-string<BackedEnum>, bool>
      */
-    private array $enumIntBacked = [];
+    private static array $enumIntBacked = [];
 
     public static function isBuiltIn(string $type): bool
     {
@@ -54,8 +70,9 @@ final class BuiltInCaster
     /**
      * Convert `$value` to `$type` without losing information — or return null
      * when it cannot be: `'12abc'` is no int, `['5']` no float, `true` no
-     * number, `'maybe'` no bool. `""` means "no value" for int / float / bool
-     * (null); a string keeps it, an array reads it as `[]`.
+     * number, `'maybe'` no bool. `""` reads as `BLANK` says: null for int /
+     * float / bool — no value to the client, no fit for the application — a
+     * string keeps it, an array reads it as `[]`.
      */
     public function cast(string $type, mixed $value): mixed
     {
@@ -105,7 +122,7 @@ final class BuiltInCaster
     /**
      * Build a `$class` date from a string (in `$format` when given), a Unix
      * timestamp or another DateTime object. Null when the value cannot be
-     * read as a date — and for "" (no value).
+     * read as a date, `""` included.
      *
      * Without a format, a string of digits is a date when it spells one
      * (`20240115`) and a Unix timestamp when the parser rejects it
@@ -148,7 +165,7 @@ final class BuiltInCaster
                 return null;
             }
 
-            return ($this->midnightFormats[$format] ??= self::parsesNoTime($format))
+            return (self::$midnightFormats[$format] ??= self::parsesNoTime($format))
                 ? $parsed->setTime(0, 0)
                 : $parsed;
         }
@@ -185,7 +202,7 @@ final class BuiltInCaster
             return $value;
         }
 
-        $intBacked = $this->enumIntBacked[$enumClass]
+        $intBacked = self::$enumIntBacked[$enumClass]
             ??= (string) (new ReflectionEnum($enumClass))->getBackingType() === 'int';
 
         if ($intBacked) {

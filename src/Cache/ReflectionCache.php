@@ -151,7 +151,12 @@ final class ReflectionCache
     private array $cache = [];
 
     /** Asked what `""` reads as for a type — see buildPropertyMetadata(). */
-    private ?BuiltInCaster $caster = null;
+    private readonly BuiltInCaster $builtInCaster;
+
+    public function __construct()
+    {
+        $this->builtInCaster = new BuiltInCaster();
+    }
 
     /**
      * Classes whose metadata is being built — guards the eager `#[Items]`
@@ -527,19 +532,19 @@ final class ReflectionCache
         $memberGuard = $memberCast ? ParameterTypeGuard::fromType($type) : null;
         $typeGuard = $appSupplied ? $memberGuard ?? ParameterTypeGuard::fromType($type) : null;
 
-        // What "" reads as, asked once of the reader the type has — so it
-        // cannot drift from what that reader does with other input: no value
-        // (null), an empty list, or "" itself where the type holds a string.
-        // Children and a class a pre-processor produces have no reader: an
-        // #[Items] list is empty, the others have no value.
-        $caster = $this->caster ??= new BuiltInCaster();
+        // What the client's "" reads as: what the reader castBuiltIn() picks
+        // for the type makes of it — a reader added there needs its arm here.
+        // No value (null), an empty list, or "" itself where the type holds a
+        // string. Children and a class a pre-processor produces have no
+        // reader: an #[Items] list is empty, the others have no value. What
+        // the application supplies is never read as blank.
         $blank = match (true) {
+            $appSupplied => '',
             $listItems !== null => [],
-            $nested !== null => null,
-            $enumClass !== null => $caster->castEnum($enumClass, ''),
-            $dateClass !== null => $caster->castDate($dateClass, $dateFormat?->format, ''),
-            $effectiveCastType !== null => $caster->cast($effectiveCastType, ''),
-            $memberGuard !== null => $caster->castToMembers($memberGuard, ''),
+            $enumClass !== null => $this->builtInCaster->castEnum($enumClass, ''),
+            $dateClass !== null => $this->builtInCaster->castDate($dateClass, $dateFormat?->format, ''),
+            $effectiveCastType !== null => BuiltInCaster::BLANK[$effectiveCastType],
+            $memberGuard !== null => $this->builtInCaster->castToMembers($memberGuard, ''),
             !$holdsInput => null,
             default => '',
         };

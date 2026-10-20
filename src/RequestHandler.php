@@ -593,6 +593,7 @@ final class RequestHandler
             return null;
         }
 
+        // Each reader here has its `blank` arm in ReflectionCache.
         $cast = match (true) {
             $property->enumClass !== null => $this->builtInCaster->castEnum($property->enumClass, $value),
             $property->dateClass !== null => $this->builtInCaster->castDate(
