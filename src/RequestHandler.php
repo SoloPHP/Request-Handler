@@ -316,30 +316,13 @@ final class RequestHandler
                 continue;
             }
 
-            // "" reads as the property's own reader reads it, decided once in
-            // its metadata: no value, an empty list, or "" itself.
-            if ($value === '') {
-                $values[$name] = $value = $property->blank;
-            }
-
-            if ($property->buildsChildren()) {
-                if ($value !== null) {
-                    $childErrors[$name] = [];
-                    $children[$name] = $this->resolveChildren($property, $value, $bags->context, $childErrors[$name]);
-                } elseif ($this->requiresValue($property)) {
-                    $errors[$name] = [['rule' => 'required']];
-                }
-                continue;
-            }
-
-            $values[$name] = $value = $this->castBuiltIn($value, $property, $error);
+            $values[$name] = $value = $this->readInput($property, $value, $error);
 
             if ($error !== null) {
                 $errors[$name] = [$error];
-            } elseif ($value === null && $this->requiresValue($property)) {
-                // An explicit null or "" for a property that can hold neither
-                // and has no default to fall back on: the field needs a value.
-                $errors[$name] = [['rule' => 'required']];
+            } elseif ($property->buildsChildren() && $value !== null) {
+                $childErrors[$name] = [];
+                $children[$name] = $this->resolveChildren($property, $value, $bags->context, $childErrors[$name]);
             }
         }
 
@@ -467,15 +450,35 @@ final class RequestHandler
             return $value;
         }
 
-        if ($value === '') {
-            $value = $property->blank;
-        } elseif ($property->postProcessorFailure !== null) {
+        if ($property->postProcessorFailure !== null && $value !== null && $value !== '') {
             // Nothing but the post-processor reads such a class.
-            $error = $value === null ? null : $property->postProcessorFailure;
-        } elseif (!$property->buildsChildren()) {
-            $value = $this->castBuiltIn($value, $property, $error);
+            $error = $property->postProcessorFailure;
+            return $value;
         }
 
+        return $this->readInput($property, $value, $error);
+    }
+
+    /**
+     * Read a client value as the property reads it: "" as its `blank` — no
+     * value, an empty list, or "" itself — the rest through its cast; a
+     * nested DTO or an #[Items] list is built from it instead. `$error` is
+     * set for a value the cast cannot convert, and for an explicit null or
+     * "" that leaves a property which can hold neither, and has no default
+     * to fall back on, without a value.
+     *
+     * @param array{rule: string, params?: list<string>}|null     $error
+     * @param-out array{rule: string, params?: list<string>}|null $error
+     */
+    private function readInput(PropertyMetadata $property, mixed $value, ?array &$error): mixed
+    {
+        $error = null;
+        if ($value === '') {
+            $value = $property->blank;
+        }
+        if (!$property->buildsChildren()) {
+            $value = $this->castBuiltIn($value, $property, $error);
+        }
         if ($error === null && $value === null && $this->requiresValue($property)) {
             $error = ['rule' => 'required'];
         }
