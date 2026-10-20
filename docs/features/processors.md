@@ -51,6 +51,18 @@ public string $email;
 // {"email": 42}                 → strtolower is skipped, the validator reports 'email' (422)
 ```
 
+Query strings, route values and form fields carry only strings, so a string the parameter's type spells without loss is passed as that type instead of skipping the handler — the lossless conversion the casts make, in PHP's coercion order:
+
+```php
+#[PreProcess('clamp')]               // clamp(int $value): int
+public int $limit = 10;
+
+// ?limit=5000 → clamp(5000) → 100   ("5000" spells an int)
+// ?limit=9.5  → clamp is skipped, the cast reports 'integer' (422)
+```
+
+Only strings are converted: `42` still skips `strtolower()`.
+
 The same guard applies to post-processors: `#[PostProcess('strtoupper')]` on a `?string` leaves an explicit `null` as `null`. `ProcessorInterface` / `CasterInterface` handlers take `mixed` and are always called.
 
 When the property's type is a class only that pre-processor produces, the handler is its only way in. Input of another type is converted to the parameter's type first when nothing is lost — as for a union property — so a query string's `"999"` reaches `fromCents(int $cents)` as `999`. Input that fits no way reports the rule for the type the pre-processor takes — unless a validation rule rejected the value first:

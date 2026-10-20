@@ -2174,6 +2174,38 @@ final class RequestHandlerTest extends TestCase
         $this->handler->handleArray(LowercaseEmailRequest::class, ['email' => 42]);
     }
 
+    public function testTypedHookGetsTheValueAStringSpells(): void
+    {
+        // Query strings, route values and form fields carry only strings:
+        // before this, every handler below was skipped for them.
+        $dto = $this->handler->handleArray(
+            TypedHookRequest::class,
+            ['limit' => '5000', 'doubled' => '4', 'off' => 'yes', 'half' => '9'],
+        );
+
+        $this->assertSame(100, $dto->limit);
+        $this->assertSame(8, $dto->doubled);
+        $this->assertFalse($dto->off);
+        $this->assertSame(4.5, $dto->half);
+    }
+
+    public function testTypedHookIsStillSkippedForWhatNoConversionGives(): void
+    {
+        // Only a string is converted: 42 skips shout(string), and the
+        // property's own cast reads it.
+        $dto = $this->handler->handleArray(TypedHookRequest::class, ['name' => 42]);
+        $this->assertSame('42', $dto->name);
+        $this->assertSame('AB!', $this->handler->handleArray(TypedHookRequest::class, ['name' => 'ab'])->name);
+
+        // "9.5" spells no int: clamp() is skipped, and the cast reports it.
+        try {
+            $this->handler->handleArray(TypedHookRequest::class, ['limit' => '9.5']);
+            $this->fail('Expected ValidationException');
+        } catch (ValidationException $e) {
+            $this->assertSame(['limit' => [['rule' => 'integer']]], $e->getErrors());
+        }
+    }
+
     public function testPreProcessorStillRunsForAcceptedType(): void
     {
         $this->validator->method('validate')->willReturn([]);
@@ -4220,5 +4252,48 @@ final class HookedContextLinesRequest extends Request
     public static function keep(mixed $lines): mixed
     {
         return $lines;
+    }
+}
+
+final class TypedHookRequest extends Request
+{
+    #[PreProcess('clamp')]
+    public int $limit = 10;
+
+    #[PostProcess('double')]
+    public ?int $doubled = null;
+
+    #[PostProcess('negate')]
+    public ?bool $off = null;
+
+    #[PreProcess('half')]
+    public ?float $half = null;
+
+    #[PreProcess('shout')]
+    public ?string $name = null;
+
+    public static function clamp(int $value): int
+    {
+        return min($value, 100);
+    }
+
+    public static function double(int $value): int
+    {
+        return $value * 2;
+    }
+
+    public static function negate(bool $value): bool
+    {
+        return !$value;
+    }
+
+    public static function half(float $value): float
+    {
+        return $value / 2;
+    }
+
+    public static function shout(string $value): string
+    {
+        return strtoupper($value) . '!';
     }
 }

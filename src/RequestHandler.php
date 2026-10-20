@@ -735,7 +735,10 @@ final class RequestHandler
 
     /**
      * Run a pre/post-process handler — or return the value unchanged when
-     * there is none, or when its guard rejects the value's type.
+     * there is none, or when its guard rejects the value's type. Query
+     * strings, route values and form fields carry only strings, so a string
+     * the parameter's type spells without loss is passed as that type ("5"
+     * for an int) instead.
      *
      * @param array<string, mixed> $config
      * @param class-string         $className
@@ -749,8 +752,16 @@ final class RequestHandler
         string $className,
         InputBags $bags,
     ): mixed {
-        if ($handler === null || $kind === null || !($guard?->accepts($value) ?? true)) {
+        if ($handler === null || $kind === null) {
             return $value;
+        }
+
+        if ($guard !== null && !$guard->accepts($value)) {
+            $converted = is_string($value) ? $this->builtInCaster->castToMembers($guard, $value) : null;
+            if ($converted === null) {
+                return $value;
+            }
+            $value = $converted;
         }
 
         return $this->processors->runProcessor(
