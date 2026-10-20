@@ -188,7 +188,6 @@ final class RequestHandler
     {
         $metadata = $this->cache->get($className);
         $validationRules = [];
-        $absentDefaults = [];
         $values = [];
         $errors = [];
 
@@ -200,8 +199,10 @@ final class RequestHandler
             $present = false;
             $value = $bags->lookup($property, $defaultSource, $present);
             if (!$present) {
+                // A required_* rule decides whether the field may be missing:
+                // its rules go to the validator, but no value — the field
+                // stays absent, and the validator decides what that means.
                 if ($property->validatesWhenAbsent && $property->validationRules !== null) {
-                    $absentDefaults[$name] = $property->defaultValue;
                     $validationRules[$name] = $property->validationRules;
                 }
                 continue;
@@ -228,11 +229,9 @@ final class RequestHandler
         }
 
         if ($validationRules !== []) {
-            // Cross-field rules also see present fields without rules of their
-            // own, and the defaults of absent fields validated when absent.
-            $validationData = $absentDefaults === [] ? $values : $values + $absentDefaults;
+            // Cross-field rules also see present fields without rules of their own.
             try {
-                ErrorMapper::append($errors, $this->validator->validate($validationData, $validationRules));
+                ErrorMapper::append($errors, $this->validator->validate($values, $validationRules));
             } catch (ValidationException $e) {
                 ErrorMapper::append($errors, $e->getErrors());
             }

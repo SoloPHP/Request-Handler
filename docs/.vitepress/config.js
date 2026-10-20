@@ -20,7 +20,7 @@ export default defineConfig({
       { text: 'Guide', link: '/guide/installation' },
       { text: 'Features', link: '/features/field-attribute' },
       { text: 'API', link: '/api/request-class' },
-      { text: 'v4.0.0', link: 'https://github.com/solophp/request-handler/releases' },
+      { text: 'v4.0.1', link: 'https://github.com/solophp/request-handler/releases' },
       {
         text: 'Links',
         items: [
