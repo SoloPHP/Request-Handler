@@ -221,6 +221,22 @@ final class RequestHandlerTest extends TestCase
         $this->assertSame(7, $dto->createdBy);
     }
 
+    // ===== validation payload =====
+
+    public function testAbsentFieldReachesTheValidatorAsRulesWithoutAValue(): void
+    {
+        // Its default in the payload would make the field look sent as null,
+        // so `email` would fail for a field nobody sent and nothing requires.
+        $this->validator->expects($this->once())->method('validate')
+            ->with(['type' => 'person'], ['email' => 'required_if:type,company|email'])
+            ->willReturn([]);
+
+        $dto = $this->handler->handleArray(ConditionalEmailRequest::class, ['type' => 'person']);
+
+        $this->assertNull($dto->email);
+        $this->assertSame(['type'], $dto->provided());
+    }
+
     // ===== provided() =====
 
     public function testEachListItemReportsWhatItsOwnInputSupplied(): void
@@ -776,6 +792,14 @@ final class PatchLinesRequest extends Request
     /** @var list<LineItemRequest> */
     #[Items(LineItemRequest::class)]
     public array $lines = [];
+}
+
+final class ConditionalEmailRequest extends Request
+{
+    public string $type = 'person';
+
+    #[Validate('required_if:type,company|email')]
+    public ?string $email = null;
 }
 
 final class SourcedRequest extends Request
