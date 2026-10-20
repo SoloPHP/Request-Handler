@@ -265,6 +265,27 @@ final class ConfigurationException extends Exception
     }
 
     /**
+     * A class only a pre-processor produces, whose parameter takes no type
+     * request input can have: the handler would never run.
+     *
+     * Example: #[PreProcess('fromMoney')] public Money $price; — fromMoney(Money $m).
+     */
+    public static function preProcessorTakesNoInput(
+        string $className,
+        string $propertyName,
+        string $handler
+    ): self {
+        return new self(sprintf(
+            "Property %s::\$%s is produced only by #[PreProcess(%s)], whose parameter takes no type request " .
+            "input can have (string, int, float, bool or array), so the handler would never run. Type the " .
+            "parameter for the input it reads, add a #[Caster], or read the value #[FromContext(...)].",
+            $className,
+            $propertyName,
+            $handler
+        ));
+    }
+
+    /**
      * #[DateFormat] on a property whose type cannot hold a date.
      */
     public static function dateFormatRequiresDateType(

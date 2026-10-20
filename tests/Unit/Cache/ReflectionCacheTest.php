@@ -728,6 +728,21 @@ final class ReflectionCacheTest extends TestCase
         $this->assertNull($properties['processed']->preProcessorFailure);
     }
 
+    public function testPreProcessorNoInputCanReachThrows(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('#[PreProcess(fromMoney)], whose parameter takes no type request input');
+        $this->cache->get(UnreachablePreProcessorRequest::class);
+    }
+
+    public function testContextPropertyMayHaveAnObjectPreProcessor(): void
+    {
+        // The application supplies the object, so the handler does run.
+        $property = $this->cache->get(ContextObjectPreProcessorRequest::class)->properties['amount'];
+
+        $this->assertNull($property->preProcessorFailure);
+    }
+
     public function testClassTypesWithAProducerAreAccepted(): void
     {
         $metadata = $this->cache->get(ProducibleObjectsRequest::class);
@@ -1709,5 +1724,28 @@ final class PreProcessorProducerRequest extends Request
     public static function parseAmount(string|int $value): CacheMoney
     {
         return new CacheMoney();
+    }
+}
+
+final class UnreachablePreProcessorRequest extends Request
+{
+    #[PreProcess('fromMoney')]
+    public ?CacheMoney $amount = null;
+
+    public static function fromMoney(CacheMoney $money): CacheMoney
+    {
+        return $money;
+    }
+}
+
+final class ContextObjectPreProcessorRequest extends Request
+{
+    #[FromContext('amount')]
+    #[PreProcess('fromMoney')]
+    public ?CacheMoney $amount = null;
+
+    public static function fromMoney(CacheMoney $money): CacheMoney
+    {
+        return $money;
     }
 }
