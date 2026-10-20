@@ -63,7 +63,7 @@ public string $company_type = 'individual';
 public ?string $name = null;
 ```
 
-When `name` is absent from the payload, the handler still enrols it into validation (with its default — here `null` — as the value), so the validator can fire `required_if` when the condition is met. Fields with a default and **no** `required_*` rule are skipped when absent, exactly as before.
+When `name` is absent from the payload, the handler still passes its rules to the validator — but no value: the field stays absent from the validated data, as the client sent it. A validator that checks an absent field by its presence rules alone fires `required_if` when the condition is met and does not apply `string` or `max:255` to a value nobody sent, `nullable` or not. Fields with **no** `required_*` rule are skipped when absent.
 
 Note that unlike literal `required`, a `required_*` rule combined with a default value is legal — it is the intended usage pattern.
 
