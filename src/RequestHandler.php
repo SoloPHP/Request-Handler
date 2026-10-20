@@ -254,7 +254,7 @@ final class RequestHandler
                 $input = $value;
                 $guard = $property->preProcessorGuard;
                 if ($property->preProcessorFailure !== null && $guard !== null) {
-                    $input = $this->builtInCaster->castToMembers($guard, $property->preProcessorCasts ?? [], $value);
+                    $input = $this->builtInCaster->castToMembers($guard, $value);
                 }
 
                 if ($input === null) {
@@ -601,8 +601,7 @@ final class RequestHandler
                 $value
             ),
             $property->effectiveCastType !== null => $this->builtInCaster->cast($property->effectiveCastType, $value),
-            $property->unionCasts !== null && $property->typeGuard !== null
-                => $this->builtInCaster->castToMembers($property->typeGuard, $property->unionCasts, $value),
+            $property->memberGuard !== null => $this->builtInCaster->castToMembers($property->memberGuard, $value),
             default => $value,
         };
 

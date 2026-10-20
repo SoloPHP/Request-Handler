@@ -78,12 +78,6 @@ final class ReflectionCache
     private const array INPUT_TYPES = ['int', 'float', 'string', 'bool', 'true', 'false', 'array', 'iterable', 'mixed'];
 
     /**
-     * Scalar union members a value of another type is converted to, in PHP's
-     * own coercion order.
-     */
-    private const array UNION_CASTS = ['int', 'float', 'string', 'bool'];
-
-    /**
      * Type → the validator rule a value that is not of it fails, widest first
      * (a string accepts any scalar, a float any number): a union reports the
      * first of its members.
@@ -507,14 +501,13 @@ final class ReflectionCache
         // has is a configuration error: a class or `object` never reaches
         // it, and a `callable` would let the client name the function.
         $preProcessorFailure = null;
-        $preProcessorCasts = null;
         if (!$holdsInput && !$producedOtherwise && $preProcessorGuard !== null) {
-            [$preProcessorCasts, $preProcessorFailure] = $this->unionCasts($preProcessorGuard->members());
-            $preProcessorFailure ??= throw ConfigurationException::preProcessorTakesNoInput(
-                $className,
-                $name,
-                (string) $preProcess?->handler
-            );
+            $preProcessorFailure = $this->typeRule($preProcessorGuard->members())
+                ?? throw ConfigurationException::preProcessorTakesNoInput(
+                    $className,
+                    $name,
+                    (string) $preProcess?->handler
+                );
         }
 
         // An input type no cast handles — a union, a standalone `true` /
@@ -526,12 +519,13 @@ final class ReflectionCache
             && $enumClass === null
             && $dateClass === null
             && $customCasterClass === null;
-        [$unionCasts, $unionFailure] = $memberCast ? $this->unionCasts($members) : [null, null];
+        $unionFailure = $memberCast ? $this->typeRule($members) : null;
 
         // A list the application supplies holds its DTOs already: they are
         // checked, not built.
         $listItems = $appSupplied ? null : $items?->class;
-        $typeGuard = $memberCast || $appSupplied ? ParameterTypeGuard::fromType($type) : null;
+        $memberGuard = $memberCast ? ParameterTypeGuard::fromType($type) : null;
+        $typeGuard = $appSupplied ? $memberGuard ?? ParameterTypeGuard::fromType($type) : null;
 
         // What "" reads as, asked once of the reader the type has — so it
         // cannot drift from what that reader does with other input: no value
@@ -545,7 +539,7 @@ final class ReflectionCache
             $enumClass !== null => $caster->castEnum($enumClass, ''),
             $dateClass !== null => $caster->castDate($dateClass, $dateFormat?->format, ''),
             $effectiveCastType !== null => $caster->cast($effectiveCastType, ''),
-            $unionCasts !== null && $typeGuard !== null => $caster->castToMembers($typeGuard, $unionCasts, ''),
+            $memberGuard !== null => $caster->castToMembers($memberGuard, ''),
             !$holdsInput => null,
             default => '',
         };
@@ -589,33 +583,11 @@ final class ReflectionCache
             emptyToNull: $emptyToNull !== null || ($classEmptyToNull && !$appSupplied),
             noTrim: $noTrim !== null || $classNoTrim || $appSupplied,
             typeGuard: $typeGuard,
-            unionCasts: $unionCasts,
+            memberGuard: $memberGuard,
             suppliedItems: $appSupplied ? $items?->class : null,
             preProcessorFailure: $preProcessorFailure,
-            preProcessorCasts: $preProcessorCasts,
             blank: $blank,
         );
-    }
-
-    /**
-     * For a type cast member by member (`int|float`, `int|string`, `true`, a
-     * typed pre-processor's parameter):
-     * the scalar members a value of none of its types is converted to, and
-     * the error when none fits. A literal `true` / `false` member is reached
-     * through the bool cast; the type's guard then keeps only the literal's
-     * own value.
-     *
-     * @param list<string> $members Lower-cased member names.
-     * @return array{0: list<string>, 1: array{rule: string}|null}
-     */
-    private function unionCasts(array $members): array
-    {
-        $casts = array_values(array_intersect(self::UNION_CASTS, $members));
-        if (!in_array('bool', $casts, true) && array_intersect(['true', 'false'], $members) !== []) {
-            $casts[] = 'bool';
-        }
-
-        return [$casts, $this->typeRule($members)];
     }
 
     /**
