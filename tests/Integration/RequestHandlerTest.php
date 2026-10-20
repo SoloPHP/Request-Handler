@@ -33,10 +33,13 @@ use Solo\Contracts\Validator\ValidatorInterface;
 use Psr\Container\ContainerInterface;
 use Psr\Container\NotFoundExceptionInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use Solo\RequestHandler\Tests\ExpectsExceptionMessageParts;
 
 #[AllowMockObjectsWithoutExpectations]
 final class RequestHandlerTest extends TestCase
 {
+    use ExpectsExceptionMessageParts;
+
     private RequestHandler $handler;
     private ValidatorInterface $validator;
 
@@ -44,16 +47,6 @@ final class RequestHandlerTest extends TestCase
     {
         $this->validator = $this->createMock(ValidatorInterface::class);
         $this->handler = new RequestHandler($this->validator);
-    }
-
-    /**
-     * Expect an exception message holding every part, in any order —
-     * expectExceptionMessage() keeps only the last one it is given.
-     */
-    private function expectExceptionMessageParts(string ...$parts): void
-    {
-        $lookaheads = array_map(static fn(string $part): string => '(?=.*' . preg_quote($part, '/') . ')', $parts);
-        $this->expectExceptionMessageMatches('/^' . implode('', $lookaheads) . '/s');
     }
 
     private function createHandler(bool $autoTrim = true): RequestHandler
@@ -697,13 +690,9 @@ final class RequestHandlerTest extends TestCase
     public function testContextValueThatWouldLoseInformationThrows(string $key, mixed $value, string $rule): void
     {
         // 3.x coerced these silently; 4.0 holds the application to the declared type.
-        try {
-            $this->handler->handleArray(TrustedScalarsRequest::class, [], context: [$key => $value]);
-            $this->fail('Expected UnexpectedValueException');
-        } catch (\UnexpectedValueException $e) {
-            $this->assertStringContainsString("Context value '{$key}' does not fit", $e->getMessage());
-            $this->assertStringContainsString("({$rule})", $e->getMessage());
-        }
+        $this->expectException(\UnexpectedValueException::class);
+        $this->expectExceptionMessageParts("Context value '{$key}' does not fit", "({$rule})");
+        $this->handler->handleArray(TrustedScalarsRequest::class, [], context: [$key => $value]);
     }
 
     /** @return array<string, array{0: string, 1: mixed, 2: string}> */
@@ -787,7 +776,7 @@ final class RequestHandlerTest extends TestCase
         // A cleared client field is no value; "" the application passes for
         // an object is a string — before this, silently null.
         try {
-            $this->handler->handleArray(OptionalContextAddressRequest::class, [], context: ['address' => '']);
+            $this->handler->handleArray(ContextValuesPatchRequest::class, [], context: ['address' => '']);
             $this->fail('Expected UnexpectedValueException');
         } catch (\UnexpectedValueException $e) {
             $this->assertStringContainsString("'address' is string, which does not fit", $e->getMessage());
@@ -4218,12 +4207,6 @@ enum BlankFilter: string
 final class BlankFilterRequest extends Request
 {
     public ?BlankFilter $filter = null;
-}
-
-final class OptionalContextAddressRequest extends Request
-{
-    #[FromContext('address')]
-    public ?AddressRequest $address = null;
 }
 
 final class HookedContextLinesRequest extends Request
