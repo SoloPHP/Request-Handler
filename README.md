@@ -16,8 +16,8 @@ Type-safe Request DTOs for PHP 8.3+ with focused per-property attributes, declar
 - **All errors at once** — validator errors, cast failures and nested errors come back in one `ValidationException`, keyed by the input the client sent (`display_name`, `customer.id`, `lines.0.qty`); generators and post-processors run only for valid input
 - **PATCH-ready** — `provided()` / `isProvided()` tell a field the client sent (even as `null`) from one left at its default; `toArray(onlyProvided: true)` is the change set
 - **Generators** — auto-generate UUIDs, sequences, custom values via `#[Generator]`
-- **PSR-11 ready** — processors, casters and generators with dependencies come from your container: `new RequestHandler($validator, container: $container)`
-- **Pre/post processing** — `#[PreProcess]` / `#[PostProcess]` for transformation
+- **PSR-11 ready** — normalizers, casters, post-processors and generators with dependencies come from your container: `new RequestHandler($validator, container: $container)`
+- **Explicit processing stages** — `#[Normalize]` prepares raw input, `#[Caster]` creates its type, `#[PostProcess]` transforms decoded values after the whole tree is valid
 - **Nested DTOs** — a property typed with a Request subclass is a nested object, `#[Items]` makes a list of them; errors come back as `address.city`, `lines.0.qty`
 - **Fail-fast** — misconfigurations throw `ConfigurationException` at metadata-build time (nested item classes included), not on the first request that happens to exercise them
 - **Schema export** — `schema()` emits the JSON-serializable input contract: per field type, nullability, requiredness incl. conditional `required_if`, normalized rules, default, date format, enum cases and nested schemas — the frontend's single source of truth
@@ -95,8 +95,8 @@ $dto->toArray();   // ['id'=>…, 'name'=>…, 'price'=>…, 'stock'=>…, 'tena
 | `#[Caster(MoneyCaster::class)]` | Custom `CasterInterface` implementation |
 | `#[EmptyToNull]` | A blank string is no value — `null`, the default or `required` (property or class) |
 | `#[NoTrim]` | Auto-trim skips it — the string is kept as sent (property or class) |
-| `#[PreProcess(MyProc::class)]` | Run handler BEFORE validation |
-| `#[PostProcess(MyProc::class, config: [...])]` | Run handler AFTER validation, with optional config |
+| `#[Normalize(MyNormalizer::class, config: [...])]` | Normalize present input before validation |
+| `#[PostProcess(MyProc::class, config: [...])]` | Transform decoded values after the whole input tree is valid |
 | `#[Generator(UuidGenerator::class, options: [...])]` | Value is generated, not read from any source |
 | `#[Items(OrderItemRequest::class)]` | Property is an array of nested DTOs |
 | `#[Group('criteria', mapTo: 'positions.id')]` | Group membership + remap for `Request::group()` |
@@ -142,7 +142,7 @@ Fields are keyed by their **input key** — the key the client sends and errors 
 - [Configuration](https://solophp.github.io/Request-Handler/guide/configuration)
 - [Attributes](https://solophp.github.io/Request-Handler/features/field-attribute)
 - [Type Casting](https://solophp.github.io/Request-Handler/features/type-casting)
-- [Processors](https://solophp.github.io/Request-Handler/features/processors)
+- [Processing stages](https://solophp.github.io/Request-Handler/features/processors)
 - [Generators](https://solophp.github.io/Request-Handler/features/generators)
 - [Nested Objects & Items](https://solophp.github.io/Request-Handler/features/nested-items)
 - [Validation](https://solophp.github.io/Request-Handler/features/validation)
@@ -152,14 +152,14 @@ Fields are keyed by their **input key** — the key the client sends and errors 
 
 - PHP 8.3+
 - PSR-7 HTTP Message implementation
-- PSR-11 container (optional) — for processors, casters and generators with constructor dependencies
+- PSR-11 container (optional) — for normalizers, casters, post-processors and generators with constructor dependencies
 - Validator implementing `Solo\Contracts\Validator\ValidatorInterface`
 
 We recommend [solophp/validator](https://github.com/SoloPHP/Validator).
 
 ## Public API
 
-`RequestHandler`, `Request`, the attributes, the contracts (`CasterInterface`, `GeneratorInterface`, `ProcessorInterface`), `ProcessContext`, `FieldSource` and the exceptions are the public API and follow semantic versioning. Classes marked `@internal` — metadata (`Cache\*`), `Casters\BuiltInCaster`, `Pipeline\*`, `Schema\SchemaBuilder`, `RuleParser`, `InputBags` — may change in any release.
+`RequestHandler`, `Request`, the attributes, the contracts (`NormalizerInterface`, `CasterInterface`, `PostProcessorInterface`, `GeneratorInterface`), `ProcessContext`, `FieldSource` and the exceptions are the public API and follow semantic versioning. Classes marked `@internal` — metadata (`Cache\*`), `Casters\BuiltInCaster`, `Grouping\GroupBuilder`, `Pipeline\*`, `Schema\SchemaBuilder`, `RuleParser`, `InputBags` — may change in any release.
 
 ## License
 

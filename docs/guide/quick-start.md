@@ -132,4 +132,4 @@ The handler distinguishes absent fields, explicit `null`, and empty string `""`.
 - [Configuration](/guide/configuration) — `handleBody` / `handleQuery` / route + context
 - [Type Casting](/features/type-casting) — Automatic type conversion
 - [Validation](/features/validation) — Validation rules and messages
-- [Processors](/features/processors) — Pre/post processing
+- [Processing stages](/features/processors) — Normalize, cast and post-process

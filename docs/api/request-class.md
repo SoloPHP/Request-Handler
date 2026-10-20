@@ -41,6 +41,11 @@ public function toArray(bool $onlyProvided = false): array
 
 **Returns:** Associative array of property names to values.
 
+Exporting does not replace DTOs in the original arrays, including entries held
+by reference. Array keys are preserved. With `onlyProvided: true`, values passed
+through context are exported in full even if another `handle*()` call built them
+and recorded their own provided fields.
+
 **Example:**
 
 ```php
@@ -109,6 +114,8 @@ public function provided(): array
 
 A DTO created with `new` (not by `RequestHandler`) has nothing provided, and neither has a clone or an unserialized copy: the list is kept beside the instance the handler built, not in its properties — `(array) $dto`, `serialize()` and normalizers see only the DTO's own fields.
 
+Presence records describe the original input and generated fields. Assigning or unsetting a property later does not change `provided()` or `isProvided()`. The names remain in declaration order, and clearing the metadata cache does not erase them.
+
 ```php
 // Body: {"name": "Desk", "note": null}
 $dto->provided();   // ['name', 'note']
@@ -176,11 +183,14 @@ public function group(string $groupName): array
 **Returns:** Flat array of grouped field values.
 
 **Behavior:**
-- Associative array properties: contents are merged into result
+
+- Properties are read in declaration order using their current values, including defaults
+- Associative array properties: contents are merged by their own keys; nested values are preserved
 - Scalar properties and sequential arrays: added by property name, or by `mapTo` if specified
-- Empty arrays are skipped
-- Duplicate `AND`/`OR` keys fold into integer-keyed list entries so multiple logical groups coexist
+- Uninitialized properties, empty arrays and `null` properties are skipped; `false`, `0` and `""` are kept
+- Duplicate uppercase `AND`/`OR` keys fold into integer-keyed list entries so multiple logical groups coexist
 - Throws `LogicException` on any other duplicate key
+- Unknown groups return `[]`
 
 **Example:**
 
