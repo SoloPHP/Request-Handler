@@ -748,19 +748,21 @@ final class ReflectionCache
     /**
      * The first attribute of the class the property carries, instantiated.
      * Called only for a class the property carries — the caller checks, as a
-     * call per absent attribute is what reading them would cost — so a check
-     * and a read of different classes fails instead of reading nothing.
+     * call per absent attribute is what reading them would cost — so a line
+     * checking one class and reading another fails on a property that
+     * carries the checked one.
      *
      * @template TAttr of object
      * @param array<string, non-empty-list<ReflectionAttribute<object>>> $attributes
      * @param class-string<TAttr>                                        $attributeClass
-     * @return TAttr|null
+     * @return TAttr
      */
-    private function first(array $attributes, string $attributeClass): ?object
+    private function first(array $attributes, string $attributeClass): object
     {
         $attribute = $attributes[$attributeClass][0]->newInstance();
+        assert($attribute instanceof $attributeClass);
 
-        return $attribute instanceof $attributeClass ? $attribute : null;
+        return $attribute;
     }
 
     /**
