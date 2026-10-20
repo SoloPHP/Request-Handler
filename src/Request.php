@@ -111,7 +111,7 @@ abstract class Request
      */
     public function isProvided(string $name): bool
     {
-        return array_key_exists($name, ProvidedFields::of($this));
+        return ProvidedFields::has($this, $name);
     }
 
     /**
