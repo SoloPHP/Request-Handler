@@ -199,10 +199,9 @@ final class RequestHandler
             $present = false;
             $value = $bags->lookup($property, $defaultSource, $present);
             if (!$present) {
-                // A required_* rule decides whether the field may be missing:
-                // its rules go to the validator, but no value — the field
-                // stays absent, and the validator decides what that means.
-                if ($property->validatesWhenAbsent && $property->validationRules !== null) {
+                // Its rules go to the validator, but no value: the field stays
+                // absent, and the validator decides whether it may be.
+                if ($property->validationRules !== null) {
                     $validationRules[$name] = $property->validationRules;
                 }
                 continue;

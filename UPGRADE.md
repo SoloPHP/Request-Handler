@@ -1,3 +1,11 @@
+# Upgrading from 4.0 to 4.1
+
+| Look for | Do |
+|---|---|
+| A presence rule whose name does not start with `required` — `present`, a custom `PresenceRule` | Nothing to do: it now runs for an absent field too. 4.0.1 passed only fields with a `required*` rule to the validator |
+| A rule string the validator cannot compile on a field clients rarely send — a custom rule the `Validator` was not given (a test's partial one too), `min:abc`, `in:` | Register or fix it: absent fields' rules reach the validator too, so solophp/validator throws `InvalidRuleException` on every request, not only when the field arrives |
+| Your own `ValidatorInterface` implementation | `validate()` now receives the rules of every field, absent ones included, without their key in `$data`. Check an absent field by presence rules only, as solophp/validator 4 does |
+
 # Upgrading from 3.x to 4.0
 
 4.0 makes the request contract stricter and easier to consume: values that cannot become the declared type are validation errors instead of silent coercions, errors and `schema()` are keyed by the input the client actually sends, and dates, nested objects and enums follow the property type.
