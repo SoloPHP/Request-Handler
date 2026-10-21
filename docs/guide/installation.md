@@ -34,7 +34,7 @@ composer require solophp/request-handler
 
 ## Validator
 
-The package requires a validator implementing `Solo\Contracts\Validator\ValidatorInterface`. We recommend using [solophp/validator](https://github.com/SoloPHP/Validator):
+The package requires a validator implementing `Solo\Contracts\Validator\ValidatorInterface`. `validate()` gets the rules of every field, also of one the client did not send — its key is then missing from the data, and the validator decides what that means. We recommend using [solophp/validator](https://github.com/SoloPHP/Validator), which checks an absent field by its presence rules only:
 
 ```bash
 composer require solophp/validator
