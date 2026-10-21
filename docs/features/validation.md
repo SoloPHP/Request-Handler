@@ -43,16 +43,16 @@ The handler distinguishes three states for each field:
 
 | What frontend sends | Meaning | Behavior |
 |---------------------|---------|----------|
-| Field absent | Don't touch | Use default value or trigger `required` / `required_*` validation |
+| Field absent | Don't touch | Use default value; the validator's presence rules decide whether it may be missing |
 | `"name": null` | Clear (null) | Set `null` for nullable types, default for non-nullable |
 | `"name": ""` | Clear (empty string) | Preserve `""`, then cast per type |
 | `"name": "hello"` | Set value | Normal processing pipeline |
 
 This distinction is important for PATCH-style updates where absent fields should not be modified, `null` explicitly clears a nullable field, and `""` sets an empty string.
 
-### Conditional presence for absent fields
+### Presence rules decide about absent fields
 
-An absent field with a default is normally skipped entirely — nothing to validate. The exception is the conditional-presence family (`required_if`, `required_with`, `required_without_all`, ...): those rules decide whether the field is *allowed to be missing*, so the absence itself is what has to be validated.
+The handler passes an absent field's rules to the validator — but no value: the field stays absent from the validated data, as the client sent it, and the validator decides whether it may be missing. solophp/validator checks an absent field by its [presence rules](https://solophp.github.io/Validator/features/rules#presence-rules) alone and does not apply `string` or `max:255` to a value nobody sent, `nullable` or not.
 
 ```php
 #[Validate('in:individual,company')]
@@ -61,9 +61,12 @@ public string $company_type = 'individual';
 // May be omitted in general — but not when company_type is 'company'.
 #[Validate('nullable|string|max:255|required_if:company_type,company')]
 public ?string $name = null;
-```
 
-When `name` is absent from the payload, the handler still passes its rules to the validator — but no value: the field stays absent from the validated data, as the client sent it. solophp/validator 4.0 checks an absent field by its presence rules alone: it fires `required_if` when the condition is met and does not apply `string` or `max:255` to a value nobody sent, `nullable` or not. Fields with **no** `required_*` rule are skipped when absent.
+// Must be sent, though an empty list is an answer: [] clears the tags,
+// a missing key is refused.
+#[Validate('present|array')]
+public array $tags;
+```
 
 Note that unlike literal `required`, a `required_*` rule combined with a default value is legal — it is the intended usage pattern.
 
@@ -72,12 +75,13 @@ Note that unlike literal `required`, a `required_*` rule combined with a default
 ## Common Rules
 
 ::: info Validator Implementation
-Available rules depend on your `ValidatorInterface` implementation. The examples below assume [solophp/validator](https://github.com/SoloPHP/Validator) 4.0.
+Available rules depend on your `ValidatorInterface` implementation. The examples below assume [solophp/validator](https://github.com/SoloPHP/Validator) 4.1.
 :::
 
 | Rule | Description | Example |
 |------|-------------|---------|
 | `required` | Must be present and not empty | `'required'` |
+| `present` | Must be present, may be empty | `'present'` |
 | `nullable` | Can be `null` | `'nullable'` |
 | `string` | Must be a string | `'string'` |
 | `integer` | Must be an integer | `'integer'` |

@@ -227,8 +227,10 @@ final class RequestHandlerTest extends TestCase
     {
         // Its default in the payload would make the field look sent as null,
         // so `email` would fail for a field nobody sent and nothing requires.
+        // `note` has no presence rule and goes all the same: whether a field
+        // may be missing is the validator's to decide.
         $this->validator->expects($this->once())->method('validate')
-            ->with(['type' => 'person'], ['email' => 'required_if:type,company|email'])
+            ->with(['type' => 'person'], ['email' => 'required_if:type,company|email', 'note' => 'string|max:10'])
             ->willReturn([]);
 
         $dto = $this->handler->handleArray(ConditionalEmailRequest::class, ['type' => 'person']);
@@ -800,6 +802,9 @@ final class ConditionalEmailRequest extends Request
 
     #[Validate('required_if:type,company|email')]
     public ?string $email = null;
+
+    #[Validate('string|max:10')]
+    public ?string $note = null;
 }
 
 final class SourcedRequest extends Request

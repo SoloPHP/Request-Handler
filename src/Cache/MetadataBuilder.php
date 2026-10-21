@@ -409,7 +409,6 @@ final class MetadataBuilder
         $appSupplied = $source === FieldSource::Context || $generator !== null;
 
         $isRequired = RuleParser::has($rules, 'required');
-        $validatesWhenAbsent = RuleParser::hasNamePrefix($rules, 'required');
 
         if (RuleParser::has($rules, 'nullable') && !$isNullable && $phpType !== null) {
             throw ConfigurationException::nullableRuleWithNonNullableType($className, $name, $phpType);
@@ -547,7 +546,6 @@ final class MetadataBuilder
             postProcessConfig: $postProcess !== null ? $postProcess->config : [],
             group: $group?->name,
             isRequired: $isRequired,
-            validatesWhenAbsent: $validatesWhenAbsent,
             reflection: $property,
             generator: $generator?->class,
             generatorOptions: $generator !== null ? $generator->options : [],
