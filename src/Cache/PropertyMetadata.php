@@ -73,7 +73,6 @@ final readonly class PropertyMetadata
         public array $postProcessConfig,
         public ?string $group,
         public bool $isRequired,
-        public bool $validatesWhenAbsent,
         public ReflectionProperty $reflection,
         public ?string $generator,
         public array $generatorOptions,
