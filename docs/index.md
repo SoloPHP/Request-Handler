@@ -49,6 +49,10 @@ features:
     details: schema() emits the JSON-serializable input contract keyed like the errors — types, requiredness incl. required_if, rules, defaults, date formats, enum cases, nested schemas.
 ---
 
+::: danger Deprecated
+Solo Request Handler is no longer maintained and will receive no new features or fixes. Use [Solo Input](https://solophp.github.io/Input/) instead (`composer require solophp/input`). It is a new package with its own API, not a drop-in replacement.
+:::
+
 <style>
 :root {
   --vp-home-hero-name-color: transparent;

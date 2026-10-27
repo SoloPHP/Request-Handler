@@ -1,5 +1,9 @@
 # Installation
 
+::: danger Deprecated
+Solo Request Handler is no longer maintained and will receive no new features or fixes. Use [Solo Input](https://solophp.github.io/Input/) instead (`composer require solophp/input`). It is a new package with its own API, not a drop-in replacement.
+:::
+
 ## Requirements
 
 - PHP 8.3 or higher

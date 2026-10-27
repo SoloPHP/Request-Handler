@@ -4,6 +4,7 @@
   "description": "Type-safe request DTOs for PHP 8.3+: attribute-driven validation, casting and processing of HTTP input",
   "keywords": ["request", "dto", "validation", "processing", "form", "php", "psr", "php8", "strict-types"],
   "license": "MIT",
+  "abandoned": "solophp/input",
   "authors": [
     {
       "name": "Vitaliy Olos",
