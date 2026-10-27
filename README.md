@@ -1,5 +1,7 @@
 # Solo Request Handler
 
+> **Deprecated.** This package is no longer maintained and will receive no new features or fixes. Use [Solo Input](https://github.com/SoloPHP/Input) instead: `composer require solophp/input`, [documentation](https://solophp.github.io/Input/). It is a new package with its own API, not a drop-in replacement. Existing releases remain installable.
+
 Type-safe Request DTOs for PHP 8.3+ with focused per-property attributes, declarative validation, type casting, and full IDE support.
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/solophp/request-handler.svg)](https://packagist.org/packages/solophp/request-handler)
